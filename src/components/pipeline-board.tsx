@@ -19,9 +19,10 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { GripVertical } from "lucide-react";
-import { RISK_LEVELS, STAGE_PLAYBOOK, PROFILE_SEND_STAGE, WAITING_ON, stageLabel, type OpportunityStage } from "@/lib/domain";
+import { RISK_LEVELS, STAGE_PLAYBOOK, PROFILE_SEND_STAGE, BOOKED_CALL_STAGE, WAITING_ON, stageLabel, type OpportunityStage } from "@/lib/domain";
 import { formatDate, formatMoney } from "@/lib/format";
 import { dropLeadOnStage, dropOpportunityOnStage } from "@/server/actions";
+import { BookedCallDialog } from "@/components/booked-call-dialog";
 import { ProfileSendDialog, type ProfileSendDraft } from "@/components/profile-send-dialog";
 
 const COLUMN_TONE = [
@@ -146,7 +147,7 @@ export function PipelineBoard({
   const [activeId, setActiveId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
-  const [prompt, setPrompt] = useState<{ item: BoardItem; previous: BoardItem[] } | null>(null);
+  const [prompt, setPrompt] = useState<{ kind: "profile-send" | "booked-call"; item: BoardItem; previous: BoardItem[] } | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -218,7 +219,11 @@ export function PipelineBoard({
     const previous = items;
     setItems(previous.map((entry) => (entry.id === item.id ? { ...entry, stage } : entry)));
     if (stage === PROFILE_SEND_STAGE) {
-      setPrompt({ item, previous });
+      setPrompt({ kind: "profile-send", item, previous });
+      return;
+    }
+    if (stage === BOOKED_CALL_STAGE) {
+      setPrompt({ kind: "booked-call", item, previous });
       return;
     }
     void persistMove(item, stage, previous);
@@ -256,14 +261,31 @@ export function PipelineBoard({
         </DragOverlay>
       </DndContext>
       <ProfileSendDialog
-        key={prompt?.item.id ?? "profile-send"}
-        draft={prompt ? {
+        key={prompt?.kind === "profile-send" ? prompt.item.id : "profile-send"}
+        draft={prompt?.kind === "profile-send" ? {
           leadId: prompt.item.leadId,
           opportunityId: prompt.item.opportunityId,
           companyName: prompt.item.companyName,
           contactName: prompt.item.contactName,
           email: prompt.item.email,
         } satisfies ProfileSendDraft : null}
+        onCancel={() => {
+          if (prompt) setItems(prompt.previous);
+          setPrompt(null);
+        }}
+        onSaved={() => {
+          setPrompt(null);
+          router.refresh();
+        }}
+      />
+      <BookedCallDialog
+        key={prompt?.kind === "booked-call" ? prompt.item.id : "booked-call"}
+        draft={prompt?.kind === "booked-call" ? {
+          leadId: prompt.item.leadId,
+          opportunityId: prompt.item.opportunityId,
+          companyName: prompt.item.companyName,
+          contactName: prompt.item.contactName,
+        } : null}
         onCancel={() => {
           if (prompt) setItems(prompt.previous);
           setPrompt(null);

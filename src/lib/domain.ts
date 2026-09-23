@@ -281,9 +281,22 @@ export function todayInTimeZone(timeZone: string, now = new Date()) {
 }
 
 export const PROFILE_SEND_STAGE: OpportunityStage = "Email / Profile Preparation";
+export const BOOKED_CALL_STAGE: OpportunityStage = "Strategy Call Proposed";
 
 export function stageLabel(stage: string) {
-  return stage === PROFILE_SEND_STAGE ? "Sent Profiles to the client" : stage;
+  if (stage === PROFILE_SEND_STAGE) return "Sent Profiles to the client";
+  if (stage === BOOKED_CALL_STAGE) return "Booked Sales Call";
+  return stage;
+}
+
+export function formatClock(value: string) {
+  const match = value.trim().match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return value;
+  const hour = Number(match[1]);
+  const minute = match[2];
+  if (!Number.isFinite(hour) || hour > 23) return value;
+  const suffix = hour >= 12 ? "PM" : "AM";
+  return `${hour % 12 || 12}:${minute} ${suffix}`;
 }
 
 export function profileSendCheckBacks(callOn: string | null | undefined, sentOn: string) {

@@ -17,6 +17,8 @@ import {
   notInterestedOutcome,
   STAGE_PLAYBOOK,
   PROFILE_SEND_STAGE,
+  BOOKED_CALL_STAGE,
+  formatClock,
   WAITING_ON,
   addBusinessDays,
   importSourceFromFilename,
@@ -524,6 +526,83 @@ export async function saveProfileSendFromBoard(formData: FormData): Promise<Acti
 
   refresh("/opportunities", "/leads", "/dashboard", "/follow-ups", `/leads/${leadId}`, `/opportunities/${opportunityId}`);
   return { success: "Profile send recorded. Check-backs are on the week calendar." };
+}
+
+export async function saveBookedSalesCallFromBoard(formData: FormData): Promise<ActionState> {
+  const { supabase, userId } = await requireUser();
+  const leadId = text(formData, "lead_id");
+  const callOn = dateField(formData, "call_on");
+  const callTime = text(formData, "call_time");
+  if (!isUuid(leadId) || !callOn || !/^\d{1,2}:\d{2}/.test(callTime)) {
+    return { error: "Enter the meeting date and time." };
+  }
+  const clock = formatClock(callTime);
+  const title = `Sales call at ${clock}`;
+
+  let opportunityId = optionalText(formData, "opportunity_id");
+  if (opportunityId && isUuid(opportunityId)) {
+    const moveData = new FormData();
+    moveData.set("opportunity_id", opportunityId);
+    moveData.set("stage", BOOKED_CALL_STAGE);
+    moveData.set("next_action", title);
+    moveData.set("next_action_date", callOn);
+    moveData.set("waiting_on", "client");
+    moveData.set("note", `Meeting booked for ${callOn} at ${clock}`);
+    const moved = await moveStage({}, moveData);
+    if (moved?.error) return moved;
+  } else {
+    const createData = new FormData();
+    createData.set("stage", BOOKED_CALL_STAGE);
+    createData.set("next_action", title);
+    createData.set("next_action_date", callOn);
+    createData.set("waiting_on", "client");
+    const created = await createOpportunityForLead(supabase, userId, leadId, createData);
+    if (!created) return { error: "The opportunity could not be created." };
+    if ("error" in created) return created;
+    opportunityId = created.id;
+  }
+
+  const callPayload = {
+    opportunity_id: opportunityId,
+    call_on: callOn,
+    schedule: callTime,
+    company_name: optionalText(formData, "company_name"),
+    client_name: optionalText(formData, "client_name"),
+    status: "Scheduled",
+    notes: `Booked for ${callOn} at ${clock}`,
+  };
+  const { data: existingCall } = await supabase.from("strategy_calls").select("id").eq("opportunity_id", opportunityId).maybeSingle();
+  const { error: callError } = existingCall
+    ? await supabase.from("strategy_calls").update(callPayload).eq("opportunity_id", opportunityId)
+    : await supabase.from("strategy_calls").insert(callPayload);
+  if (callError) return { error: actionError(callError) };
+
+  await supabase.from("activities").insert({
+    opportunity_id: opportunityId,
+    lead_id: leadId,
+    type: "strategy_call_scheduled",
+    title,
+    body: `${callOn} at ${clock}`,
+    actor_id: userId,
+  });
+  await supabase.from("follow_ups").insert({
+    opportunity_id: opportunityId,
+    lead_id: leadId,
+    owner_id: userId,
+    title,
+    due_on: callOn,
+    notes: `Booked sales call at ${clock}`,
+  });
+  await supabase.from("tasks").insert({
+    opportunity_id: opportunityId,
+    owner_id: userId,
+    title,
+    details: `Booked sales call at ${clock}`,
+    due_on: callOn,
+  });
+
+  refresh("/opportunities", "/leads", "/dashboard", "/follow-ups", `/leads/${leadId}`, `/opportunities/${opportunityId}`);
+  return { success: "Sales call booked. It is on reminders, tasks, and the week calendar." };
 }
 
 export async function createFollowUp(_state: ActionState, formData: FormData): Promise<ActionState> {

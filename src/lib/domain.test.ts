@@ -10,6 +10,7 @@ import {
   median,
   normalizeSendPilotStatus,
   notInterestedOutcome,
+  formatClock,
   profileSendCheckBacks,
   stageLabel,
   potentialArr,
@@ -19,7 +20,10 @@ import {
 
 test("labels the profile-send stage and defaults check-backs from the call", () => {
   assert.equal(stageLabel("Email / Profile Preparation"), "Sent Profiles to the client");
+  assert.equal(stageLabel("Strategy Call Proposed"), "Booked Sales Call");
   assert.equal(stageLabel("Recruitment"), "Recruitment");
+  assert.equal(formatClock("14:30"), "2:30 PM");
+  assert.equal(formatClock("09:05"), "9:05 AM");
   assert.deepEqual(profileSendCheckBacks("2026-10-10", "2026-10-01"), { oneDay: "2026-10-11", twoDays: "2026-10-12" });
   assert.deepEqual(profileSendCheckBacks(null, "2026-10-01"), { oneDay: "2026-10-02", twoDays: "2026-10-03" });
 });
