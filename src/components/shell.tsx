@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, Briefcase, ChartColumn, FolderSync, Handshake, LayoutDashboard, Menu, Search, Settings, Users } from "lucide-react";
+import { Bell, Briefcase, ChartColumn, FolderSync, Handshake, LayoutDashboard, Menu, Search, Settings, Sprout, Users } from "lucide-react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -14,7 +14,7 @@ const NAV = [
   { href: "/leads", label: "Leads", icon: Users },
   { href: "/reconciliation", label: "Reconciliation", icon: FolderSync },
   { href: "/opportunities", label: "Opportunities", icon: Handshake },
-  { href: "/follow-ups", label: "Follow-ups", icon: Bell },
+  { href: "/follow-ups", label: "Nurture", icon: Sprout },
   { href: "/recruitment", label: "Recruitment", icon: Briefcase },
   { href: "/analytics", label: "Analytics", icon: ChartColumn },
   { href: "/settings", label: "Settings", icon: Settings },

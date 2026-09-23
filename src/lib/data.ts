@@ -81,6 +81,7 @@ export type OpportunitySummary = {
   contactName: string;
   email: string | null;
   nurtureReason: string | null;
+  nurtureNotes: string | null;
   lostReason: string | null;
 };
 
@@ -122,6 +123,7 @@ function mapOpportunity(value: Row): OpportunitySummary {
     contactName: fullName(str(contact?.first_name), str(contact?.last_name)),
     email: str(contact?.email),
     nurtureReason: str(value.nurture_reason),
+    nurtureNotes: str(value.nurture_notes),
     lostReason: str(value.lost_reason),
   };
 }
@@ -129,7 +131,7 @@ function mapOpportunity(value: Row): OpportunitySummary {
 const OPPORTUNITY_SELECT = `
   id, title, stage, status, risk_level, waiting_on, next_action, next_action_date,
   last_activity_at, last_activity_summary, headcount, billing_rate, owner_id, lead_id,
-  company_id, contact_id, nurture_reason, lost_reason, notes, created_at,
+  company_id, contact_id, nurture_reason, nurture_notes, lost_reason, notes, created_at,
   companies(id, name, industry, timezone, website, notes),
   contacts(id, first_name, last_name, email, phone, linkedin_url, title),
   profiles(id, full_name)

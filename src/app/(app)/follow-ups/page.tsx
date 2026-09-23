@@ -1,40 +1,61 @@
 import Link from "next/link";
-import { Notice, PageHeader } from "@/components/bits";
+import { Notice, PageHeader, StageBadge } from "@/components/bits";
 import { SubmitButton } from "@/components/forms";
-import { listFollowUps } from "@/lib/data";
+import { getCommandCenter, listFollowUps } from "@/lib/data";
 import { firstParam, formatDate } from "@/lib/format";
 import { completeFollowUp } from "@/server/actions";
 
-export default async function FollowUpsPage({ searchParams }: { searchParams: Promise<{ status?: string; notice?: string }> }) {
+export default async function NurturePage({ searchParams }: { searchParams: Promise<{ notice?: string }> }) {
   const query = await searchParams;
-  const items = await listFollowUps(query.status);
+  const [center, followUps] = await Promise.all([getCommandCenter(), listFollowUps("open")]);
+  const accounts = center.opportunities
+    .filter((opportunity) => opportunity.status === "nurture" || opportunity.stage === "On Hold / Nurture")
+    .map((opportunity) => ({
+      opportunity,
+      followUp: followUps.find((item) => item.opportunityId === opportunity.id) ?? null,
+    }))
+    .sort((a, b) => (a.followUp?.dueOn ?? a.opportunity.nextActionDate ?? "9999").localeCompare(b.followUp?.dueOn ?? b.opportunity.nextActionDate ?? "9999"));
+
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="Nurture" title="Follow-ups" description="A Not Interested lead can still have a future date. When that date arrives, it shows up here and on the command center." />
+      <PageHeader
+        eyebrow="Pipeline"
+        title="Nurture"
+        description="Not Interested is not lost. Each account keeps a reason, a next date, and notes, and it returns to the command center when that date arrives."
+      />
       <Notice message={firstParam(query.notice)} />
-      <div className="flex gap-2 text-sm">
-        {["open", "completed", "cancelled", ""].map((status) => (
-          <Link key={status || "all"} href={status ? `/follow-ups?status=${status}` : "/follow-ups"} className="rounded-full border border-border px-3 py-1">{status || "All"}</Link>
-        ))}
-      </div>
-      <ul className="divide-y divide-border rounded-xl border border-border bg-card px-4">
-        {items.map((item) => (
-          <li key={item.id} className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm">
-            <div>
-              {item.opportunityId ? <Link className="font-medium" href={`/opportunities/${item.opportunityId}?tab=follow-ups`}>{item.companyName}</Link> : <span className="font-medium">{item.companyName}</span>}
-              <p>{item.title}</p>
-              <p className="text-xs text-muted-foreground">{formatDate(item.dueOn)} · {item.status}{item.reason ? ` · ${item.reason}` : ""}</p>
-            </div>
-            {item.status === "open" ? (
-              <form action={completeFollowUp}>
-                <input type="hidden" name="follow_up_id" value={item.id} />
-                {item.opportunityId ? <input type="hidden" name="opportunity_id" value={item.opportunityId} /> : null}
-                <SubmitButton variant="outline">Complete</SubmitButton>
-              </form>
-            ) : null}
-          </li>
-        ))}
-        {items.length === 0 ? <li className="py-8 text-sm text-muted-foreground">No follow-ups in this view.</li> : null}
+      <ul className="divide-y divide-border rounded-xl border border-border bg-card">
+        {accounts.map(({ opportunity, followUp }) => {
+          const dueOn = followUp?.dueOn ?? opportunity.nextActionDate;
+          const reason = opportunity.nurtureReason ?? followUp?.reason;
+          const notes = opportunity.nurtureNotes ?? followUp?.notes;
+          return (
+            <li key={opportunity.id} className="flex flex-wrap items-start justify-between gap-4 px-4 py-4 text-sm">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Link className="font-medium" href={`/opportunities/${opportunity.id}?tab=follow-ups`}>{opportunity.companyName}</Link>
+                  <StageBadge stage={opportunity.stage} />
+                </div>
+                <p className="mt-1 text-muted-foreground">{opportunity.contactName}</p>
+                <p className="mt-2">{followUp?.title ?? opportunity.nextAction ?? "Set the next nurture date"}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {reason ? `Reason: ${reason}` : "No reason yet"}
+                  {" · "}
+                  Next date: {formatDate(dueOn)}
+                </p>
+                {notes ? <p className="mt-2 max-w-2xl text-sm leading-6">{notes}</p> : null}
+              </div>
+              {followUp ? (
+                <form action={completeFollowUp}>
+                  <input type="hidden" name="follow_up_id" value={followUp.id} />
+                  <input type="hidden" name="opportunity_id" value={opportunity.id} />
+                  <SubmitButton variant="outline">Complete</SubmitButton>
+                </form>
+              ) : null}
+            </li>
+          );
+        })}
+        {accounts.length === 0 ? <li className="px-4 py-8 text-sm text-muted-foreground">No accounts are in nurture.</li> : null}
       </ul>
     </div>
   );
