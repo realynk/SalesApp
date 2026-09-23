@@ -15,6 +15,7 @@ import {
   SENDPILOT_STATUSES,
   NOT_INTERESTED_OUTCOMES,
   notInterestedOutcome,
+  STAGE_PLAYBOOK,
   WAITING_ON,
   addBusinessDays,
   importSourceFromFilename,
@@ -371,6 +372,53 @@ export async function moveStage(_state: ActionState, formData: FormData): Promis
 
 export async function dropOpportunityOnStage(formData: FormData): Promise<ActionState> {
   return moveStage({}, formData);
+}
+
+export async function dropLeadOnStage(formData: FormData): Promise<ActionState> {
+  const { supabase, userId } = await requireUser();
+  const leadId = text(formData, "lead_id");
+  const stage = text(formData, "stage") as OpportunityStage;
+  if (!isUuid(leadId) || !(OPPORTUNITY_STAGES as readonly string[]).includes(stage)) return { error: "Choose a stage." };
+  if (stage === "Client Started" || stage === "Lost") {
+    return { error: stage === "Lost" ? "Open the opportunity and add a lost reason first." : "Use Client start on the opportunity page." };
+  }
+  if (stage === "Interested") return { success: "This lead is already tagged Interested in SendPilot." };
+
+  const { data: existingRows, error: loadError } = await supabase
+    .from("opportunities")
+    .select("id, next_action, next_action_date, waiting_on, risk_level")
+    .eq("lead_id", leadId)
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (loadError) return { error: actionError(loadError) };
+  const existing = Array.isArray(existingRows) ? existingRows[0] : existingRows;
+
+  const playbook = STAGE_PLAYBOOK[stage];
+  const nextAction = optionalText(formData, "next_action") ?? playbook.nextAction;
+  const nextActionDate = dateField(formData, "next_action_date") ?? new Date().toISOString().slice(0, 10);
+
+  if (existing) {
+    const moveData = new FormData();
+    moveData.set("opportunity_id", String((existing as { id: string }).id));
+    moveData.set("stage", stage);
+    moveData.set("next_action", optionalText(formData, "next_action") ?? String((existing as { next_action?: string }).next_action ?? nextAction));
+    moveData.set("next_action_date", dateField(formData, "next_action_date") ?? String((existing as { next_action_date?: string }).next_action_date ?? nextActionDate));
+    moveData.set("waiting_on", String((existing as { waiting_on?: string }).waiting_on ?? playbook.waitingOn));
+    moveData.set("risk_level", String((existing as { risk_level?: string }).risk_level ?? "low"));
+    moveData.set("note", `Moved from SendPilot Interested to ${stage}`);
+    return moveStage({}, moveData);
+  }
+
+  const createData = new FormData();
+  createData.set("stage", stage);
+  createData.set("next_action", nextAction);
+  createData.set("next_action_date", nextActionDate);
+  createData.set("waiting_on", playbook.waitingOn);
+  const created = await createOpportunityForLead(supabase, userId, leadId, createData);
+  if (!created) return { error: "The opportunity could not be created." };
+  if ("error" in created) return created;
+  refresh("/opportunities", "/leads", "/dashboard", "/reconciliation", `/leads/${leadId}`, `/opportunities/${created.id}`);
+  return { success: `Started the client journey at ${stage}.` };
 }
 
 export async function createFollowUp(_state: ActionState, formData: FormData): Promise<ActionState> {

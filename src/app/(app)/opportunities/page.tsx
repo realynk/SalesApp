@@ -18,8 +18,9 @@ export default async function OpportunitiesPage({ searchParams }: { searchParams
     owner: firstParam(query.owner),
     waiting: firstParam(query.waiting),
   };
-  const [opportunities, notInterestedLeads, owners] = await Promise.all([
+  const [opportunities, interestedLeads, notInterestedLeads, owners] = await Promise.all([
     interest === "interested" ? listOpportunities(filters) : Promise.resolve([]),
+    interest === "interested" ? listLeads({ q: filters.q, status: "Interested" }) : Promise.resolve([]),
     listLeads({ q: filters.q, status: "Not Interested" }),
     getOwners(),
   ]);
@@ -48,7 +49,7 @@ export default async function OpportunitiesPage({ searchParams }: { searchParams
         title={interest === "interested" ? "Interested" : "Not Interested"}
         description={
           interest === "interested"
-            ? "The live sales pipeline. Drag a card onto a stage. Use the switch to sort leads who said no."
+            ? "The Interested column is every lead tagged Interested in SendPilot. Later columns are the client journey after that."
             : "Leads who said no. Drag a card onto Nurture, No longer in the company, Not the decision maker, Not relevant, or Stop."
         }
         actions={
@@ -136,9 +137,10 @@ export default async function OpportunitiesPage({ searchParams }: { searchParams
         )
       ) : view === "board" ? (
         <PipelineBoard
-          key={opportunities.map((item) => `${item.id}:${item.stage}`).join("|")}
+          key={[...interestedLeads.map((lead) => lead.id), ...opportunities.map((item) => `${item.id}:${item.stage}`)].join("|")}
           stages={OPPORTUNITY_STAGES}
           opportunities={opportunities}
+          interestedLeads={interestedLeads}
         />
       ) : (
         <div className="overflow-x-auto rounded-xl border border-border bg-card">
