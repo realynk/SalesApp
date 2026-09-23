@@ -80,7 +80,7 @@ function Brand() {
   return (
     <div className="border-b border-sidebar-border px-5 py-5">
       <p className="text-xs font-medium tracking-[0.16em] text-primary uppercase">Realynk Assistants</p>
-      <p className="mt-1 text-base font-semibold">Sales & Growth</p>
+      <p className="mt-1 text-base font-bold text-foreground">Sales & Growth</p>
     </div>
   );
 }
