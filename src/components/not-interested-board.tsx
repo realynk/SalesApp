@@ -19,23 +19,32 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { GripVertical } from "lucide-react";
-import { NOT_INTERESTED_OUTCOMES, type NotInterestedOutcome } from "@/lib/domain";
+import {
+  NOT_INTERESTED_INTAKE,
+  NOT_INTERESTED_OUTCOMES,
+  notInterestedColumn,
+  type NotInterestedColumn,
+  type NotInterestedOutcome,
+} from "@/lib/domain";
 import { formatDate } from "@/lib/format";
 import { dropLeadOnOutcome } from "@/server/actions";
 
 const COLUMN_TONE = [
+  "border-t-[#f97066]",
   "border-t-[#155eef]",
   "border-t-[#ef6820]",
   "border-t-[#7a5af8]",
   "border-t-[#12b76a]",
-  "border-t-[#f97066]",
+  "border-t-[#3538cd]",
 ];
+
+const BOARD_COLUMNS: NotInterestedColumn[] = [NOT_INTERESTED_INTAKE, ...NOT_INTERESTED_OUTCOMES];
 
 export type NotInterestedCard = {
   id: string;
   companyName: string;
   contactName: string;
-  notInterestedOutcome: NotInterestedOutcome;
+  notInterestedOutcome: NotInterestedOutcome | null;
   nextFollowUp: { title: string; dueOn: string } | null;
 };
 
@@ -58,24 +67,20 @@ export function NotInterestedBoard({ leads }: { leads: NotInterestedCard[] }) {
 
   const columns = useMemo(
     () =>
-      NOT_INTERESTED_OUTCOMES.map((outcome, index) => ({
-        outcome,
+      BOARD_COLUMNS.map((column, index) => ({
+        column,
         tone: COLUMN_TONE[index % COLUMN_TONE.length],
-        items: items.filter((item) => item.notInterestedOutcome === outcome),
+        items: items.filter((item) => notInterestedColumn(item.notInterestedOutcome) === column),
       })),
     [items],
   );
 
-  if (leads.length === 0) {
-    return <p className="rounded-xl border border-border bg-card px-4 py-8 text-sm text-muted-foreground">No Not Interested leads yet. Mark a lead as Not Interested to sort it here.</p>;
-  }
-
   const activeItem = items.find((item) => item.id === activeId) ?? leads.find((item) => item.id === activeId);
 
-  async function persistMove(lead: NotInterestedCard, outcome: NotInterestedOutcome, previous: NotInterestedCard[]) {
+  async function persistMove(lead: NotInterestedCard, column: NotInterestedColumn, previous: NotInterestedCard[]) {
     const formData = new FormData();
     formData.set("lead_id", lead.id);
-    formData.set("not_interested_outcome", outcome);
+    formData.set("not_interested_outcome", column);
     setPendingId(lead.id);
     const result = await dropLeadOnOutcome(formData);
     setPendingId(null);
@@ -96,18 +101,22 @@ export function NotInterestedBoard({ leads }: { leads: NotInterestedCard[] }) {
   function handleDragEnd(event: DragEndEvent) {
     setActiveId(null);
     const lead = items.find((item) => item.id === event.active.id);
-    const outcome = event.over?.id ? String(event.over.id) as NotInterestedOutcome : null;
-    if (!lead || !outcome || lead.notInterestedOutcome === outcome) return;
-    if (!(NOT_INTERESTED_OUTCOMES as readonly string[]).includes(outcome)) return;
+    const column = event.over?.id ? String(event.over.id) as NotInterestedColumn : null;
+    if (!lead || !column || notInterestedColumn(lead.notInterestedOutcome) === column) return;
+    if (!BOARD_COLUMNS.includes(column)) return;
     const previous = items;
-    setItems(previous.map((item) => (item.id === lead.id ? { ...item, notInterestedOutcome: outcome } : item)));
-    void persistMove(lead, outcome, previous);
+    setItems(previous.map((item) => (
+      item.id === lead.id
+        ? { ...item, notInterestedOutcome: column === NOT_INTERESTED_INTAKE ? null : column }
+        : item
+    )));
+    void persistMove(lead, column, previous);
   }
 
   return (
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">
-        Drag a card onto Nurture, No longer in the company, Not the decision maker, Not relevant, or Stop.
+        The Not Interested column is every lead tagged Not Interested in SendPilot who has not been sorted further. Drag a card onto Nurture, No longer in the company, Not the decision maker, Not relevant, or Stop.
       </p>
       {notice ? <p className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground">{notice}</p> : null}
       <DndContext
@@ -120,7 +129,7 @@ export function NotInterestedBoard({ leads }: { leads: NotInterestedCard[] }) {
         <div className="overflow-x-auto pb-2">
           <div className="flex min-w-max items-start gap-3">
             {columns.map((column) => (
-              <OutcomeColumn key={column.outcome} outcome={column.outcome} tone={column.tone} items={column.items} disabledId={pendingId} />
+              <OutcomeColumn key={column.column} column={column.column} tone={column.tone} items={column.items} disabledId={pendingId} />
             ))}
           </div>
         </div>
@@ -133,25 +142,28 @@ export function NotInterestedBoard({ leads }: { leads: NotInterestedCard[] }) {
 }
 
 function OutcomeColumn({
-  outcome,
+  column,
   tone,
   items,
   disabledId,
 }: {
-  outcome: NotInterestedOutcome;
+  column: NotInterestedColumn;
   tone: string;
   items: NotInterestedCard[];
   disabledId: string | null;
 }) {
-  const { setNodeRef, isOver } = useDroppable({ id: outcome, data: { outcome } });
+  const { setNodeRef, isOver } = useDroppable({ id: column, data: { column } });
+  const sendpilotIntake = column === NOT_INTERESTED_INTAKE;
   return (
     <section
       ref={setNodeRef}
       className={`w-72 shrink-0 rounded-xl border border-t-4 bg-muted/40 ${tone} ${isOver ? "border-primary bg-accent/80" : "border-border"}`}
     >
       <header className="px-3 py-3">
-        <h2 className="text-sm font-bold leading-5">{outcome}</h2>
+        <h2 className="text-sm font-bold leading-5">{column}</h2>
         <p className="mt-1 text-xs text-muted-foreground">
+          {sendpilotIntake ? "From SendPilot" : null}
+          {sendpilotIntake ? " · " : null}
           {items.length} {items.length === 1 ? "lead" : "leads"}
         </p>
       </header>

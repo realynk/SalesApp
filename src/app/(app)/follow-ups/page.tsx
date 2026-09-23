@@ -21,7 +21,7 @@ export default async function NurturePage({ searchParams }: { searchParams: Prom
       <PageHeader
         eyebrow="Pipeline"
         title="Nurture"
-        description="Held accounts keep a reason, a next date, and notes. Sort Not Interested leads into Nurture, left the company, not the decision maker, not relevant, or Stop on the client journey board."
+        description="Held accounts keep a reason, a next date, and notes. SendPilot Not Interested leads start on the Not Interested column of the client journey board, then sort into Nurture or another reason."
       />
       <Notice message={firstParam(query.notice)} />
       <ul className="divide-y divide-border rounded-xl border border-border bg-card">

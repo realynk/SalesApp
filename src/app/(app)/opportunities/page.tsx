@@ -50,7 +50,7 @@ export default async function OpportunitiesPage({ searchParams }: { searchParams
         description={
           interest === "interested"
             ? "The Interested column is every lead tagged Interested in SendPilot. Later columns are the client journey after that."
-            : "Leads who said no. Drag a card onto Nurture, No longer in the company, Not the decision maker, Not relevant, or Stop."
+            : "The Not Interested column is every lead tagged Not Interested in SendPilot. Drag a card onto Nurture or another reason to sort it."
         }
         actions={
           <div className="flex flex-wrap gap-2">
@@ -119,7 +119,7 @@ export default async function OpportunitiesPage({ searchParams }: { searchParams
                       <Link href={`/leads/${lead.id}`} className="font-medium">{lead.contactName}</Link>
                       <p className="text-xs text-muted-foreground">{lead.companyName}</p>
                     </td>
-                    <td className="px-4 py-3">{lead.notInterestedOutcome}</td>
+                    <td className="px-4 py-3">{lead.notInterestedOutcome ?? "Not Interested"}</td>
                     <td className="px-4 py-3">
                       {lead.nextFollowUp ? (
                         <>

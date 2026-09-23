@@ -104,9 +104,17 @@ export const NOT_INTERESTED_OUTCOMES = [
 
 export type NotInterestedOutcome = (typeof NOT_INTERESTED_OUTCOMES)[number];
 
-export function notInterestedOutcome(value?: string | null): NotInterestedOutcome {
+export const NOT_INTERESTED_INTAKE = "Not Interested";
+
+export type NotInterestedColumn = NotInterestedOutcome | typeof NOT_INTERESTED_INTAKE;
+
+export function notInterestedOutcome(value?: string | null): NotInterestedOutcome | null {
   if (value && (NOT_INTERESTED_OUTCOMES as readonly string[]).includes(value)) return value as NotInterestedOutcome;
-  return "Nurture";
+  return null;
+}
+
+export function notInterestedColumn(value?: string | null): NotInterestedColumn {
+  return notInterestedOutcome(value) ?? NOT_INTERESTED_INTAKE;
 }
 
 export const ACTIVITY_TYPES = [

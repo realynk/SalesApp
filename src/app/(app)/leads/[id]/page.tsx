@@ -41,7 +41,8 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
               </select>
             </Field>
             <Field label="If not interested">
-              <select className={controlClass} name="not_interested_outcome" defaultValue={lead.notInterestedOutcome}>
+              <select className={controlClass} name="not_interested_outcome" defaultValue={lead.notInterestedOutcome ?? ""}>
+                <option value="">Not yet sorted</option>
                 {NOT_INTERESTED_OUTCOMES.map((outcome) => <option key={outcome}>{outcome}</option>)}
               </select>
             </Field>

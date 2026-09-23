@@ -9,6 +9,7 @@ import {
   mapImportRecords,
   median,
   normalizeSendPilotStatus,
+  notInterestedColumn,
   notInterestedOutcome,
   formatClock,
   profileSendCheckBacks,
@@ -35,10 +36,13 @@ test("labels the profile-send stage and defaults check-backs from the call", () 
   assert.deepEqual(profileSendCheckBacks(null, "2026-10-01"), { oneDay: "2026-10-02", twoDays: "2026-10-03" });
 });
 
-test("defaults unknown Not Interested outcomes to Nurture", () => {
-  assert.equal(notInterestedOutcome(null), "Nurture");
+test("keeps unsorted Not Interested leads in the SendPilot intake column", () => {
+  assert.equal(notInterestedOutcome(null), null);
   assert.equal(notInterestedOutcome("Stop"), "Stop");
-  assert.equal(notInterestedOutcome("not the decision maker"), "Nurture");
+  assert.equal(notInterestedOutcome("not the decision maker"), null);
+  assert.equal(notInterestedColumn(null), "Not Interested");
+  assert.equal(notInterestedColumn("Nurture"), "Nurture");
+  assert.equal(notInterestedColumn("Stop"), "Stop");
 });
 
 test("normalizes SendPilot statuses without inventing new ones", () => {

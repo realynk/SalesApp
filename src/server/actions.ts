@@ -13,6 +13,7 @@ import {
   RECRUITMENT_STATUSES,
   RISK_LEVELS,
   SENDPILOT_STATUSES,
+  NOT_INTERESTED_INTAKE,
   NOT_INTERESTED_OUTCOMES,
   notInterestedOutcome,
   STAGE_PLAYBOOK,
@@ -280,7 +281,9 @@ export async function updateLeadStatus(_state: ActionState, formData: FormData):
     await supabase.from("activities").insert({
       lead_id: leadId,
       type: status === "Interested" && previous !== "Interested" ? "lead_became_interested" : "sendpilot_status_changed",
-      title: status === "Not Interested" ? `Status set to Not Interested · ${outcome}` : status ? `Status set to ${status}` : "Status cleared",
+      title: status === "Not Interested"
+        ? (outcome ? `Status set to Not Interested · ${outcome}` : "Status set to Not Interested")
+        : status ? `Status set to ${status}` : "Status cleared",
       body: note ?? (previous ? `Was ${previous}` : null),
       actor_id: userId,
     });
@@ -292,10 +295,12 @@ export async function updateLeadStatus(_state: ActionState, formData: FormData):
 export async function dropLeadOnOutcome(formData: FormData): Promise<ActionState> {
   const { supabase, userId } = await requireUser();
   const leadId = text(formData, "lead_id");
-  const outcome = text(formData, "not_interested_outcome");
-  if (!isUuid(leadId) || !(NOT_INTERESTED_OUTCOMES as readonly string[]).includes(outcome)) {
+  const column = text(formData, "not_interested_outcome");
+  const unsorted = column === NOT_INTERESTED_INTAKE;
+  if (!isUuid(leadId) || (!unsorted && !(NOT_INTERESTED_OUTCOMES as readonly string[]).includes(column))) {
     return { error: "Choose a Not Interested reason." };
   }
+  const outcome = unsorted ? null : column;
   const { error } = await supabase
     .from("leads")
     .update({
@@ -307,11 +312,11 @@ export async function dropLeadOnOutcome(formData: FormData): Promise<ActionState
   await supabase.from("activities").insert({
     lead_id: leadId,
     type: "sendpilot_status_changed",
-    title: `Not Interested set to ${outcome}`,
+    title: unsorted ? "Returned to SendPilot Not Interested" : `Not Interested set to ${outcome}`,
     actor_id: userId,
   });
   refresh(`/leads/${leadId}`, "/leads", "/opportunities", "/follow-ups", "/dashboard");
-  return { success: `Moved to ${outcome}.` };
+  return { success: unsorted ? "Returned to Not Interested." : `Moved to ${outcome}.` };
 }
 
 function outcomeColumnError(error: { message: string; code?: string }) {

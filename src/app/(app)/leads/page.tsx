@@ -53,7 +53,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
                   <p className="text-xs text-muted-foreground">{lead.companyName} · {lead.email ?? "No email"}</p>
                 </td>
                 <td className="px-4 py-3">{lead.sendpilotStatus ?? lead.rawStatus ?? "—"}</td>
-                <td className="px-4 py-3">{lead.sendpilotStatus === "Not Interested" ? lead.notInterestedOutcome : <span className="text-muted-foreground">—</span>}</td>
+                <td className="px-4 py-3">{lead.sendpilotStatus === "Not Interested" ? lead.notInterestedOutcome ?? "Not Interested" : <span className="text-muted-foreground">—</span>}</td>
                 <td className="px-4 py-3">{lead.opportunityStage ? <StageBadge stage={lead.opportunityStage} /> : <span className="text-destructive">Not found</span>}</td>
                 <td className="px-4 py-3">{lead.nextFollowUp ? <><p>{lead.nextFollowUp.title}</p><p className="text-xs text-muted-foreground">{formatDate(lead.nextFollowUp.dueOn)}</p></> : <span className="text-muted-foreground">None</span>}</td>
                 <td className="px-4 py-3 text-muted-foreground">{formatDateTime(lead.lastSyncedAt)}</td>
@@ -79,7 +79,8 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
             </select>
           </Field>
           <Field label="If not interested">
-            <select className={controlClass} name="not_interested_outcome" defaultValue="Nurture">
+            <select className={controlClass} name="not_interested_outcome" defaultValue="">
+              <option value="">Not yet sorted</option>
               {NOT_INTERESTED_OUTCOMES.map((outcome) => <option key={outcome}>{outcome}</option>)}
             </select>
           </Field>
