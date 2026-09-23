@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { ChevronLeft } from "lucide-react";
 import { cn } from "cn";
 import type { AttentionItem, OpportunityStage, RiskLevel } from "@/lib/domain";
 import { formatDate, formatMoney } from "@/lib/format";
@@ -10,24 +11,34 @@ export const textareaClass =
   "min-h-24 w-full rounded-lg border border-input bg-card px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/40";
 
 export function PageHeader({
+  back,
   eyebrow,
   title,
   description,
   actions,
 }: {
+  back?: { href: string; label: string };
   eyebrow?: string;
   title: string;
   description?: string;
   actions?: ReactNode;
 }) {
   return (
-    <div className="flex flex-wrap items-end justify-between gap-4">
-      <div className="max-w-3xl">
-        {eyebrow ? <p className="text-xs font-medium tracking-[0.14em] text-primary uppercase">{eyebrow}</p> : null}
-        <h1 className="mt-1 text-2xl font-bold tracking-tight text-foreground">{title}</h1>
-        {description ? <p className="mt-2 text-sm leading-6 text-muted-foreground">{description}</p> : null}
+    <div className="space-y-3">
+      {back ? (
+        <Link href={back.href} className="inline-flex items-center gap-1 text-sm font-medium text-primary">
+          <ChevronLeft className="size-4" aria-hidden />
+          {back.label}
+        </Link>
+      ) : null}
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="max-w-3xl">
+          {eyebrow ? <p className="text-xs font-medium tracking-[0.14em] text-primary uppercase">{eyebrow}</p> : null}
+          <h1 className="mt-1 text-2xl font-bold tracking-tight text-foreground">{title}</h1>
+          {description ? <p className="mt-2 text-sm leading-6 text-muted-foreground">{description}</p> : null}
+        </div>
+        {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
       </div>
-      {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
     </div>
   );
 }

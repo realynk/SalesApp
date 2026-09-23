@@ -18,6 +18,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
   return (
     <div className="space-y-6">
       <PageHeader
+        back={{ href: "/leads", label: "Back to leads" }}
         eyebrow="Lead workspace"
         title={lead.contact.name}
         description={`${lead.company.name}${lead.contact.title ? ` · ${lead.contact.title}` : ""}`}

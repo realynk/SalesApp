@@ -16,7 +16,13 @@ export default async function RecruitmentDetailPage({ params }: { params: Promis
   const opportunityId = Array.isArray(opportunity) ? opportunity[0]?.id : opportunity?.id;
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="Recruitment" title={String(request.company_name ?? "Request")} description={`Target ${formatDate(String(request.target_on ?? ""))}`} actions={opportunityId ? <Link className="text-sm text-primary underline" href={`/opportunities/${opportunityId}?tab=recruitment`}>Opportunity</Link> : null} />
+      <PageHeader
+        back={{ href: "/recruitment", label: "Back to recruitment" }}
+        eyebrow="Recruitment"
+        title={String(request.company_name ?? "Request")}
+        description={`Target ${formatDate(String(request.target_on ?? ""))}`}
+        actions={opportunityId ? <Link className="text-sm text-primary underline" href={`/opportunities/${opportunityId}?tab=recruitment`}>Opportunity</Link> : null}
+      />
       <ActionForm action={updateRecruitmentStatus} className="grid max-w-xl gap-3 rounded-xl border border-border bg-card p-4">
         <input type="hidden" name="recruitment_id" value={String(request.id)} />
         <input type="hidden" name="opportunity_id" value={opportunityId ?? ""} />
