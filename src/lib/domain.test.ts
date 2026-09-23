@@ -12,6 +12,7 @@ import {
   notInterestedOutcome,
   formatClock,
   profileSendCheckBacks,
+  salesCallCompleteTasks,
   stageLabel,
   potentialArr,
   potentialMrr,
@@ -21,7 +22,13 @@ import {
 test("labels the profile-send stage and defaults check-backs from the call", () => {
   assert.equal(stageLabel("Email / Profile Preparation"), "Sent Profiles to the client");
   assert.equal(stageLabel("Strategy Call Proposed"), "Booked Sales Call");
+  assert.equal(stageLabel("Strategy Call Scheduled"), "Sales Call Complete");
   assert.equal(stageLabel("Recruitment"), "Recruitment");
+  assert.deepEqual(salesCallCompleteTasks("2026-10-10"), [
+    { title: "Send the meeting notes", dueOn: "2026-10-10" },
+    { title: "Send the talent request to the recruitment team", dueOn: "2026-10-10" },
+    { title: "Create a GC in Google Chat / Space", dueOn: "2026-10-10" },
+  ]);
   assert.equal(formatClock("14:30"), "2:30 PM");
   assert.equal(formatClock("09:05"), "9:05 AM");
   assert.deepEqual(profileSendCheckBacks("2026-10-10", "2026-10-01"), { oneDay: "2026-10-11", twoDays: "2026-10-12" });

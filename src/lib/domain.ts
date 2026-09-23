@@ -190,8 +190,8 @@ export const STAGE_PLAYBOOK: Record<
     waitingOn: "client",
   },
   "Strategy Call Scheduled": {
-    nextAction: "Hold the strategy call and capture requirements",
-    waitingOn: "client",
+    nextAction: "Send the meeting notes",
+    waitingOn: "internal",
   },
   "Strategy Call Complete": {
     nextAction: "Write up requirements and confirm the headcount",
@@ -282,10 +282,22 @@ export function todayInTimeZone(timeZone: string, now = new Date()) {
 
 export const PROFILE_SEND_STAGE: OpportunityStage = "Email / Profile Preparation";
 export const BOOKED_CALL_STAGE: OpportunityStage = "Strategy Call Proposed";
+export const SALES_CALL_COMPLETE_STAGE: OpportunityStage = "Strategy Call Scheduled";
+
+export const SALES_CALL_COMPLETE_TASKS = [
+  "Send the meeting notes",
+  "Send the talent request to the recruitment team",
+  "Create a GC in Google Chat / Space",
+] as const;
+
+export function salesCallCompleteTasks(callOn: string) {
+  return SALES_CALL_COMPLETE_TASKS.map((title) => ({ title, dueOn: callOn }));
+}
 
 export function stageLabel(stage: string) {
   if (stage === PROFILE_SEND_STAGE) return "Sent Profiles to the client";
   if (stage === BOOKED_CALL_STAGE) return "Booked Sales Call";
+  if (stage === SALES_CALL_COMPLETE_STAGE) return "Sales Call Complete";
   return stage;
 }
 

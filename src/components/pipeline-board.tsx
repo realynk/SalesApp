@@ -19,11 +19,12 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { GripVertical } from "lucide-react";
-import { RISK_LEVELS, STAGE_PLAYBOOK, PROFILE_SEND_STAGE, BOOKED_CALL_STAGE, WAITING_ON, stageLabel, type OpportunityStage } from "@/lib/domain";
+import { RISK_LEVELS, STAGE_PLAYBOOK, PROFILE_SEND_STAGE, BOOKED_CALL_STAGE, SALES_CALL_COMPLETE_STAGE, WAITING_ON, stageLabel, type OpportunityStage } from "@/lib/domain";
 import { formatDate, formatMoney } from "@/lib/format";
 import { dropLeadOnStage, dropOpportunityOnStage } from "@/server/actions";
 import { BookedCallDialog } from "@/components/booked-call-dialog";
 import { ProfileSendDialog, type ProfileSendDraft } from "@/components/profile-send-dialog";
+import { SalesCallCompleteDialog } from "@/components/sales-call-complete-dialog";
 
 const COLUMN_TONE = [
   "border-t-[#f97066]",
@@ -147,7 +148,7 @@ export function PipelineBoard({
   const [activeId, setActiveId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
-  const [prompt, setPrompt] = useState<{ kind: "profile-send" | "booked-call"; item: BoardItem; previous: BoardItem[] } | null>(null);
+  const [prompt, setPrompt] = useState<{ kind: "profile-send" | "booked-call" | "sales-call-complete"; item: BoardItem; previous: BoardItem[] } | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -226,6 +227,10 @@ export function PipelineBoard({
       setPrompt({ kind: "booked-call", item, previous });
       return;
     }
+    if (stage === SALES_CALL_COMPLETE_STAGE) {
+      setPrompt({ kind: "sales-call-complete", item, previous });
+      return;
+    }
     void persistMove(item, stage, previous);
   }
 
@@ -281,6 +286,23 @@ export function PipelineBoard({
       <BookedCallDialog
         key={prompt?.kind === "booked-call" ? prompt.item.id : "booked-call"}
         draft={prompt?.kind === "booked-call" ? {
+          leadId: prompt.item.leadId,
+          opportunityId: prompt.item.opportunityId,
+          companyName: prompt.item.companyName,
+          contactName: prompt.item.contactName,
+        } : null}
+        onCancel={() => {
+          if (prompt) setItems(prompt.previous);
+          setPrompt(null);
+        }}
+        onSaved={() => {
+          setPrompt(null);
+          router.refresh();
+        }}
+      />
+      <SalesCallCompleteDialog
+        key={prompt?.kind === "sales-call-complete" ? prompt.item.id : "sales-call-complete"}
+        draft={prompt?.kind === "sales-call-complete" ? {
           leadId: prompt.item.leadId,
           opportunityId: prompt.item.opportunityId,
           companyName: prompt.item.companyName,

@@ -18,6 +18,8 @@ import {
   STAGE_PLAYBOOK,
   PROFILE_SEND_STAGE,
   BOOKED_CALL_STAGE,
+  SALES_CALL_COMPLETE_STAGE,
+  SALES_CALL_COMPLETE_TASKS,
   formatClock,
   WAITING_ON,
   addBusinessDays,
@@ -603,6 +605,101 @@ export async function saveBookedSalesCallFromBoard(formData: FormData): Promise<
 
   refresh("/opportunities", "/leads", "/dashboard", "/follow-ups", `/leads/${leadId}`, `/opportunities/${opportunityId}`);
   return { success: "Sales call booked. It is on reminders, tasks, and the week calendar." };
+}
+
+export async function saveSalesCallCompleteFromBoard(formData: FormData): Promise<ActionState> {
+  const { supabase, userId } = await requireUser();
+  const leadId = text(formData, "lead_id");
+  const callOn = dateField(formData, "call_on");
+  const notes = optionalText(formData, "notes");
+  if (!isUuid(leadId) || !callOn) {
+    return { error: "Enter the date the call happened." };
+  }
+
+  const items = SALES_CALL_COMPLETE_TASKS.map((title, index) => ({
+    title,
+    due: dateField(formData, `task_due_${index}`) ?? callOn,
+  }));
+  if (items.some((item) => !item.due)) {
+    return { error: "Give each task a due date." };
+  }
+
+  const nextAction = items[0]?.title ?? "Send the meeting notes";
+  const nextActionDate = items.reduce((earliest, item) => (item.due < earliest ? item.due : earliest), items[0].due);
+
+  let opportunityId = optionalText(formData, "opportunity_id");
+  if (opportunityId && isUuid(opportunityId)) {
+    const moveData = new FormData();
+    moveData.set("opportunity_id", opportunityId);
+    moveData.set("stage", SALES_CALL_COMPLETE_STAGE);
+    moveData.set("next_action", nextAction);
+    moveData.set("next_action_date", nextActionDate);
+    moveData.set("waiting_on", "internal");
+    moveData.set("note", notes ?? `Sales call completed on ${callOn}`);
+    const moved = await moveStage({}, moveData);
+    if (moved?.error) return moved;
+  } else {
+    const createData = new FormData();
+    createData.set("stage", SALES_CALL_COMPLETE_STAGE);
+    createData.set("next_action", nextAction);
+    createData.set("next_action_date", nextActionDate);
+    createData.set("waiting_on", "internal");
+    const created = await createOpportunityForLead(supabase, userId, leadId, createData);
+    if (!created) return { error: "The opportunity could not be created." };
+    if ("error" in created) return created;
+    opportunityId = created.id;
+  }
+
+  const callPayload = {
+    opportunity_id: opportunityId,
+    call_on: callOn,
+    company_name: optionalText(formData, "company_name"),
+    client_name: optionalText(formData, "client_name"),
+    status: "Complete",
+    notes: notes ?? `Sales call completed on ${callOn}`,
+    tasks: items.map((item) => item.title).join("\n"),
+  };
+  const { data: existingCall } = await supabase.from("strategy_calls").select("id").eq("opportunity_id", opportunityId).maybeSingle();
+  const { error: callError } = existingCall
+    ? await supabase.from("strategy_calls").update(callPayload).eq("opportunity_id", opportunityId)
+    : await supabase.from("strategy_calls").insert(callPayload);
+  if (callError) return { error: actionError(callError) };
+
+  await supabase.from("activities").insert({
+    opportunity_id: opportunityId,
+    lead_id: leadId,
+    type: "strategy_call_completed",
+    title: "Sales call completed",
+    body: notes ?? `Completed on ${callOn}. Next: ${items.map((item) => item.title).join("; ")}`,
+    actor_id: userId,
+    occurred_at: new Date(`${callOn}T12:00:00Z`).toISOString(),
+  });
+
+  const { error: followError } = await supabase.from("follow_ups").insert(
+    items.map((item) => ({
+      opportunity_id: opportunityId,
+      lead_id: leadId,
+      owner_id: userId,
+      title: item.title,
+      due_on: item.due,
+      notes,
+    })),
+  );
+  if (followError) return { error: actionError(followError) };
+
+  const { error: taskError } = await supabase.from("tasks").insert(
+    items.map((item) => ({
+      opportunity_id: opportunityId,
+      owner_id: userId,
+      title: item.title,
+      details: notes ?? `After the sales call on ${callOn}`,
+      due_on: item.due,
+    })),
+  );
+  if (taskError) return { error: actionError(taskError) };
+
+  refresh("/opportunities", "/leads", "/dashboard", "/follow-ups", `/leads/${leadId}`, `/opportunities/${opportunityId}`);
+  return { success: "Sales call marked complete. The three tasks are on reminders and the week calendar." };
 }
 
 export async function createFollowUp(_state: ActionState, formData: FormData): Promise<ActionState> {
