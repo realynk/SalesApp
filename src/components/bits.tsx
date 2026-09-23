@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 import { cn } from "cn";
 import type { AttentionItem, OpportunityStage, RiskLevel } from "@/lib/domain";
+import { stageLabel } from "@/lib/domain";
 import { formatDate, formatMoney } from "@/lib/format";
 
 export const controlClass =
@@ -76,7 +77,7 @@ export function stageClass(stage: string) {
 }
 
 export function StageBadge({ stage }: { stage: string }) {
-  return <span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs font-medium", stageClass(stage))}>{stage}</span>;
+  return <span className={cn("inline-flex rounded-full px-2 py-0.5 text-xs font-medium", stageClass(stage))}>{stageLabel(stage)}</span>;
 }
 
 export function RiskBadge({ risk }: { risk: RiskLevel | string }) {

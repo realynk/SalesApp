@@ -16,6 +16,7 @@ import {
   NOT_INTERESTED_OUTCOMES,
   notInterestedOutcome,
   STAGE_PLAYBOOK,
+  PROFILE_SEND_STAGE,
   WAITING_ON,
   addBusinessDays,
   importSourceFromFilename,
@@ -419,6 +420,110 @@ export async function dropLeadOnStage(formData: FormData): Promise<ActionState> 
   if ("error" in created) return created;
   refresh("/opportunities", "/leads", "/dashboard", "/reconciliation", `/leads/${leadId}`, `/opportunities/${created.id}`);
   return { success: `Started the client journey at ${stage}.` };
+}
+
+export async function saveProfileSendFromBoard(formData: FormData): Promise<ActionState> {
+  const { supabase, userId } = await requireUser();
+  const leadId = text(formData, "lead_id");
+  const email = text(formData, "client_email").toLowerCase();
+  const sentOn = dateField(formData, "profile_sent_on");
+  const callOn = dateField(formData, "call_on");
+  const checkOne = dateField(formData, "check_back_1");
+  const checkTwo = dateField(formData, "check_back_2");
+  const notes = optionalText(formData, "notes");
+  if (!isUuid(leadId) || !email || !sentOn || !checkOne || !checkTwo) {
+    return { error: "Email, profile sent date, and both check-back dates are required." };
+  }
+
+  const { data: lead, error: leadError } = await supabase
+    .from("leads")
+    .select("id, contact_id, company_id, contacts(first_name, last_name, email), companies(name)")
+    .eq("id", leadId)
+    .maybeSingle();
+  if (leadError || !lead) return { error: "That lead could not be found." };
+  const record = lead as { id: string; contact_id: string; company_id: string };
+  const { error: emailError } = await supabase.from("contacts").update({ email }).eq("id", record.contact_id);
+  if (emailError) return { error: actionError(emailError) };
+
+  let opportunityId = optionalText(formData, "opportunity_id");
+  const nextAction = "Check back on the sent profiles";
+  const nextActionDate = checkOne <= checkTwo ? checkOne : checkTwo;
+  if (opportunityId && isUuid(opportunityId)) {
+    const moveData = new FormData();
+    moveData.set("opportunity_id", opportunityId);
+    moveData.set("stage", PROFILE_SEND_STAGE);
+    moveData.set("next_action", nextAction);
+    moveData.set("next_action_date", nextActionDate);
+    moveData.set("waiting_on", "client");
+    moveData.set("note", notes ?? "Profile sent to the client");
+    const moved = await moveStage({}, moveData);
+    if (moved?.error) return moved;
+  } else {
+    const createData = new FormData();
+    createData.set("stage", PROFILE_SEND_STAGE);
+    createData.set("next_action", nextAction);
+    createData.set("next_action_date", nextActionDate);
+    createData.set("waiting_on", "client");
+    const created = await createOpportunityForLead(supabase, userId, leadId, createData);
+    if (!created) return { error: "The opportunity could not be created." };
+    if ("error" in created) return created;
+    opportunityId = created.id;
+  }
+
+  const company = Array.isArray((lead as { companies?: { name?: string } | { name?: string }[] }).companies)
+    ? (lead as { companies: { name?: string }[] }).companies[0]
+    : (lead as { companies?: { name?: string } }).companies;
+  const callPayload = {
+    opportunity_id: opportunityId,
+    call_on: callOn,
+    company_name: optionalText(formData, "company_name") ?? company?.name,
+    client_name: optionalText(formData, "client_name"),
+    status: callOn ? "Scheduled" : "Draft",
+    notes,
+  };
+  const { data: existingCall } = await supabase.from("strategy_calls").select("id").eq("opportunity_id", opportunityId).maybeSingle();
+  const { error: callError } = existingCall
+    ? await supabase.from("strategy_calls").update(callPayload).eq("opportunity_id", opportunityId)
+    : await supabase.from("strategy_calls").insert(callPayload);
+  if (callError) return { error: actionError(callError) };
+
+  await supabase.from("activities").insert({
+    opportunity_id: opportunityId,
+    lead_id: leadId,
+    type: "profile_sent",
+    title: "Profile sent to the client",
+    body: notes ?? `Sent on ${sentOn}${callOn ? ` · call scheduled ${callOn}` : ""}`,
+    actor_id: userId,
+    occurred_at: new Date(`${sentOn}T12:00:00Z`).toISOString(),
+  });
+  if (callOn) {
+    await supabase.from("activities").insert({
+      opportunity_id: opportunityId,
+      lead_id: leadId,
+      type: "strategy_call_scheduled",
+      title: "Strategy call scheduled",
+      body: callOn,
+      actor_id: userId,
+    });
+  }
+
+  const followUps = [
+    { due: checkOne, title: "Check back on the sent profiles (1 day from the call)" },
+    { due: checkTwo, title: "Check back on the sent profiles (2 days from the call)" },
+  ];
+  for (const item of followUps) {
+    await supabase.from("follow_ups").insert({
+      opportunity_id: opportunityId,
+      lead_id: leadId,
+      owner_id: userId,
+      title: item.title,
+      due_on: item.due,
+      notes,
+    });
+  }
+
+  refresh("/opportunities", "/leads", "/dashboard", "/follow-ups", `/leads/${leadId}`, `/opportunities/${opportunityId}`);
+  return { success: "Profile send recorded. Check-backs are on the week calendar." };
 }
 
 export async function createFollowUp(_state: ActionState, formData: FormData): Promise<ActionState> {

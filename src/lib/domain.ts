@@ -280,6 +280,17 @@ export function todayInTimeZone(timeZone: string, now = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
+export const PROFILE_SEND_STAGE: OpportunityStage = "Email / Profile Preparation";
+
+export function stageLabel(stage: string) {
+  return stage === PROFILE_SEND_STAGE ? "Sent Profiles to the client" : stage;
+}
+
+export function profileSendCheckBacks(callOn: string | null | undefined, sentOn: string) {
+  const base = callOn && /^\d{4}-\d{2}-\d{2}$/.test(callOn) ? callOn : sentOn;
+  return { oneDay: addDays(base, 1), twoDays: addDays(base, 2) };
+}
+
 export function addDays(isoDate: string, days: number) {
   const date = new Date(`${isoDate.slice(0, 10)}T00:00:00Z`);
   date.setUTCDate(date.getUTCDate() + days);

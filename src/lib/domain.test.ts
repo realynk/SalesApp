@@ -10,10 +10,19 @@ import {
   median,
   normalizeSendPilotStatus,
   notInterestedOutcome,
+  profileSendCheckBacks,
+  stageLabel,
   potentialArr,
   potentialMrr,
   timeMetrics,
 } from "./domain.ts";
+
+test("labels the profile-send stage and defaults check-backs from the call", () => {
+  assert.equal(stageLabel("Email / Profile Preparation"), "Sent Profiles to the client");
+  assert.equal(stageLabel("Recruitment"), "Recruitment");
+  assert.deepEqual(profileSendCheckBacks("2026-10-10", "2026-10-01"), { oneDay: "2026-10-11", twoDays: "2026-10-12" });
+  assert.deepEqual(profileSendCheckBacks(null, "2026-10-01"), { oneDay: "2026-10-02", twoDays: "2026-10-03" });
+});
 
 test("defaults unknown Not Interested outcomes to Nurture", () => {
   assert.equal(notInterestedOutcome(null), "Nurture");

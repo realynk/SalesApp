@@ -19,9 +19,10 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { GripVertical } from "lucide-react";
-import { RISK_LEVELS, STAGE_PLAYBOOK, WAITING_ON, type OpportunityStage } from "@/lib/domain";
+import { RISK_LEVELS, STAGE_PLAYBOOK, PROFILE_SEND_STAGE, WAITING_ON, stageLabel, type OpportunityStage } from "@/lib/domain";
 import { formatDate, formatMoney } from "@/lib/format";
 import { dropLeadOnStage, dropOpportunityOnStage } from "@/server/actions";
+import { ProfileSendDialog, type ProfileSendDraft } from "@/components/profile-send-dialog";
 
 const COLUMN_TONE = [
   "border-t-[#f97066]",
@@ -46,12 +47,14 @@ export type BoardOpportunity = {
   mrr: number | null;
   waitingOn: string;
   riskLevel: string;
+  email: string | null;
 };
 
 export type BoardLead = {
   id: string;
   companyName: string;
   contactName: string;
+  email: string | null;
   nextFollowUp: { title: string; dueOn: string } | null;
 };
 
@@ -69,6 +72,7 @@ type BoardItem = {
   mrr: number | null;
   waitingOn: string;
   riskLevel: string;
+  email: string | null;
   href: string;
 };
 
@@ -92,6 +96,7 @@ function fromOpportunity(opportunity: BoardOpportunity): BoardItem {
     mrr: opportunity.mrr,
     waitingOn: opportunity.waitingOn,
     riskLevel: opportunity.riskLevel,
+    email: opportunity.email,
     href: `/opportunities/${opportunity.id}`,
   };
 }
@@ -112,6 +117,7 @@ function fromLead(lead: BoardLead, opportunity?: BoardOpportunity): BoardItem {
     mrr: null,
     waitingOn: "internal",
     riskLevel: "low",
+    email: lead.email,
     href: `/leads/${lead.id}`,
   };
 }
@@ -140,6 +146,7 @@ export function PipelineBoard({
   const [activeId, setActiveId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [prompt, setPrompt] = useState<{ item: BoardItem; previous: BoardItem[] } | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -210,6 +217,10 @@ export function PipelineBoard({
     }
     const previous = items;
     setItems(previous.map((entry) => (entry.id === item.id ? { ...entry, stage } : entry)));
+    if (stage === PROFILE_SEND_STAGE) {
+      setPrompt({ item, previous });
+      return;
+    }
     void persistMove(item, stage, previous);
   }
 
@@ -244,6 +255,24 @@ export function PipelineBoard({
           {activeItem ? <ItemCard item={activeItem} overlay /> : null}
         </DragOverlay>
       </DndContext>
+      <ProfileSendDialog
+        key={prompt?.item.id ?? "profile-send"}
+        draft={prompt ? {
+          leadId: prompt.item.leadId,
+          opportunityId: prompt.item.opportunityId,
+          companyName: prompt.item.companyName,
+          contactName: prompt.item.contactName,
+          email: prompt.item.email,
+        } satisfies ProfileSendDraft : null}
+        onCancel={() => {
+          if (prompt) setItems(prompt.previous);
+          setPrompt(null);
+        }}
+        onSaved={() => {
+          setPrompt(null);
+          router.refresh();
+        }}
+      />
     </div>
   );
 }
@@ -277,7 +306,7 @@ function BoardColumn({
       }`}
     >
       <header className="px-3 py-3">
-        <h2 className="text-sm font-bold leading-5">{stage}</h2>
+        <h2 className="text-sm font-bold leading-5">{stageLabel(stage)}</h2>
         <p className="mt-1 text-xs text-muted-foreground">
           {sendpilotIntake ? "From SendPilot" : null}
           {sendpilotIntake ? " · " : null}
