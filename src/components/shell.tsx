@@ -11,9 +11,9 @@ import { signOut } from "@/server/actions";
 
 const NAV = [
   { href: "/dashboard", label: "Command Center", icon: LayoutDashboard },
+  { href: "/opportunities", label: "Opportunities", icon: Handshake },
   { href: "/leads", label: "Leads", icon: Users },
   { href: "/reconciliation", label: "Reconciliation", icon: FolderSync },
-  { href: "/opportunities", label: "Opportunities", icon: Handshake },
   { href: "/follow-ups", label: "Nurture", icon: Sprout },
   { href: "/recruitment", label: "Recruitment", icon: Briefcase },
   { href: "/analytics", label: "Analytics", icon: ChartColumn },
