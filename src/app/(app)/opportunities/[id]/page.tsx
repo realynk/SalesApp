@@ -67,7 +67,7 @@ export default async function OpportunityPage({
   return (
     <div className="space-y-6">
       <PageHeader
-        back={{ href: "/opportunities", label: "Back to opportunities" }}
+        back={{ href: "/opportunities", label: "Back to client journey" }}
         eyebrow={opportunity.contactName}
         title={opportunity.companyName}
         description={opportunity.title}

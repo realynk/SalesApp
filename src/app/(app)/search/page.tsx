@@ -8,7 +8,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
   const results = await searchWorkspace(query);
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="Search" title={query ? `Results for “${query}”` : "Search"} description="Contacts, companies, email, LinkedIn, and opportunities." />
+      <PageHeader eyebrow="Search" title={query ? `Results for “${query}”` : "Search"} description="Contacts, companies, email, LinkedIn, and the client journey." />
       {query.length < 2 ? <p className="text-sm text-muted-foreground">Type at least two characters.</p> : null}
       <section>
         <h2 className="text-sm font-semibold">Leads</h2>
@@ -20,7 +20,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
         </ul>
       </section>
       <section>
-        <h2 className="text-sm font-semibold">Opportunities</h2>
+        <h2 className="text-sm font-semibold">Client journey</h2>
         <ul className="mt-2 divide-y divide-border rounded-xl border border-border bg-card px-4">
           {results.opportunities.map((opportunity) => (
             <li key={opportunity.id} className="flex items-center justify-between py-3 text-sm"><Link className="font-medium" href={`/opportunities/${opportunity.id}`}>{opportunity.companyName}</Link><StageBadge stage={opportunity.stage} /></li>

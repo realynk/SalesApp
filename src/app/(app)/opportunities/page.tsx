@@ -44,7 +44,7 @@ export default async function OpportunitiesPage({ searchParams }: { searchParams
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Pipeline"
+        eyebrow="Client journey"
         title={interest === "interested" ? "Interested" : "Not Interested"}
         description={
           interest === "interested"
