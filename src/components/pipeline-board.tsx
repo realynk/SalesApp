@@ -79,8 +79,8 @@ export function PipelineBoard({
           items: items.filter((item) => item.stage === stage),
           acceptsDrop: !BLOCKED_DROPS.has(stage),
         }))
-        .filter((column) => column.items.length > 0 || (activeId != null && column.acceptsDrop)),
-    [activeId, items, stages],
+        .filter((column) => column.items.length > 0 || column.acceptsDrop),
+    [items, stages],
   );
 
   const activeItem = items.find((item) => item.id === activeId) ?? opportunities.find((item) => item.id === activeId);
