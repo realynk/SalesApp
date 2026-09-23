@@ -4,7 +4,8 @@ import { isSupabaseConfigured, supabaseKey, supabaseUrl } from "@/lib/env";
 
 export async function updateSession(request: NextRequest) {
   if (!isSupabaseConfigured()) {
-    if (request.nextUrl.pathname.startsWith("/setup")) return NextResponse.next();
+    const path = request.nextUrl.pathname;
+    if (path.startsWith("/setup") || path.startsWith("/api/sendpilot/webhook")) return NextResponse.next();
     const url = request.nextUrl.clone();
     url.pathname = "/setup";
     return NextResponse.redirect(url);

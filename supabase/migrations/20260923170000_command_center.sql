@@ -924,24 +924,24 @@ create policy opportunity_documents_delete on storage.objects
 -- Import classification and apply
 -- ---------------------------------------------------------------------------
 
-create or replace function private.classify_lead_row(row jsonb)
+create or replace function private.classify_lead_row(lead_row jsonb)
 returns jsonb
 language plpgsql
 volatile
 set search_path = ''
 as $$
 declare
-  email_key text := private.normalize_email(row ->> 'email');
-  linkedin_key text := private.normalize_linkedin(row ->> 'linkedin_url');
-  company_key text := private.normalize_name(row ->> 'company');
-  person_key text := private.normalize_name(
+  v_email text := private.normalize_email(lead_row ->> 'email');
+  v_linkedin text := private.normalize_linkedin(lead_row ->> 'linkedin_url');
+  v_company text := private.normalize_name(lead_row ->> 'company');
+  v_person text := private.normalize_name(
     case
-      when btrim(concat_ws(' ', row ->> 'first_name', row ->> 'last_name')) <> ''
-        then concat_ws(' ', row ->> 'first_name', row ->> 'last_name')
-      else row ->> 'name'
+      when btrim(concat_ws(' ', lead_row ->> 'first_name', lead_row ->> 'last_name')) <> ''
+        then concat_ws(' ', lead_row ->> 'first_name', lead_row ->> 'last_name')
+      else lead_row ->> 'name'
     end
   );
-  raw_status text := nullif(btrim(coalesce(row ->> 'sendpilot_status', '')), '');
+  raw_status text := nullif(btrim(coalesce(lead_row ->> 'sendpilot_status', '')), '');
   parsed_status public.sendpilot_status := private.normalize_sendpilot_status(raw_status);
   match_count integer;
   contact_record public.contacts%rowtype;
@@ -952,12 +952,12 @@ declare
   reason text := null;
   display_name text;
 begin
-  display_name := nullif(btrim(concat_ws(' ', row ->> 'first_name', row ->> 'last_name')), '');
+  display_name := nullif(btrim(concat_ws(' ', lead_row ->> 'first_name', lead_row ->> 'last_name')), '');
   if display_name is null then
-    display_name := nullif(btrim(coalesce(row ->> 'name', '')), '');
+    display_name := nullif(btrim(coalesce(lead_row ->> 'name', '')), '');
   end if;
 
-  if email_key is null and linkedin_key is null and (company_key is null or person_key is null) then
+  if v_email is null and v_linkedin is null and (v_company is null or v_person is null) then
     return jsonb_build_object(
       'classification', 'unmatched',
       'reason', 'Missing email, LinkedIn, or company plus contact name',
@@ -973,13 +973,13 @@ begin
   from public.contacts c
   join public.companies co on co.id = c.company_id
   where
-    (email_key is not null and c.email_key = email_key)
-    or (linkedin_key is not null and c.linkedin_key = linkedin_key)
+    (v_email is not null and c.email_key = v_email)
+    or (v_linkedin is not null and c.linkedin_key = v_linkedin)
     or (
-      company_key is not null
-      and person_key is not null
-      and co.name_key = company_key
-      and private.normalize_name(concat_ws(' ', c.first_name, c.last_name)) = person_key
+      v_company is not null
+      and v_person is not null
+      and co.name_key = v_company
+      and private.normalize_name(concat_ws(' ', c.first_name, c.last_name)) = v_person
     );
 
   if match_count > 1 then
@@ -999,19 +999,19 @@ begin
     from public.contacts c
     join public.companies co on co.id = c.company_id
     where
-      (email_key is not null and c.email_key = email_key)
-      or (linkedin_key is not null and c.linkedin_key = linkedin_key)
+      (v_email is not null and c.email_key = v_email)
+      or (v_linkedin is not null and c.linkedin_key = v_linkedin)
       or (
-        company_key is not null
-        and person_key is not null
-        and co.name_key = company_key
-        and private.normalize_name(concat_ws(' ', c.first_name, c.last_name)) = person_key
+        v_company is not null
+        and v_person is not null
+        and co.name_key = v_company
+        and private.normalize_name(concat_ws(' ', c.first_name, c.last_name)) = v_person
       )
     limit 1;
 
-    if email_key is not null and contact_record.email_key is not null and contact_record.email_key <> email_key then
+    if v_email is not null and contact_record.email_key is not null and contact_record.email_key <> v_email then
       reason := 'Same company and name, different email';
-    elsif linkedin_key is not null and contact_record.linkedin_key is not null and contact_record.linkedin_key <> linkedin_key then
+    elsif v_linkedin is not null and contact_record.linkedin_key is not null and contact_record.linkedin_key <> v_linkedin then
       reason := 'Matched contact has a different LinkedIn URL';
     end if;
 
@@ -1037,8 +1037,8 @@ begin
     if matched_lead_id is null
       or current_status is distinct from parsed_status
       or (
-        nullif(btrim(coalesce(row ->> 'phone', '')), '') is not null
-        and current_phone is distinct from btrim(row ->> 'phone')
+        nullif(btrim(coalesce(lead_row ->> 'phone', '')), '') is not null
+        and current_phone is distinct from btrim(lead_row ->> 'phone')
       )
     then
       classification := 'updated';
@@ -1150,15 +1150,15 @@ declare
   updated_count integer := 0;
   duplicate_count integer := 0;
   unmatched_count integer := 0;
-  error_count integer := 0;
-  errors jsonb := '[]'::jsonb;
-  company_id uuid;
-  contact_id uuid;
-  lead_id uuid;
+  v_error_count integer := 0;
+  v_errors jsonb := '[]'::jsonb;
+  v_company_id uuid;
+  v_contact_id uuid;
+  v_lead_id uuid;
   parsed_status public.sendpilot_status;
-  first_name text;
-  last_name text;
-  full_name text;
+  v_first_name text;
+  v_last_name text;
+  v_full_name text;
   source_name text;
 begin
   if uid is null or not private.is_internal() then
@@ -1186,44 +1186,44 @@ begin
     begin
       classified := private.classify_lead_row(row);
       parsed_status := nullif(classified ->> 'sendpilot_status', '')::public.sendpilot_status;
-      company_id := null;
-      contact_id := null;
-      lead_id := null;
-      first_name := nullif(btrim(coalesce(row ->> 'first_name', '')), '');
-      last_name := nullif(btrim(coalesce(row ->> 'last_name', '')), '');
-      full_name := coalesce(classified ->> 'display_name', row ->> 'name');
-      if first_name is null and full_name is not null then
-        first_name := split_part(full_name, ' ', 1);
-        last_name := nullif(btrim(regexp_replace(full_name, '^\S+\s*', '')), '');
+      v_company_id := null;
+      v_contact_id := null;
+      v_lead_id := null;
+      v_first_name := nullif(btrim(coalesce(row ->> 'v_first_name', '')), '');
+      v_last_name := nullif(btrim(coalesce(row ->> 'v_last_name', '')), '');
+      v_full_name := coalesce(classified ->> 'display_name', row ->> 'name');
+      if v_first_name is null and v_full_name is not null then
+        v_first_name := split_part(v_full_name, ' ', 1);
+        v_last_name := nullif(btrim(regexp_replace(v_full_name, '^\S+\s*', '')), '');
       end if;
 
       if classified ->> 'classification' = 'new' then
-        select id into company_id
+        select id into v_company_id
         from public.companies
         where name_key = private.normalize_name(coalesce(nullif(btrim(coalesce(row ->> 'company', '')), ''), 'Unknown company'));
-        if company_id is null then
+        if v_company_id is null then
           insert into public.companies (name)
           values (coalesce(nullif(btrim(coalesce(row ->> 'company', '')), ''), 'Unknown company'))
-          returning id into company_id;
+          returning id into v_company_id;
         end if;
 
         insert into public.contacts (company_id, first_name, last_name, email, phone, linkedin_url)
         values (
-          company_id,
-          coalesce(first_name, 'Unknown'),
-          coalesce(last_name, ''),
+          v_company_id,
+          coalesce(v_first_name, 'Unknown'),
+          coalesce(v_last_name, ''),
           nullif(btrim(coalesce(row ->> 'email', '')), ''),
           nullif(btrim(coalesce(row ->> 'phone', '')), ''),
           nullif(btrim(coalesce(row ->> 'linkedin_url', '')), '')
         )
-        returning id into contact_id;
+        returning id into v_contact_id;
 
         insert into public.leads (
           contact_id, company_id, source, sendpilot_status, sendpilot_status_raw,
           last_synced_at, requires_review, review_reason
         ) values (
-          contact_id,
-          company_id,
+          v_contact_id,
+          v_company_id,
           coalesce(nullif(btrim(coalesce(row ->> 'source', '')), ''), 'sendpilot'),
           parsed_status,
           classified ->> 'status_raw',
@@ -1231,36 +1231,36 @@ begin
           coalesce((classified ->> 'review_required')::boolean, false),
           classified ->> 'reason'
         )
-        returning id into lead_id;
+        returning id into v_lead_id;
 
         insert into public.activities (lead_id, contact_id, company_id, type, title, actor_id, occurred_at)
-        values (lead_id, contact_id, company_id, 'lead_imported', 'Lead imported from SendPilot file', uid, now());
+        values (v_lead_id, v_contact_id, v_company_id, 'lead_imported', 'Lead imported from SendPilot file', uid, now());
 
         if parsed_status = 'Interested' then
           insert into public.activities (lead_id, contact_id, company_id, type, title, actor_id, occurred_at)
-          values (lead_id, contact_id, company_id, 'lead_became_interested', 'SendPilot status is Interested', uid, now());
+          values (v_lead_id, v_contact_id, v_company_id, 'lead_became_interested', 'SendPilot status is Interested', uid, now());
         end if;
       elsif classified ->> 'classification' in ('existing', 'updated') then
-        contact_id := (classified ->> 'matched_contact_id')::uuid;
-        lead_id := nullif(classified ->> 'matched_lead_id', '')::uuid;
-        select company_id into company_id from public.contacts where id = contact_id;
+        v_contact_id := (classified ->> 'matched_contact_id')::uuid;
+        v_lead_id := nullif(classified ->> 'matched_lead_id', '')::uuid;
+        select c.company_id into v_company_id from public.contacts c where c.id = v_contact_id;
 
         update public.contacts
         set
           phone = coalesce(phone, nullif(btrim(coalesce(row ->> 'phone', '')), '')),
           linkedin_url = coalesce(linkedin_url, nullif(btrim(coalesce(row ->> 'linkedin_url', '')), '')),
           email = coalesce(email, nullif(btrim(coalesce(row ->> 'email', '')), ''))
-        where id = contact_id;
+        where id = v_contact_id;
 
-        if lead_id is null then
+        if v_lead_id is null then
           insert into public.leads (
             contact_id, company_id, source, sendpilot_status, sendpilot_status_raw, last_synced_at, requires_review, review_reason
           ) values (
-            contact_id, company_id, coalesce(nullif(row ->> 'source', ''), 'sendpilot'),
+            v_contact_id, v_company_id, coalesce(nullif(row ->> 'source', ''), 'sendpilot'),
             parsed_status, classified ->> 'status_raw', now(),
             coalesce((classified ->> 'review_required')::boolean, false), classified ->> 'reason'
           )
-          returning id into lead_id;
+          returning id into v_lead_id;
         else
           update public.leads
           set
@@ -1270,28 +1270,28 @@ begin
             requires_review = coalesce((classified ->> 'review_required')::boolean, false),
             review_reason = classified ->> 'reason',
             source = coalesce(nullif(btrim(coalesce(row ->> 'source', '')), ''), source)
-          where id = lead_id;
+          where id = v_lead_id;
         end if;
 
         if classified ->> 'classification' = 'updated' then
           insert into public.activities (lead_id, contact_id, company_id, type, title, body, actor_id)
           values (
-            lead_id, contact_id, company_id, 'sendpilot_status_changed',
+            v_lead_id, v_contact_id, v_company_id, 'sendpilot_status_changed',
             'SendPilot record updated',
             case when parsed_status is null then classified ->> 'status_raw' else parsed_status::text end,
             uid
           );
           if parsed_status = 'Interested' then
             insert into public.activities (lead_id, contact_id, company_id, type, title, actor_id)
-            values (lead_id, contact_id, company_id, 'lead_became_interested', 'SendPilot status is Interested', uid);
+            values (v_lead_id, v_contact_id, v_company_id, 'lead_became_interested', 'SendPilot status is Interested', uid);
           end if;
         end if;
       elsif classified ->> 'classification' = 'possible_duplicate' then
-        contact_id := nullif(classified ->> 'matched_contact_id', '')::uuid;
-        lead_id := null;
+        v_contact_id := nullif(classified ->> 'matched_contact_id', '')::uuid;
+        v_lead_id := null;
       else
-        contact_id := null;
-        lead_id := null;
+        v_contact_id := null;
+        v_lead_id := null;
       end if;
 
       insert into public.sendpilot_records (
@@ -1302,9 +1302,9 @@ begin
         sync_id,
         coalesce((row ->> 'row_number')::integer, total + 1),
         coalesce(row -> 'extra', '{}'::jsonb) || row,
-        full_name,
-        first_name,
-        last_name,
+        v_full_name,
+        v_first_name,
+        v_last_name,
         row ->> 'company',
         nullif(btrim(coalesce(row ->> 'email', '')), ''),
         nullif(btrim(coalesce(row ->> 'linkedin_url', '')), ''),
@@ -1315,8 +1315,8 @@ begin
         classified ->> 'classification' in ('possible_duplicate', 'unmatched')
           or coalesce((classified ->> 'review_required')::boolean, false),
         classified ->> 'reason',
-        contact_id,
-        lead_id,
+        v_contact_id,
+        v_lead_id,
         classified ->> 'classification' in ('new', 'existing', 'updated')
       );
 
@@ -1328,9 +1328,9 @@ begin
         else unmatched_count := unmatched_count + 1;
       end case;
     exception when others then
-      error_count := error_count + 1;
-      if jsonb_array_length(errors) < 50 then
-        errors := errors || jsonb_build_array(jsonb_build_object(
+      v_error_count := v_error_count + 1;
+      if jsonb_array_length(v_errors) < 50 then
+        v_errors := v_errors || jsonb_build_array(jsonb_build_object(
           'row', coalesce(row ->> 'row_number', total::text),
           'message', sqlerrm
         ));
@@ -1349,9 +1349,9 @@ begin
     possible_duplicates = duplicate_count,
     unmatched_records = unmatched_count,
     review_records = duplicate_count + unmatched_count,
-    error_count = error_count,
-    errors = errors,
-    status = case when error_count > 0 and new_count + updated_count + existing_count = 0 then 'failed' else 'applied' end
+    error_count = v_error_count,
+    errors = v_errors,
+    status = case when v_error_count > 0 and new_count + updated_count + existing_count = 0 then 'failed' else 'applied' end
   where id = sync_id;
 
   return jsonb_build_object(
@@ -1362,7 +1362,7 @@ begin
     'updated', updated_count,
     'possible_duplicates', duplicate_count,
     'unmatched', unmatched_count,
-    'errors', error_count
+    'errors', v_error_count
   );
 end;
 $$;
