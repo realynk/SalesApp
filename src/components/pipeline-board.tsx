@@ -139,7 +139,7 @@ export function PipelineBoard({
 
   return (
     <div className="space-y-3">
-      <p className="text-sm text-muted-foreground">Drag a card onto a stage. History is kept. Lost and Client Started still need their extra fields on the opportunity page.</p>
+      <p className="text-sm text-muted-foreground">Interested pipeline. Drag a card onto a stage. History is kept. Lost and Client Started still need their extra fields on the opportunity page.</p>
       {notice ? <p className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground">{notice}</p> : null}
       <DndContext
         sensors={sensors}

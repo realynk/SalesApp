@@ -5,7 +5,7 @@ export function raiseIf(error: { message: string; code?: string } | null) {
   console.error(error);
   if (error.code === "42P01" || error.code === "PGRST205" || /does not exist|schema cache/i.test(error.message)) {
     throw new AppDataError(
-      "The database schema is not installed yet. Apply supabase/migrations/20260923170000_command_center.sql in the Supabase SQL editor, then reload.",
+      "The database schema is missing a column or table. Apply the latest file in supabase/migrations in the Supabase SQL editor, then reload.",
     );
   }
   throw new AppDataError("The workspace data could not be loaded.");

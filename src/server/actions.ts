@@ -13,6 +13,8 @@ import {
   RECRUITMENT_STATUSES,
   RISK_LEVELS,
   SENDPILOT_STATUSES,
+  NOT_INTERESTED_OUTCOMES,
+  notInterestedOutcome,
   WAITING_ON,
   addBusinessDays,
   importSourceFromFilename,
@@ -133,19 +135,25 @@ async function insertLead(
     .single();
   if (contactError || !contact) return { error: actionError(contactError) };
   const sendpilotStatus = (SENDPILOT_STATUSES as readonly string[]).includes(input.status) ? input.status : null;
-  const { data: lead, error: leadError } = await supabase
-    .from("leads")
-    .insert({
-      contact_id: (contact as { id: string }).id,
-      company_id: companyId,
-      source: input.source,
-      sendpilot_status: sendpilotStatus,
-      last_synced_at: new Date().toISOString(),
-    })
-    .select("id")
-    .single();
-  if (leadError || !lead) return { error: actionError(leadError) };
-  const leadId = String((lead as { id: string }).id);
+  const outcome = sendpilotStatus === "Not Interested"
+    ? notInterestedOutcome(optionalText(input.formData, "not_interested_outcome"))
+    : null;
+  const leadFields = {
+    contact_id: (contact as { id: string }).id,
+    company_id: companyId,
+    source: input.source,
+    sendpilot_status: sendpilotStatus,
+    not_interested_outcome: outcome,
+    last_synced_at: new Date().toISOString(),
+  };
+  let leadInsert = await supabase.from("leads").insert(leadFields).select("id").single();
+  if (leadInsert.error && /not_interested_outcome/i.test(leadInsert.error.message)) {
+    const { not_interested_outcome: _unused, ...withoutOutcome } = leadFields;
+    void _unused;
+    leadInsert = await supabase.from("leads").insert(withoutOutcome).select("id").single();
+  }
+  if (leadInsert.error || !leadInsert.data) return { error: actionError(leadInsert.error) };
+  const leadId = String((leadInsert.data as { id: string }).id);
   await supabase.from("activities").insert({
     lead_id: leadId,
     contact_id: (contact as { id: string }).id,
@@ -243,30 +251,68 @@ export async function updateLeadStatus(_state: ActionState, formData: FormData):
   const leadId = text(formData, "lead_id");
   const status = optionalText(formData, "sendpilot_status");
   const note = optionalText(formData, "note");
+  const requestedOutcome = optionalText(formData, "not_interested_outcome");
   if (!isUuid(leadId)) return { error: "Choose a lead." };
   if (status && !(SENDPILOT_STATUSES as readonly string[]).includes(status)) return { error: "Choose a SendPilot status." };
+  if (requestedOutcome && !(NOT_INTERESTED_OUTCOMES as readonly string[]).includes(requestedOutcome)) {
+    return { error: "Choose a Not Interested reason." };
+  }
   const { data: current, error: loadError } = await supabase.from("leads").select("sendpilot_status").eq("id", leadId).maybeSingle();
   if (loadError) return { error: actionError(loadError) };
   const previous = current?.sendpilot_status ? String(current.sendpilot_status) : null;
+  const outcome = status === "Not Interested" ? notInterestedOutcome(requestedOutcome) : null;
   const { error } = await supabase
     .from("leads")
     .update({
       sendpilot_status: status || null,
       sendpilot_status_raw: status,
+      not_interested_outcome: outcome,
     })
     .eq("id", leadId);
-  if (error) return { error: actionError(error) };
-  if (previous !== (status || null)) {
+  if (error) return { error: outcomeColumnError(error) };
+  if (previous !== (status || null) || note || outcome) {
     await supabase.from("activities").insert({
       lead_id: leadId,
       type: status === "Interested" && previous !== "Interested" ? "lead_became_interested" : "sendpilot_status_changed",
-      title: status ? `Status set to ${status}` : "Status cleared",
+      title: status === "Not Interested" ? `Status set to Not Interested · ${outcome}` : status ? `Status set to ${status}` : "Status cleared",
       body: note ?? (previous ? `Was ${previous}` : null),
       actor_id: userId,
     });
   }
-  refresh(`/leads/${leadId}`, "/leads", "/dashboard", "/reconciliation");
+  refresh(`/leads/${leadId}`, "/leads", "/dashboard", "/reconciliation", "/opportunities", "/follow-ups");
   return { success: "Lead status saved." };
+}
+
+export async function dropLeadOnOutcome(formData: FormData): Promise<ActionState> {
+  const { supabase, userId } = await requireUser();
+  const leadId = text(formData, "lead_id");
+  const outcome = text(formData, "not_interested_outcome");
+  if (!isUuid(leadId) || !(NOT_INTERESTED_OUTCOMES as readonly string[]).includes(outcome)) {
+    return { error: "Choose a Not Interested reason." };
+  }
+  const { error } = await supabase
+    .from("leads")
+    .update({
+      sendpilot_status: "Not Interested",
+      not_interested_outcome: outcome,
+    })
+    .eq("id", leadId);
+  if (error) return { error: outcomeColumnError(error) };
+  await supabase.from("activities").insert({
+    lead_id: leadId,
+    type: "sendpilot_status_changed",
+    title: `Not Interested set to ${outcome}`,
+    actor_id: userId,
+  });
+  refresh(`/leads/${leadId}`, "/leads", "/opportunities", "/follow-ups", "/dashboard");
+  return { success: `Moved to ${outcome}.` };
+}
+
+function outcomeColumnError(error: { message: string; code?: string }) {
+  if (error.code === "PGRST204" || /not_interested_outcome/i.test(error.message)) {
+    return "Apply supabase/migrations/20260923215000_not_interested_outcomes.sql in the Supabase SQL editor so Not Interested leads can be sorted.";
+  }
+  return actionError(error);
 }
 
 export async function createOpportunity(_state: ActionState, formData: FormData): Promise<ActionState> {

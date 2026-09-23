@@ -13,6 +13,7 @@ import {
   type RiskLevel,
   type WaitingOn,
   type SendPilotStatus,
+  notInterestedOutcome,
 } from "@/lib/domain";
 import { raiseIf } from "@/lib/errors";
 import { fullName } from "@/lib/format";
@@ -373,15 +374,18 @@ export async function getOwners() {
 
 export async function listLeads(filters: { q?: string; status?: string; review?: string }) {
   const { supabase } = await requireUser();
-  const [leadResult, opportunityResult, followResult] = await Promise.all([
-    supabase
-      .from("leads")
-      .select("id, source, sendpilot_status, sendpilot_status_raw, last_synced_at, requires_review, review_reason, created_at, company_id, contact_id, companies(id, name), contacts(id, first_name, last_name, email, phone, linkedin_url, title)")
-      .order("updated_at", { ascending: false })
-      .limit(500),
+  const leadSelect =
+    "id, source, sendpilot_status, sendpilot_status_raw, not_interested_outcome, last_synced_at, requires_review, review_reason, created_at, company_id, contact_id, companies(id, name), contacts(id, first_name, last_name, email, phone, linkedin_url, title)";
+  const leadSelectFallback =
+    "id, source, sendpilot_status, sendpilot_status_raw, last_synced_at, requires_review, review_reason, created_at, company_id, contact_id, companies(id, name), contacts(id, first_name, last_name, email, phone, linkedin_url, title)";
+  const [firstLeadResult, opportunityResult, followResult] = await Promise.all([
+    supabase.from("leads").select(leadSelect).order("updated_at", { ascending: false }).limit(500),
     supabase.from("opportunities").select("id, lead_id, stage, status").limit(500),
     supabase.from("follow_ups").select("id, lead_id, title, due_on, status").eq("status", "open").order("due_on").limit(500),
   ]);
+  const leadResult = missingOutcomeColumn(firstLeadResult.error)
+    ? await supabase.from("leads").select(leadSelectFallback).order("updated_at", { ascending: false }).limit(500)
+    : firstLeadResult;
   raiseIf(leadResult.error);
   raiseIf(opportunityResult.error);
   raiseIf(followResult.error);
@@ -415,6 +419,7 @@ export async function listLeads(filters: { q?: string; status?: string; review?:
         opportunityId: opportunity ? String(opportunity.id) : null,
         opportunityStage: opportunity ? (str(opportunity.stage) as OpportunityStage) : null,
         nextFollowUp: nextFollowUpByLead.get(String(item.id)) ?? null,
+        notInterestedOutcome: notInterestedOutcome(str(item.not_interested_outcome)),
       };
     })
     .filter((lead) => {
@@ -430,17 +435,24 @@ function isUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }
 
+function missingOutcomeColumn(error: { message?: string; code?: string } | null) {
+  return Boolean(error && (error.code === "PGRST204" || /not_interested_outcome/i.test(error.message ?? "")));
+}
+
 export async function getLead(id: string) {
   if (!isUuid(id)) return null;
   const { supabase } = await requireUser();
-  const { data, error } = await supabase
-    .from("leads")
-    .select("id, source, sendpilot_status, sendpilot_status_raw, last_synced_at, requires_review, review_reason, created_at, companies(id, name, industry, website, timezone, notes), contacts(id, first_name, last_name, email, phone, linkedin_url, title)")
-    .eq("id", id)
-    .maybeSingle();
-  raiseIf(error);
-  if (!data) return null;
-  const record = data as Row;
+  const detailSelect =
+    "id, source, sendpilot_status, sendpilot_status_raw, not_interested_outcome, last_synced_at, requires_review, review_reason, created_at, companies(id, name, industry, website, timezone, notes), contacts(id, first_name, last_name, email, phone, linkedin_url, title)";
+  const detailFallback =
+    "id, source, sendpilot_status, sendpilot_status_raw, last_synced_at, requires_review, review_reason, created_at, companies(id, name, industry, website, timezone, notes), contacts(id, first_name, last_name, email, phone, linkedin_url, title)";
+  const first = await supabase.from("leads").select(detailSelect).eq("id", id).maybeSingle();
+  const loaded = missingOutcomeColumn(first.error)
+    ? await supabase.from("leads").select(detailFallback).eq("id", id).maybeSingle()
+    : first;
+  raiseIf(loaded.error);
+  if (!loaded.data) return null;
+  const record = loaded.data as Row;
   const company = row(record.companies);
   const contact = row(record.contacts);
   const [activities, opportunityResult, followUps, notes] = await Promise.all([
@@ -458,6 +470,7 @@ export async function getLead(id: string) {
     source: str(record.source) ?? "sendpilot",
     sendpilotStatus: str(record.sendpilot_status) as SendPilotStatus | null,
     rawStatus: str(record.sendpilot_status_raw),
+    notInterestedOutcome: notInterestedOutcome(str(record.not_interested_outcome)),
     lastSyncedAt: str(record.last_synced_at),
     requiresReview: bool(record.requires_review),
     reviewReason: str(record.review_reason),
@@ -511,9 +524,16 @@ function mapActivity(item: Row) {
 }
 
 export async function listOpportunities(filters: { q?: string; stage?: string; risk?: string; owner?: string; waiting?: string }) {
-  const center = await getCommandCenter();
+  const { supabase } = await requireUser();
+  const [center, leadResult] = await Promise.all([
+    getCommandCenter(),
+    supabase.from("leads").select("id, sendpilot_status").limit(500),
+  ]);
+  raiseIf(leadResult.error);
+  const statusByLead = new Map(rows(leadResult.data).map((item) => [String(item.id), str(item.sendpilot_status)]));
   const query = filters.q?.trim().toLowerCase() ?? "";
   return center.opportunities.filter((opportunity) => {
+    if (statusByLead.get(opportunity.leadId) === "Not Interested") return false;
     if (filters.stage && opportunity.stage !== filters.stage) return false;
     if (filters.risk && opportunity.riskLevel !== filters.risk) return false;
     if (filters.owner && opportunity.ownerId !== filters.owner) return false;

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { controlClass, Field, Notice, PageHeader, StageBadge } from "@/components/bits";
 import { Button } from "@/components/ui/button";
-import { SENDPILOT_STATUSES, OPPORTUNITY_STAGES, NURTURE_REASON_SUGGESTIONS, STAGE_PLAYBOOK } from "@/lib/domain";
+import { SENDPILOT_STATUSES, OPPORTUNITY_STAGES, NOT_INTERESTED_OUTCOMES, NURTURE_REASON_SUGGESTIONS, STAGE_PLAYBOOK } from "@/lib/domain";
 import { listLeads } from "@/lib/data";
 import { firstParam, formatDate, formatDateTime } from "@/lib/format";
 import { createLead } from "@/server/actions";
@@ -39,6 +39,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
             <tr>
               <th className="px-4 py-3">Contact</th>
               <th className="px-4 py-3">SendPilot</th>
+              <th className="px-4 py-3">If not interested</th>
               <th className="px-4 py-3">Opportunity</th>
               <th className="px-4 py-3">Next follow-up</th>
               <th className="px-4 py-3">Last sync</th>
@@ -52,6 +53,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
                   <p className="text-xs text-muted-foreground">{lead.companyName} · {lead.email ?? "No email"}</p>
                 </td>
                 <td className="px-4 py-3">{lead.sendpilotStatus ?? lead.rawStatus ?? "—"}</td>
+                <td className="px-4 py-3">{lead.sendpilotStatus === "Not Interested" ? lead.notInterestedOutcome : <span className="text-muted-foreground">—</span>}</td>
                 <td className="px-4 py-3">{lead.opportunityStage ? <StageBadge stage={lead.opportunityStage} /> : <span className="text-destructive">Not found</span>}</td>
                 <td className="px-4 py-3">{lead.nextFollowUp ? <><p>{lead.nextFollowUp.title}</p><p className="text-xs text-muted-foreground">{formatDate(lead.nextFollowUp.dueOn)}</p></> : <span className="text-muted-foreground">None</span>}</td>
                 <td className="px-4 py-3 text-muted-foreground">{formatDateTime(lead.lastSyncedAt)}</td>
@@ -74,6 +76,11 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
             <select className={controlClass} name="sendpilot_status" defaultValue="Interested">
               <option value="">Unknown</option>
               {SENDPILOT_STATUSES.map((status) => <option key={status}>{status}</option>)}
+            </select>
+          </Field>
+          <Field label="If not interested">
+            <select className={controlClass} name="not_interested_outcome" defaultValue="Nurture">
+              {NOT_INTERESTED_OUTCOMES.map((outcome) => <option key={outcome}>{outcome}</option>)}
             </select>
           </Field>
           <Field label="Source"><input className={controlClass} name="source" defaultValue="Manual" /></Field>

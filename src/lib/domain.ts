@@ -94,6 +94,21 @@ export const NURTURE_REASON_SUGGESTIONS = [
   "Other",
 ] as const;
 
+export const NOT_INTERESTED_OUTCOMES = [
+  "Nurture",
+  "No longer in the company",
+  "Not the decision maker",
+  "Not relevant",
+  "Stop",
+] as const;
+
+export type NotInterestedOutcome = (typeof NOT_INTERESTED_OUTCOMES)[number];
+
+export function notInterestedOutcome(value?: string | null): NotInterestedOutcome {
+  if (value && (NOT_INTERESTED_OUTCOMES as readonly string[]).includes(value)) return value as NotInterestedOutcome;
+  return "Nurture";
+}
+
 export const ACTIVITY_TYPES = [
   "lead_imported",
   "sendpilot_status_changed",

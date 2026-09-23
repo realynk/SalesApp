@@ -9,10 +9,17 @@ import {
   mapImportRecords,
   median,
   normalizeSendPilotStatus,
+  notInterestedOutcome,
   potentialArr,
   potentialMrr,
   timeMetrics,
 } from "./domain.ts";
+
+test("defaults unknown Not Interested outcomes to Nurture", () => {
+  assert.equal(notInterestedOutcome(null), "Nurture");
+  assert.equal(notInterestedOutcome("Stop"), "Stop");
+  assert.equal(notInterestedOutcome("not the decision maker"), "Nurture");
+});
 
 test("normalizes SendPilot statuses without inventing new ones", () => {
   assert.equal(normalizeSendPilotStatus(" interested "), "Interested");

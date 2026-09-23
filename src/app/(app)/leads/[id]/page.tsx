@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { controlClass, Field, PageHeader, SectionCard, StageBadge, textareaClass } from "@/components/bits";
 import { ActionForm, SubmitButton } from "@/components/forms";
-import { ACTIVITY_LABELS, NURTURE_REASON_SUGGESTIONS, OPPORTUNITY_STAGES, SENDPILOT_STATUSES, STAGE_PLAYBOOK, type ActivityType } from "@/lib/domain";
+import { ACTIVITY_LABELS, NOT_INTERESTED_OUTCOMES, NURTURE_REASON_SUGGESTIONS, OPPORTUNITY_STAGES, SENDPILOT_STATUSES, STAGE_PLAYBOOK, type ActivityType } from "@/lib/domain";
 import { getLead } from "@/lib/data";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { addNote, completeFollowUp, createFollowUp, createOpportunity, updateLeadStatus } from "@/server/actions";
@@ -38,6 +38,11 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
               <select className={controlClass} name="sendpilot_status" defaultValue={lead.sendpilotStatus ?? ""}>
                 <option value="">Unknown</option>
                 {SENDPILOT_STATUSES.map((status) => <option key={status}>{status}</option>)}
+              </select>
+            </Field>
+            <Field label="If not interested">
+              <select className={controlClass} name="not_interested_outcome" defaultValue={lead.notInterestedOutcome}>
+                {NOT_INTERESTED_OUTCOMES.map((outcome) => <option key={outcome}>{outcome}</option>)}
               </select>
             </Field>
             <Field label="Note about the change"><textarea className={textareaClass} name="note" placeholder="Optional. Kept on the timeline." /></Field>
