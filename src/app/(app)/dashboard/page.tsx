@@ -4,7 +4,7 @@ import { WeekCalendar } from "@/components/week-calendar";
 import { Button } from "@/components/ui/button";
 import { buildWeekTasks } from "@/lib/domain";
 import { getCommandCenter } from "@/lib/data";
-import { formatDate, formatMoney, firstParam } from "@/lib/format";
+import { formatDate, firstParam } from "@/lib/format";
 import { loadSampleWorkspace } from "@/server/actions";
 
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ notice?: string; week?: string }> }) {
@@ -63,8 +63,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       ) : null}
       {empty ? null : <WeekCalendar today={center.today} week={firstParam(query.week)} tasks={weekTasks} notice={firstParam(query.notice)} />}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <KpiCard label="Pipeline value" value={formatMoney(center.kpis.pipelineValue)} detail={`Closed MRR ${formatMoney(center.kpis.closedMrr)}`} />
-        <KpiCard label="Active opportunities" value={String(center.kpis.activeOpportunities)} detail={`${center.kpis.nurture} in nurture`} />
+        <KpiCard label="Tagged as Interested" value={String(center.kpis.interestedLeads)} detail={`${center.kpis.interestedWithoutOpportunity} without an opportunity`} />
+        <KpiCard label="Sent / review profile" value={String(center.kpis.profilesInReview)} detail={`${center.kpis.profilesAwaiting} awaiting a client response`} />
         <KpiCard label="Meetings this week" value={String(center.kpis.meetingsThisWeek)} />
         <KpiCard label="Recruitment requests" value={String(center.kpis.recruitmentRequests)} />
         <KpiCard label="Profiles awaiting client" value={String(center.kpis.profilesAwaiting)} />
@@ -82,28 +82,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       </div>
       <SectionCard title="Upcoming" description="Strategy calls, interviews, follow-ups, and dates inside the approaching window.">
         <AttentionList items={upcoming} empty="Nothing is coming up in the current window." />
-      </SectionCard>
-      <SectionCard title="Pipeline" description="Counts and potential revenue by stage. Revenue stays potential until Client Started or Won.">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="text-xs tracking-wide text-muted-foreground uppercase">
-              <tr>
-                <th className="py-2">Stage</th>
-                <th className="py-2">Opportunities</th>
-                <th className="py-2">Potential MRR</th>
-              </tr>
-            </thead>
-            <tbody>
-              {center.pipeline.map((row) => (
-                <tr key={row.stage} className="border-t border-border">
-                  <td className="py-2"><StageBadge stage={row.stage} /></td>
-                  <td className="py-2 font-mono">{row.count}</td>
-                  <td className="py-2 font-mono">{formatMoney(row.mrr)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
       </SectionCard>
       <SectionCard title="Stale opportunities" description={`No meaningful activity for ${center.settings.staleAfterDays} days or more. Change the threshold in Settings.`}>
         {center.stale.length === 0 ? <p className="text-sm text-muted-foreground">No stale opportunities.</p> : (

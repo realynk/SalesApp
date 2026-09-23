@@ -238,6 +238,37 @@ async function createOpportunityForLead(
   return { id: opportunityId };
 }
 
+export async function updateLeadStatus(_state: ActionState, formData: FormData): Promise<ActionState> {
+  const { supabase, userId } = await requireUser();
+  const leadId = text(formData, "lead_id");
+  const status = optionalText(formData, "sendpilot_status");
+  const note = optionalText(formData, "note");
+  if (!isUuid(leadId)) return { error: "Choose a lead." };
+  if (status && !(SENDPILOT_STATUSES as readonly string[]).includes(status)) return { error: "Choose a SendPilot status." };
+  const { data: current, error: loadError } = await supabase.from("leads").select("sendpilot_status").eq("id", leadId).maybeSingle();
+  if (loadError) return { error: actionError(loadError) };
+  const previous = current?.sendpilot_status ? String(current.sendpilot_status) : null;
+  const { error } = await supabase
+    .from("leads")
+    .update({
+      sendpilot_status: status || null,
+      sendpilot_status_raw: status,
+    })
+    .eq("id", leadId);
+  if (error) return { error: actionError(error) };
+  if (previous !== (status || null)) {
+    await supabase.from("activities").insert({
+      lead_id: leadId,
+      type: status === "Interested" && previous !== "Interested" ? "lead_became_interested" : "sendpilot_status_changed",
+      title: status ? `Status set to ${status}` : "Status cleared",
+      body: note ?? (previous ? `Was ${previous}` : null),
+      actor_id: userId,
+    });
+  }
+  refresh(`/leads/${leadId}`, "/leads", "/dashboard", "/reconciliation");
+  return { success: "Lead status saved." };
+}
+
 export async function createOpportunity(_state: ActionState, formData: FormData): Promise<ActionState> {
   const { supabase, userId } = await requireUser();
   const leadId = text(formData, "lead_id");
@@ -292,6 +323,14 @@ export async function moveStage(_state: ActionState, formData: FormData): Promis
   return { success: `Moved to ${stage}. History was kept.` };
 }
 
+export async function moveStageFromBoard(formData: FormData) {
+  const result = await moveStage({}, formData);
+  if (result?.error) {
+    redirect(`/opportunities?notice=${encodeURIComponent(result.error)}`);
+  }
+  redirect("/opportunities");
+}
+
 export async function createFollowUp(_state: ActionState, formData: FormData): Promise<ActionState> {
   const { supabase, userId } = await requireUser();
   const opportunityId = optionalText(formData, "opportunity_id");
@@ -320,7 +359,13 @@ export async function createFollowUp(_state: ActionState, formData: FormData): P
   if (opportunityId) {
     await supabase.from("opportunities").update({ next_action: title, next_action_date: dueOn }).eq("id", opportunityId);
   }
-  refresh("/follow-ups", "/dashboard", opportunityId ? `/opportunities/${opportunityId}` : `/leads/${leadId}`);
+  refresh(
+    "/follow-ups",
+    "/dashboard",
+    "/leads",
+    leadId ? `/leads/${leadId}` : "/leads",
+    opportunityId ? `/opportunities/${opportunityId}` : "/follow-ups",
+  );
   return { success: "Follow-up scheduled." };
 }
 
@@ -328,16 +373,18 @@ export async function completeFollowUp(formData: FormData) {
   const { supabase, userId } = await requireUser();
   const id = text(formData, "follow_up_id");
   const opportunityId = optionalText(formData, "opportunity_id");
+  const leadId = optionalText(formData, "lead_id");
   if (!isUuid(id)) return;
   const { error } = await supabase.from("follow_ups").update({ status: "completed", completed_at: new Date().toISOString() }).eq("id", id);
   if (error) redirect(`/follow-ups?notice=${encodeURIComponent(actionError(error))}`);
   await supabase.from("activities").insert({
     opportunity_id: opportunityId,
+    lead_id: leadId,
     type: "follow_up_completed",
     title: "Follow-up completed",
     actor_id: userId,
   });
-  refresh("/follow-ups", "/dashboard", opportunityId ? `/opportunities/${opportunityId}` : "/follow-ups");
+  refresh("/follow-ups", "/dashboard", "/leads", opportunityId ? `/opportunities/${opportunityId}` : "/follow-ups", leadId ? `/leads/${leadId}` : "/leads");
 }
 
 export async function saveStrategyCall(_state: ActionState, formData: FormData): Promise<ActionState> {
@@ -670,7 +717,7 @@ export async function addNote(_state: ActionState, formData: FormData): Promise<
   const { error } = await supabase.from("notes").insert({ opportunity_id: opportunityId, lead_id: leadId, body, author_id: userId });
   if (error) return { error: actionError(error) };
   await supabase.from("activities").insert({ opportunity_id: opportunityId, lead_id: leadId, type: "note_added", title: "Note added", body, actor_id: userId });
-  refresh(opportunityId ? `/opportunities/${opportunityId}` : `/leads/${leadId}`);
+  refresh("/leads", opportunityId ? `/opportunities/${opportunityId}` : `/leads/${leadId}`, leadId ? `/leads/${leadId}` : "/leads");
   return { success: "Note added. Notes are kept, not overwritten." };
 }
 

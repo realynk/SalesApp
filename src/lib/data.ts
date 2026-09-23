@@ -184,15 +184,32 @@ export const getCommandCenter = cache(async () => {
   const opportunityIds = new Set(opportunities.map((opportunity) => opportunity.leadId));
   const companyByOpportunity = new Map(opportunities.map((opportunity) => [opportunity.id, opportunity.companyName]));
 
-  const followUps = rows(followResult.data).map((item) => ({
-    id: String(item.id),
-    opportunityId: str(item.opportunity_id),
-    leadId: str(item.lead_id),
-    title: str(item.title) ?? "Follow-up",
-    dueOn: str(item.due_on) ?? today,
-    status: "open" as const,
-    companyName: str(item.opportunity_id) ? companyByOpportunity.get(String(item.opportunity_id)) ?? "Follow-up" : "Follow-up",
-  }));
+  const companyByLead = new Map<string, string>();
+  for (const opportunity of opportunities) {
+    companyByLead.set(opportunity.leadId, opportunity.companyName);
+  }
+  for (const item of rows(leadResult.data)) {
+    const company = row(item.companies);
+    const name = str(company?.name);
+    if (name) companyByLead.set(String(item.id), name);
+  }
+
+  const followUps = rows(followResult.data).map((item) => {
+    const opportunityId = str(item.opportunity_id);
+    const leadId = str(item.lead_id);
+    return {
+      id: String(item.id),
+      opportunityId,
+      leadId,
+      title: str(item.title) ?? "Follow-up",
+      dueOn: str(item.due_on) ?? today,
+      status: "open" as const,
+      companyName:
+        (opportunityId ? companyByOpportunity.get(opportunityId) : null) ??
+        (leadId ? companyByLead.get(leadId) : null) ??
+        "Follow-up",
+    };
+  });
 
   const profileBatches = rows(batchResult.data).map((item) => ({
     id: String(item.id),
@@ -294,6 +311,9 @@ export const getCommandCenter = cache(async () => {
       closedMrr,
       activeOpportunities: activeCount,
       nurture: opportunities.filter((item) => item.status === "nurture").length,
+      interestedLeads: rows(leadResult.data).length,
+      interestedWithoutOpportunity: unmatchedInterested.length,
+      profilesInReview: opportunities.filter((item) => item.stage === "Profiles Sent" || item.stage === "Client Review").length,
       meetingsThisWeek: strategyCalls.filter((call) => call.callOn && call.callOn >= weekStart && call.callOn <= weekEnd).length,
       recruitmentRequests: recruitment.filter((item) => !["Candidate Selected", "No Suitable Candidate"].includes(item.status)).length,
       profilesAwaiting: profileBatches.filter((batch) => !batch.clientResponse).length,
@@ -353,17 +373,25 @@ export async function getOwners() {
 
 export async function listLeads(filters: { q?: string; status?: string; review?: string }) {
   const { supabase } = await requireUser();
-  const [leadResult, opportunityResult] = await Promise.all([
+  const [leadResult, opportunityResult, followResult] = await Promise.all([
     supabase
       .from("leads")
       .select("id, source, sendpilot_status, sendpilot_status_raw, last_synced_at, requires_review, review_reason, created_at, company_id, contact_id, companies(id, name), contacts(id, first_name, last_name, email, phone, linkedin_url, title)")
       .order("updated_at", { ascending: false })
       .limit(500),
     supabase.from("opportunities").select("id, lead_id, stage, status").limit(500),
+    supabase.from("follow_ups").select("id, lead_id, title, due_on, status").eq("status", "open").order("due_on").limit(500),
   ]);
   raiseIf(leadResult.error);
   raiseIf(opportunityResult.error);
+  raiseIf(followResult.error);
   const opportunityByLead = new Map(rows(opportunityResult.data).map((item) => [String(item.lead_id), item]));
+  const nextFollowUpByLead = new Map<string, { title: string; dueOn: string }>();
+  for (const item of rows(followResult.data)) {
+    const leadId = str(item.lead_id);
+    if (!leadId || nextFollowUpByLead.has(leadId)) continue;
+    nextFollowUpByLead.set(leadId, { title: str(item.title) ?? "Follow-up", dueOn: str(item.due_on) ?? "" });
+  }
   const query = filters.q?.trim().toLowerCase() ?? "";
   return rows(leadResult.data)
     .map((item) => {
@@ -386,6 +414,7 @@ export async function listLeads(filters: { q?: string; status?: string; review?:
         reviewReason: str(item.review_reason),
         opportunityId: opportunity ? String(opportunity.id) : null,
         opportunityStage: opportunity ? (str(opportunity.stage) as OpportunityStage) : null,
+        nextFollowUp: nextFollowUpByLead.get(String(item.id)) ?? null,
       };
     })
     .filter((lead) => {
@@ -417,7 +446,7 @@ export async function getLead(id: string) {
   const [activities, opportunityResult, followUps, notes] = await Promise.all([
     supabase.from("activities").select("id, type, title, body, occurred_at").eq("lead_id", id).order("occurred_at", { ascending: false }).limit(100),
     supabase.from("opportunities").select("id, stage, status, title, next_action, next_action_date").eq("lead_id", id).order("created_at", { ascending: false }).limit(5),
-    supabase.from("follow_ups").select("id, title, due_on, status, reason, notes").eq("lead_id", id).order("due_on"),
+    supabase.from("follow_ups").select("id, title, due_on, status, reason, notes, completed_at").eq("lead_id", id).order("due_on"),
     supabase.from("notes").select("id, body, created_at").eq("lead_id", id).order("created_at", { ascending: false }),
   ]);
   raiseIf(activities.error);
@@ -465,6 +494,7 @@ export async function getLead(id: string) {
       status: str(item.status) ?? "open",
       reason: str(item.reason),
       notes: str(item.notes),
+      completedAt: str(item.completed_at),
     })),
     notes: rows(notes.data).map((item) => ({ id: String(item.id), body: str(item.body) ?? "", createdAt: str(item.created_at) })),
   };

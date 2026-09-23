@@ -3,7 +3,7 @@ import { controlClass, Field, Notice, PageHeader, StageBadge } from "@/component
 import { Button } from "@/components/ui/button";
 import { SENDPILOT_STATUSES, OPPORTUNITY_STAGES, NURTURE_REASON_SUGGESTIONS, STAGE_PLAYBOOK } from "@/lib/domain";
 import { listLeads } from "@/lib/data";
-import { firstParam, formatDateTime } from "@/lib/format";
+import { firstParam, formatDate, formatDateTime } from "@/lib/format";
 import { createLead } from "@/server/actions";
 import { ActionForm, SubmitButton } from "@/components/forms";
 
@@ -16,7 +16,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
       <PageHeader
         eyebrow="Leads"
         title="Source records"
-        description="SendPilot status lives here. A sales opportunity is created only when the lead becomes commercially meaningful."
+        description="Open a lead to change its status, schedule a follow-up reminder, or add notes. SendPilot status stays separate from the sales pipeline."
         actions={<Button asChild><Link href="/leads/import">Import file</Link></Button>}
       />
       <Notice message={firstParam(query.notice)} />
@@ -40,6 +40,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
               <th className="px-4 py-3">Contact</th>
               <th className="px-4 py-3">SendPilot</th>
               <th className="px-4 py-3">Opportunity</th>
+              <th className="px-4 py-3">Next follow-up</th>
               <th className="px-4 py-3">Last sync</th>
             </tr>
           </thead>
@@ -52,6 +53,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
                 </td>
                 <td className="px-4 py-3">{lead.sendpilotStatus ?? lead.rawStatus ?? "—"}</td>
                 <td className="px-4 py-3">{lead.opportunityStage ? <StageBadge stage={lead.opportunityStage} /> : <span className="text-destructive">Not found</span>}</td>
+                <td className="px-4 py-3">{lead.nextFollowUp ? <><p>{lead.nextFollowUp.title}</p><p className="text-xs text-muted-foreground">{formatDate(lead.nextFollowUp.dueOn)}</p></> : <span className="text-muted-foreground">None</span>}</td>
                 <td className="px-4 py-3 text-muted-foreground">{formatDateTime(lead.lastSyncedAt)}</td>
               </tr>
             ))}
