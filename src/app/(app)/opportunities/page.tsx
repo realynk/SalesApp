@@ -34,7 +34,7 @@ export default async function OpportunitiesPage({ searchParams }: { searchParams
       <PageHeader
         eyebrow="Pipeline"
         title="Opportunities"
-        description="Stage, last activity, next action, due date, owner, and risk stay visible. Use the board to work the funnel, or the list to scan every row."
+        description="Drag a card onto a stage to move it. Stage, last activity, next action, due date, owner, and risk stay visible. Use the list to scan every row."
         actions={
           <div className="flex gap-2">
             <Button variant={view === "board" ? "default" : "outline"} size="sm" asChild>
@@ -69,7 +69,11 @@ export default async function OpportunitiesPage({ searchParams }: { searchParams
         <Button type="submit" variant="outline">Filter</Button>
       </form>
       {view === "board" ? (
-        <PipelineBoard stages={OPPORTUNITY_STAGES} opportunities={opportunities} />
+        <PipelineBoard
+          key={opportunities.map((item) => `${item.id}:${item.stage}`).join("|")}
+          stages={OPPORTUNITY_STAGES}
+          opportunities={opportunities}
+        />
       ) : (
         <div className="overflow-x-auto rounded-xl border border-border bg-card">
           <table className="w-full min-w-[980px] text-left text-sm">

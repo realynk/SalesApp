@@ -323,12 +323,8 @@ export async function moveStage(_state: ActionState, formData: FormData): Promis
   return { success: `Moved to ${stage}. History was kept.` };
 }
 
-export async function moveStageFromBoard(formData: FormData) {
-  const result = await moveStage({}, formData);
-  if (result?.error) {
-    redirect(`/opportunities?notice=${encodeURIComponent(result.error)}`);
-  }
-  redirect("/opportunities");
+export async function dropOpportunityOnStage(formData: FormData): Promise<ActionState> {
+  return moveStage({}, formData);
 }
 
 export async function createFollowUp(_state: ActionState, formData: FormData): Promise<ActionState> {
