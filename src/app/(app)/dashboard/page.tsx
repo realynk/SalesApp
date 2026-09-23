@@ -1,13 +1,29 @@
 import Link from "next/link";
 import { AttentionList, EmptyState, KpiCard, Notice, PageHeader, SectionCard, StageBadge } from "@/components/bits";
+import { WeekCalendar } from "@/components/week-calendar";
 import { Button } from "@/components/ui/button";
+import { buildWeekTasks } from "@/lib/domain";
 import { getCommandCenter } from "@/lib/data";
 import { formatDate, formatMoney, firstParam } from "@/lib/format";
 import { loadSampleWorkspace } from "@/server/actions";
 
-export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ notice?: string }> }) {
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ notice?: string; week?: string }> }) {
   const query = await searchParams;
   const center = await getCommandCenter();
+  const weekTasks = buildWeekTasks({
+    today: center.today,
+    staleAfterDays: center.settings.staleAfterDays,
+    profilesWaitingDays: center.settings.profilesWaitingDays,
+    approachingWindowDays: center.settings.approachingWindowDays,
+    opportunities: center.schedule.opportunities,
+    followUps: center.schedule.followUps,
+    profileBatches: center.schedule.profileBatches,
+    recruitment: center.schedule.recruitment,
+    interviews: center.schedule.interviews,
+    contracts: center.schedule.contracts,
+    strategyCalls: center.schedule.strategyCalls,
+    unmatchedInterested: [],
+  });
   const needs = center.attention.filter((item) => item.sections.includes("needs")).slice(0, 8);
   const today = center.attention.filter((item) => item.sections.includes("today")).slice(0, 8);
   const upcoming = center.attention.filter((item) => item.sections.includes("upcoming")).slice(0, 8);
@@ -45,6 +61,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           <p className="mt-1 text-sm text-muted-foreground">{hero.detail}</p>
         </Link>
       ) : null}
+      {empty ? null : <WeekCalendar today={center.today} week={firstParam(query.week)} tasks={weekTasks} notice={firstParam(query.notice)} />}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard label="Pipeline value" value={formatMoney(center.kpis.pipelineValue)} detail={`Closed MRR ${formatMoney(center.kpis.closedMrr)}`} />
         <KpiCard label="Active opportunities" value={String(center.kpis.activeOpportunities)} detail={`${center.kpis.nurture} in nurture`} />

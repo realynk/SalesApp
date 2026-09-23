@@ -301,6 +301,26 @@ export const getCommandCenter = cache(async () => {
         clients.filter((item) => str(item.start_date)?.startsWith(month)).length +
         contracts.filter((item) => item.expectedStartOn?.startsWith(month) && item.status !== "Cancelled").length,
     },
+    schedule: {
+      opportunities: opportunities.map((opportunity) => ({
+        id: opportunity.id,
+        title: opportunity.title,
+        companyName: opportunity.companyName,
+        stage: opportunity.stage,
+        status: opportunity.status,
+        riskLevel: opportunity.riskLevel,
+        waitingOn: opportunity.waitingOn,
+        nextAction: opportunity.nextAction,
+        nextActionDate: opportunity.nextActionDate,
+        lastActivityOn: dateInTimeZone(opportunity.lastActivityAt, settings.businessTimezone),
+      })),
+      followUps,
+      profileBatches,
+      recruitment,
+      interviews,
+      contracts,
+      strategyCalls,
+    },
     stale: opportunities.filter((opportunity) => {
       if (opportunity.status === "won" || opportunity.status === "lost") return false;
       if (opportunity.stage === "Won" || opportunity.stage === "Lost" || opportunity.stage === "Client Started") return false;

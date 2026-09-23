@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   addBusinessDays,
   buildAttention,
+  buildWeekTasks,
+  weekStartMonday,
   conversionRates,
   mapImportRecords,
   median,
@@ -161,6 +163,93 @@ test("does not duplicate a next action that is already a follow-up", () => {
   });
   assert.equal(items.filter((item) => item.kind === "follow_up_today").length, 1);
   assert.equal(items.filter((item) => item.kind === "next_action_today").length, 0);
+});
+
+test("places the week's calls, follow-ups, and SOW check-backs on their dates", () => {
+  assert.equal(weekStartMonday("2026-09-23"), "2026-09-21");
+  const tasks = buildWeekTasks({
+    today: "2026-09-23",
+    staleAfterDays: 10,
+    profilesWaitingDays: 5,
+    approachingWindowDays: 3,
+    opportunities: [
+      {
+        id: "opp-harbor",
+        title: "Harbor",
+        companyName: "Harbor & Co. Accounting",
+        stage: "Strategy Call Scheduled",
+        status: "active",
+        riskLevel: "low",
+        waitingOn: "client",
+        nextAction: "Hold the strategy call and capture requirements",
+        nextActionDate: "2026-09-24",
+        lastActivityOn: "2026-09-21",
+      },
+      {
+        id: "opp-bright",
+        title: "BrightPath",
+        companyName: "BrightPath Mortgage",
+        stage: "SOW Sent",
+        status: "active",
+        riskLevel: "medium",
+        waitingOn: "client",
+        nextAction: "Confirm Daniel has reviewed the SOW",
+        nextActionDate: "2026-09-25",
+        lastActivityOn: "2026-09-19",
+      },
+      {
+        id: "opp-north",
+        title: "Northstar",
+        companyName: "Northstar Legal Group",
+        stage: "Email / Profile Preparation",
+        status: "active",
+        riskLevel: "low",
+        waitingOn: "internal",
+        nextAction: "Send the firm profile and propose a strategy call",
+        nextActionDate: "2026-09-23",
+        lastActivityOn: "2026-09-22",
+      },
+    ],
+    followUps: [
+      {
+        id: "fu-1",
+        opportunityId: "opp-north",
+        leadId: "lead-north",
+        title: "Send the firm profile and propose a strategy call",
+        dueOn: "2026-09-23",
+        status: "open",
+        companyName: "Northstar Legal Group",
+      },
+    ],
+    profileBatches: [],
+    recruitment: [],
+    interviews: [
+      {
+        id: "int-1",
+        opportunityId: "opp-cedar",
+        candidateName: "Nora Feldman",
+        companyName: "Hannah Brooks",
+        interviewOn: "2026-09-24",
+        status: "Scheduled",
+      },
+    ],
+    contracts: [
+      { opportunityId: "opp-bright", companyName: "BrightPath Mortgage", status: "Sent", expectedStartOn: "2026-10-14" },
+    ],
+    strategyCalls: [
+      { opportunityId: "opp-harbor", companyName: "Harbor & Co. Accounting", callOn: "2026-09-24", status: "Scheduled" },
+    ],
+    unmatchedInterested: [],
+  });
+
+  const harbor = tasks.find((task) => task.company === "Harbor & Co. Accounting" && task.date === "2026-09-24");
+  assert.equal(harbor?.kind, "strategy_call");
+  assert.equal(harbor?.title, "Hold the strategy call and capture requirements");
+  assert.equal(tasks.filter((task) => task.id.startsWith("next-opp-north")).length, 0);
+  assert.equal(tasks.find((task) => task.company === "Northstar Legal Group")?.kind, "follow_up");
+  assert.equal(tasks.find((task) => task.company === "BrightPath Mortgage" && task.date === "2026-09-25")?.kind, "sow");
+  assert.equal(tasks.find((task) => task.kind === "interview")?.title, "Nora Feldman");
+  assert.equal(tasks.find((task) => task.kind === "start")?.date, "2026-10-14");
 });
 
 test("calculates conversion and duration from stage history", () => {

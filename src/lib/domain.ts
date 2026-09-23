@@ -515,6 +515,179 @@ function withinWindow(today: string, date: string | null, windowDays: number) {
   return delta >= 0 && delta <= windowDays;
 }
 
+export type WeekTaskKind = "strategy_call" | "follow_up" | "sow" | "interview" | "recruitment" | "profiles" | "next_action" | "start";
+
+export type WeekTask = {
+  id: string;
+  date: string;
+  kind: WeekTaskKind;
+  label: string;
+  title: string;
+  company: string;
+  href: string;
+};
+
+const WEEK_TASK_LABEL: Record<WeekTaskKind, string> = {
+  strategy_call: "Strategy call",
+  follow_up: "Follow-up",
+  sow: "SOW",
+  interview: "Interview",
+  recruitment: "Recruitment",
+  profiles: "Profiles",
+  next_action: "Next action",
+  start: "Client start",
+};
+
+export function weekStartMonday(iso: string) {
+  const date = iso.slice(0, 10);
+  const day = new Date(`${date}T00:00:00Z`).getUTCDay();
+  const diff = day === 0 ? 6 : day - 1;
+  return addDays(date, -diff);
+}
+
+function kindFromAction(stage: string, action: string): WeekTaskKind {
+  const text = `${stage} ${action}`.toLowerCase();
+  if (text.includes("sow")) return "sow";
+  if (text.includes("strategy call") || text.includes("sales call")) return "strategy_call";
+  if (text.includes("interview")) return "interview";
+  if (text.includes("profile")) return "profiles";
+  if (text.includes("recruit")) return "recruitment";
+  if (text.includes("follow")) return "follow_up";
+  return "next_action";
+}
+
+function opportunityIdFromHref(href: string) {
+  const match = href.match(/\/opportunities\/([^/?]+)/);
+  return match?.[1] ?? null;
+}
+
+export function buildWeekTasks(input: AttentionInput): WeekTask[] {
+  const tasks: WeekTask[] = [];
+  const opportunityById = new Map(input.opportunities.map((opportunity) => [opportunity.id, opportunity]));
+  const open = new Set<OpportunityStatus>(["active", "nurture", "on_hold"]);
+
+  const push = (task: WeekTask) => {
+    tasks.push(task);
+  };
+  const occupied = (opportunityId: string, date: string) =>
+    tasks.some((task) => task.date === date && opportunityIdFromHref(task.href) === opportunityId);
+
+  for (const followUp of input.followUps) {
+    if (followUp.status !== "open" || !followUp.dueOn) continue;
+    push({
+      id: `follow-up-${followUp.id}`,
+      date: followUp.dueOn,
+      kind: "follow_up",
+      label: WEEK_TASK_LABEL.follow_up,
+      title: followUp.title,
+      company: followUp.companyName,
+      href: followUp.opportunityId ? `/opportunities/${followUp.opportunityId}?tab=follow-ups` : `/leads/${followUp.leadId ?? ""}`,
+    });
+  }
+
+  for (const call of input.strategyCalls) {
+    if (!call.callOn || (call.status !== "Scheduled" && call.status !== "Proposed")) continue;
+    if (occupied(call.opportunityId, call.callOn)) continue;
+    const opportunity = opportunityById.get(call.opportunityId);
+    const sameDayAction = opportunity?.nextActionDate === call.callOn ? opportunity.nextAction : null;
+    push({
+      id: `call-${call.opportunityId}-${call.callOn}`,
+      date: call.callOn,
+      kind: "strategy_call",
+      label: WEEK_TASK_LABEL.strategy_call,
+      title: sameDayAction ?? "Sales call scheduled",
+      company: call.companyName,
+      href: `/opportunities/${call.opportunityId}?tab=strategy`,
+    });
+  }
+
+  for (const interview of input.interviews) {
+    if (!interview.interviewOn || !OPEN_INTERVIEW.has(interview.status)) continue;
+    if (occupied(interview.opportunityId, interview.interviewOn)) continue;
+    push({
+      id: `interview-${interview.id}`,
+      date: interview.interviewOn,
+      kind: "interview",
+      label: WEEK_TASK_LABEL.interview,
+      title: interview.candidateName,
+      company: interview.companyName,
+      href: `/opportunities/${interview.opportunityId}?tab=interviews`,
+    });
+  }
+
+  for (const request of input.recruitment) {
+    if (CLOSED_RECRUITMENT.has(request.status) || !request.targetOn) continue;
+    if (occupied(request.opportunityId, request.targetOn)) continue;
+    push({
+      id: `recruitment-${request.id}`,
+      date: request.targetOn,
+      kind: "recruitment",
+      label: WEEK_TASK_LABEL.recruitment,
+      title: request.status,
+      company: request.companyName,
+      href: `/recruitment/${request.id}`,
+    });
+  }
+
+  for (const batch of input.profileBatches) {
+    if (batch.clientResponse || !batch.followUpOn) continue;
+    if (occupied(batch.opportunityId, batch.followUpOn)) continue;
+    push({
+      id: `profiles-${batch.id}`,
+      date: batch.followUpOn,
+      kind: "profiles",
+      label: WEEK_TASK_LABEL.profiles,
+      title: `${batch.profileCount} profiles awaiting a response`,
+      company: batch.companyName,
+      href: `/opportunities/${batch.opportunityId}?tab=recruitment`,
+    });
+  }
+
+  for (const opportunity of input.opportunities) {
+    if (!open.has(opportunity.status) || !opportunity.nextAction || !opportunity.nextActionDate) continue;
+    if (occupied(opportunity.id, opportunity.nextActionDate)) continue;
+    const kind = kindFromAction(opportunity.stage, opportunity.nextAction);
+    push({
+      id: `next-${opportunity.id}-${opportunity.nextActionDate}`,
+      date: opportunity.nextActionDate,
+      kind,
+      label: WEEK_TASK_LABEL[kind],
+      title: opportunity.nextAction,
+      company: opportunity.companyName,
+      href: `/opportunities/${opportunity.id}`,
+    });
+  }
+
+  for (const contract of input.contracts) {
+    const waitingOnSignature = contract.status === "Sent" || contract.status === "Negotiating";
+    const hasSowTask = tasks.some((task) => task.kind === "sow" && opportunityIdFromHref(task.href) === contract.opportunityId);
+    if (waitingOnSignature && !hasSowTask) {
+      push({
+        id: `sow-${contract.opportunityId}`,
+        date: input.today,
+        kind: "sow",
+        label: WEEK_TASK_LABEL.sow,
+        title: "Check back on the SOW",
+        company: contract.companyName,
+        href: `/opportunities/${contract.opportunityId}?tab=sow`,
+      });
+    }
+    if (contract.expectedStartOn && waitingOnSignature && !occupied(contract.opportunityId, contract.expectedStartOn)) {
+      push({
+        id: `start-${contract.opportunityId}`,
+        date: contract.expectedStartOn,
+        kind: "start",
+        label: WEEK_TASK_LABEL.start,
+        title: "Expected start",
+        company: contract.companyName,
+        href: `/opportunities/${contract.opportunityId}?tab=sow`,
+      });
+    }
+  }
+
+  return tasks.sort((a, b) => a.date.localeCompare(b.date) || a.company.localeCompare(b.company) || a.label.localeCompare(b.label));
+}
+
 export function buildAttention(input: AttentionInput): AttentionItem[] {
   const items: AttentionItem[] = [];
   const followUpDates = new Set(
