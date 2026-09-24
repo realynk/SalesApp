@@ -303,6 +303,7 @@ export function salesCallCompleteTasks(callOn: string) {
 }
 
 export const INTERVIEW_COMPLETE_STAGE: OpportunityStage = "Interview Complete";
+export const SOW_PREP_STAGE: OpportunityStage = "SOW Preparation";
 
 export const HIDDEN_BOARD_STAGES = [
   "Strategy Call Complete",
@@ -310,6 +311,7 @@ export const HIDDEN_BOARD_STAGES = [
   "Profiles Ready",
   "Client Review",
   "Candidate Selected",
+  "SOW Sent",
 ] as const satisfies readonly OpportunityStage[];
 
 const BOARD_STAGE_ALIAS: Partial<Record<OpportunityStage, OpportunityStage>> = {
@@ -318,6 +320,7 @@ const BOARD_STAGE_ALIAS: Partial<Record<OpportunityStage, OpportunityStage>> = {
   "Profiles Ready": "Recruitment",
   "Client Review": "Profiles Sent",
   "Candidate Selected": INTERVIEW_COMPLETE_STAGE,
+  "SOW Sent": SOW_PREP_STAGE,
 };
 
 export function isHiddenBoardStage(stage: string) {
@@ -335,6 +338,7 @@ export function stageLabel(stage: string) {
   if (stage === BOOKED_CALL_STAGE) return "Booked Sales Call";
   if (stage === SALES_CALL_COMPLETE_STAGE) return "Sales Call Complete";
   if (stage === INTERVIEW_COMPLETE_STAGE) return "Interview Complete / Candidate Selected";
+  if (stage === SOW_PREP_STAGE) return "SOW Prep / Sent";
   if (isHiddenBoardStage(stage)) return stageLabel(boardStage(stage as OpportunityStage));
   return stage;
 }
