@@ -306,12 +306,14 @@ export const HIDDEN_BOARD_STAGES = [
   "Strategy Call Complete",
   "Requirements Captured",
   "Profiles Ready",
+  "Client Review",
 ] as const satisfies readonly OpportunityStage[];
 
 const BOARD_STAGE_ALIAS: Partial<Record<OpportunityStage, OpportunityStage>> = {
   "Strategy Call Complete": SALES_CALL_COMPLETE_STAGE,
   "Requirements Captured": SALES_CALL_COMPLETE_STAGE,
   "Profiles Ready": "Recruitment",
+  "Client Review": "Profiles Sent",
 };
 
 export function isHiddenBoardStage(stage: string) {
