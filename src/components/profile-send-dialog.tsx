@@ -71,7 +71,7 @@ export function ProfileSendDialog({
           <Field label="Client email they provided">
             <input className={controlClass} name="client_email" type="email" required defaultValue={draft?.email ?? ""} placeholder="name@client.com" />
           </Field>
-          <Field label="When I sent the profile">
+          <Field label="When was the email/profiles sent?">
             <input className={controlClass} name="profile_sent_on" type="date" required value={sentOn} onChange={(event) => setSentOn(event.target.value)} />
           </Field>
           <Field label="When I scheduled the call">

@@ -441,7 +441,7 @@ export async function saveProfileSendFromBoard(formData: FormData): Promise<Acti
   const checkTwo = dateField(formData, "check_back_2");
   const notes = optionalText(formData, "notes");
   if (!isUuid(leadId) || !email || !sentOn || !checkOne || !checkTwo) {
-    return { error: "Email, profile sent date, and both check-back dates are required." };
+    return { error: "Email, when the email/profiles were sent, and both check-back dates are required." };
   }
 
   const { data: lead, error: leadError } = await supabase
