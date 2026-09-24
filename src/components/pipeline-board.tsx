@@ -19,7 +19,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { GripVertical } from "lucide-react";
-import { RISK_LEVELS, STAGE_PLAYBOOK, PROFILE_SEND_STAGE, BOOKED_CALL_STAGE, SALES_CALL_COMPLETE_STAGE, WAITING_ON, stageLabel, type OpportunityStage } from "@/lib/domain";
+import { RISK_LEVELS, STAGE_PLAYBOOK, PROFILE_SEND_STAGE, BOOKED_CALL_STAGE, SALES_CALL_COMPLETE_STAGE, WAITING_ON, boardStage, isHiddenBoardStage, stageLabel, type OpportunityStage } from "@/lib/domain";
 import { formatDate, formatMoney } from "@/lib/format";
 import { dropLeadOnStage, dropOpportunityOnStage } from "@/server/actions";
 import { BookedCallDialog } from "@/components/booked-call-dialog";
@@ -89,7 +89,7 @@ function fromOpportunity(opportunity: BoardOpportunity): BoardItem {
     kind: "opportunity",
     leadId: opportunity.leadId,
     opportunityId: opportunity.id,
-    stage: opportunity.stage,
+    stage: boardStage(opportunity.stage),
     companyName: opportunity.companyName,
     contactName: opportunity.contactName,
     nextAction: opportunity.nextAction,
@@ -164,6 +164,7 @@ export function PipelineBoard({
           items: items.filter((item) => item.stage === stage),
           acceptsDrop: !BLOCKED_DROPS.has(stage),
         }))
+        .filter((column) => !isHiddenBoardStage(column.stage))
         .filter((column) => column.items.length > 0 || column.acceptsDrop),
     [items, stages],
   );
@@ -209,6 +210,7 @@ export function PipelineBoard({
     const item = items.find((entry) => entry.id === event.active.id);
     const stage = event.over?.id ? String(event.over.id) as OpportunityStage : null;
     if (!item || !stage || item.stage === stage) return;
+    if (isHiddenBoardStage(stage)) return;
     if (BLOCKED_DROPS.has(stage)) {
       setNotice(
         stage === "Lost"

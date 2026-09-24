@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { controlClass, Field, Notice, PageHeader, StageBadge } from "@/components/bits";
 import { Button } from "@/components/ui/button";
-import { SENDPILOT_STATUSES, OPPORTUNITY_STAGES, NOT_INTERESTED_OUTCOMES, NURTURE_REASON_SUGGESTIONS, STAGE_PLAYBOOK } from "@/lib/domain";
+import { SENDPILOT_STATUSES, OPPORTUNITY_STAGES, NOT_INTERESTED_OUTCOMES, NURTURE_REASON_SUGGESTIONS, STAGE_PLAYBOOK, isHiddenBoardStage, stageLabel } from "@/lib/domain";
 import { listLeads } from "@/lib/data";
 import { firstParam, formatDate, formatDateTime } from "@/lib/format";
 import { createLead } from "@/server/actions";
@@ -91,7 +91,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
           </label>
           <Field label="Stage">
             <select className={controlClass} name="stage" defaultValue="Interested">
-              {OPPORTUNITY_STAGES.filter((stage) => !["Won", "Lost", "Client Started"].includes(stage)).map((stage) => <option key={stage}>{stage}</option>)}
+              {OPPORTUNITY_STAGES.filter((stage) => !["Won", "Lost", "Client Started"].includes(stage) && !isHiddenBoardStage(stage)).map((stage) => <option key={stage} value={stage}>{stageLabel(stage)}</option>)}
             </select>
           </Field>
           <Field label="Next action"><input className={controlClass} name="next_action" defaultValue={STAGE_PLAYBOOK.Interested.nextAction} /></Field>

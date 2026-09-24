@@ -302,10 +302,22 @@ export function salesCallCompleteTasks(callOn: string) {
   return SALES_CALL_COMPLETE_TASKS.map((title) => ({ title, dueOn: callOn }));
 }
 
+export const HIDDEN_BOARD_STAGES = ["Strategy Call Complete", "Requirements Captured"] as const satisfies readonly OpportunityStage[];
+
+export function isHiddenBoardStage(stage: string) {
+  return (HIDDEN_BOARD_STAGES as readonly string[]).includes(stage);
+}
+
+export function boardStage(stage: OpportunityStage): OpportunityStage {
+  return isHiddenBoardStage(stage) ? SALES_CALL_COMPLETE_STAGE : stage;
+}
+
+export const BOARD_STAGES = OPPORTUNITY_STAGES.filter((stage) => !isHiddenBoardStage(stage));
+
 export function stageLabel(stage: string) {
   if (stage === PROFILE_SEND_STAGE) return "Sent Profiles to the client";
   if (stage === BOOKED_CALL_STAGE) return "Booked Sales Call";
-  if (stage === SALES_CALL_COMPLETE_STAGE) return "Sales Call Complete";
+  if (stage === SALES_CALL_COMPLETE_STAGE || isHiddenBoardStage(stage)) return "Sales Call Complete";
   return stage;
 }
 

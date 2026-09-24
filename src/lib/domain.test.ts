@@ -11,7 +11,9 @@ import {
   normalizeSendPilotStatus,
   notInterestedColumn,
   notInterestedOutcome,
+  boardStage,
   formatClock,
+  isHiddenBoardStage,
   profileSendCheckBacks,
   salesCallCompleteTasks,
   stageLabel,
@@ -24,7 +26,12 @@ test("labels the profile-send stage and defaults check-backs from the call", () 
   assert.equal(stageLabel("Email / Profile Preparation"), "Sent Profiles to the client");
   assert.equal(stageLabel("Strategy Call Proposed"), "Booked Sales Call");
   assert.equal(stageLabel("Strategy Call Scheduled"), "Sales Call Complete");
+  assert.equal(stageLabel("Strategy Call Complete"), "Sales Call Complete");
+  assert.equal(stageLabel("Requirements Captured"), "Sales Call Complete");
   assert.equal(stageLabel("Recruitment"), "Recruitment");
+  assert.equal(boardStage("Requirements Captured"), "Strategy Call Scheduled");
+  assert.equal(boardStage("Recruitment"), "Recruitment");
+  assert.equal(isHiddenBoardStage("Strategy Call Complete"), true);
   assert.deepEqual(salesCallCompleteTasks("2026-10-10"), [
     { title: "Send the meeting notes", dueOn: "2026-10-10" },
     { title: "Send the talent request to the recruitment team", dueOn: "2026-10-10" },

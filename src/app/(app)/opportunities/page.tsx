@@ -3,7 +3,7 @@ import { controlClass, Notice, PageHeader, RiskBadge, StageBadge } from "@/compo
 import { NotInterestedBoard } from "@/components/not-interested-board";
 import { PipelineBoard } from "@/components/pipeline-board";
 import { Button } from "@/components/ui/button";
-import { OPPORTUNITY_STAGES, RISK_LEVELS, WAITING_ON, stageLabel } from "@/lib/domain";
+import { BOARD_STAGES, OPPORTUNITY_STAGES, RISK_LEVELS, WAITING_ON, isHiddenBoardStage, stageLabel } from "@/lib/domain";
 import { getOwners, listLeads, listOpportunities } from "@/lib/data";
 import { firstParam, formatDate, formatMoney } from "@/lib/format";
 
@@ -78,7 +78,7 @@ export default async function OpportunitiesPage({ searchParams }: { searchParams
           <>
             <select className={controlClass} name="stage" defaultValue={filters.stage ?? ""}>
               <option value="">All stages</option>
-              {OPPORTUNITY_STAGES.map((stage) => <option key={stage} value={stage}>{stageLabel(stage)}</option>)}
+              {OPPORTUNITY_STAGES.filter((stage) => !isHiddenBoardStage(stage)).map((stage) => <option key={stage} value={stage}>{stageLabel(stage)}</option>)}
             </select>
             <select className={controlClass} name="risk" defaultValue={filters.risk ?? ""}>
               <option value="">All risk</option>
@@ -138,7 +138,7 @@ export default async function OpportunitiesPage({ searchParams }: { searchParams
       ) : view === "board" ? (
         <PipelineBoard
           key={[...interestedLeads.map((lead) => lead.id), ...opportunities.map((item) => `${item.id}:${item.stage}`)].join("|")}
-          stages={OPPORTUNITY_STAGES}
+          stages={BOARD_STAGES}
           opportunities={opportunities}
           interestedLeads={interestedLeads}
         />

@@ -13,6 +13,8 @@ import {
   RISK_LEVELS,
   STAGE_PLAYBOOK,
   WAITING_ON,
+  isHiddenBoardStage,
+  stageLabel,
   potentialArr,
   type ActivityType,
 } from "@/lib/domain";
@@ -140,7 +142,7 @@ function Overview({ opportunity, playbook }: { opportunity: OpportunityRecord; p
           <input type="hidden" name="opportunity_id" value={opportunity.id} />
           <Field label="Stage">
             <select className={controlClass} name="stage" defaultValue={opportunity.stage}>
-              {OPPORTUNITY_STAGES.map((stage) => <option key={stage}>{stage}</option>)}
+              {OPPORTUNITY_STAGES.filter((stage) => !isHiddenBoardStage(stage) || stage === opportunity.stage).map((stage) => <option key={stage} value={stage}>{stageLabel(stage)}</option>)}
             </select>
           </Field>
           <Field label="Next action"><input className={controlClass} name="next_action" defaultValue={opportunity.nextAction ?? ""} /></Field>
