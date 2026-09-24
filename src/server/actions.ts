@@ -21,6 +21,7 @@ import {
   BOOKED_CALL_STAGE,
   SALES_CALL_COMPLETE_STAGE,
   SALES_CALL_COMPLETE_TASKS,
+  profileSendCheckBacks,
   formatClock,
   WAITING_ON,
   addBusinessDays,
@@ -437,12 +438,11 @@ export async function saveProfileSendFromBoard(formData: FormData): Promise<Acti
   const email = text(formData, "client_email").toLowerCase();
   const sentOn = dateField(formData, "profile_sent_on");
   const callOn = dateField(formData, "call_on");
-  const checkOne = dateField(formData, "check_back_1");
-  const checkTwo = dateField(formData, "check_back_2");
   const notes = optionalText(formData, "notes");
-  if (!isUuid(leadId) || !email || !sentOn || !checkOne || !checkTwo) {
-    return { error: "Email, when the email/profiles were sent, and both check-back dates are required." };
+  if (!isUuid(leadId) || !email || !sentOn) {
+    return { error: "Email and when the email/profiles were sent are required." };
   }
+  const { oneDay: checkOne, twoDays: checkTwo } = profileSendCheckBacks(callOn, sentOn);
 
   const { data: lead, error: leadError } = await supabase
     .from("leads")
@@ -516,23 +516,35 @@ export async function saveProfileSendFromBoard(formData: FormData): Promise<Acti
     });
   }
 
-  const followUps = [
+  const items = [
     { due: checkOne, title: "Check back on the sent profiles (1 day from the call)" },
     { due: checkTwo, title: "Check back on the sent profiles (2 days from the call)" },
   ];
-  for (const item of followUps) {
-    await supabase.from("follow_ups").insert({
+  const { error: followError } = await supabase.from("follow_ups").insert(
+    items.map((item) => ({
       opportunity_id: opportunityId,
       lead_id: leadId,
       owner_id: userId,
       title: item.title,
       due_on: item.due,
       notes,
-    });
-  }
+    })),
+  );
+  if (followError) return { error: actionError(followError) };
+
+  const { error: taskError } = await supabase.from("tasks").insert(
+    items.map((item) => ({
+      opportunity_id: opportunityId,
+      owner_id: userId,
+      title: item.title,
+      details: notes ?? `Check back after the profiles sent on ${sentOn}`,
+      due_on: item.due,
+    })),
+  );
+  if (taskError) return { error: actionError(taskError) };
 
   refresh("/opportunities", "/leads", "/dashboard", "/follow-ups", `/leads/${leadId}`, `/opportunities/${opportunityId}`);
-  return { success: "Profile send recorded. Check-backs are on the week calendar." };
+  return { success: "Profile send recorded. The check-back tasks are on reminders and the week calendar." };
 }
 
 export async function saveBookedSalesCallFromBoard(formData: FormData): Promise<ActionState> {
