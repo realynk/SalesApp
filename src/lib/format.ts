@@ -14,15 +14,6 @@ export function formatDateTime(value: string | null | undefined) {
   return format(parsed, "MMM d, yyyy · h:mm a");
 }
 
-export function formatMoney(value: number | null | undefined) {
-  if (value == null || Number.isNaN(value)) return "—";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: value % 1 === 0 ? 0 : 2,
-  }).format(value);
-}
-
 export function formatPercent(value: number | null) {
   if (value == null) return "—";
   return new Intl.NumberFormat("en-US", { style: "percent", maximumFractionDigits: 0 }).format(value);

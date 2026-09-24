@@ -1136,12 +1136,3 @@ export function timeMetrics(events: StageEvent[]) {
   });
 }
 
-export function pipelineRows(
-  opportunities: Array<{ stage: OpportunityStage; status: OpportunityStatus; headcount: number | null; billingRate: number | null }>,
-) {
-  return OPPORTUNITY_STAGES.map((stage) => {
-    const rows = opportunities.filter((opportunity) => opportunity.stage === stage);
-    const mrr = rows.reduce((sum, row) => sum + (potentialMrr(row.headcount, row.billingRate) ?? 0), 0);
-    return { stage, count: rows.length, mrr };
-  }).filter((row) => row.count > 0);
-}

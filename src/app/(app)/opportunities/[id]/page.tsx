@@ -15,11 +15,10 @@ import {
   WAITING_ON,
   isHiddenBoardStage,
   stageLabel,
-  potentialArr,
   type ActivityType,
 } from "@/lib/domain";
 import { getOpportunity } from "@/lib/data";
-import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
+import { formatDate, formatDateTime } from "@/lib/format";
 import {
   addCandidate,
   addNote,
@@ -78,7 +77,6 @@ export default async function OpportunityPage({
       <div className="flex flex-wrap items-center gap-2">
         <StageBadge stage={opportunity.stage} />
         <RiskBadge risk={opportunity.riskLevel} />
-        <span className="text-sm text-muted-foreground">Potential MRR {formatMoney(opportunity.mrr)} · ARR {formatMoney(potentialArr(opportunity.mrr))}</span>
         <span className="text-sm text-muted-foreground">Owner {opportunity.ownerName ?? "Unassigned"}</span>
       </div>
       <section className="grid gap-3 rounded-xl border border-border bg-card p-4 md:grid-cols-6">
@@ -157,7 +155,7 @@ function Overview({ opportunity, playbook }: { opportunity: OpportunityRecord; p
           <Field label="Note"><input className={controlClass} name="note" placeholder="Optional note stored with the stage change" /></Field>
           <SubmitButton>Move stage</SubmitButton>
         </ActionForm>
-        <p className="mt-3 text-xs text-muted-foreground">Client Started is recorded from the SOW tab so start date, VA count, and billing rate are captured.</p>
+        <p className="mt-3 text-xs text-muted-foreground">Client Started is recorded from the SOW tab so start date and VA count are captured.</p>
       </SectionCard>
       <SectionCard title="Source vs internal">
         <p className="text-sm">SendPilot status: <strong>{opportunity.sendpilotStatus ?? "Not set"}</strong></p>
@@ -241,7 +239,6 @@ function Strategy({ opportunity }: { opportunity: OpportunityRecord }) {
         <Field label="Preferred virtual staff"><input className={controlClass} name="preferred_virtual_staff" defaultValue={field(call, "preferred_virtual_staff")} /></Field>
         <Field label="Tools"><input className={controlClass} name="tools" defaultValue={field(call, "tools")} /></Field>
         <Field label="Start date target"><input className={controlClass} type="date" name="start_date_target" defaultValue={field(call, "start_date_target").slice(0, 10)} /></Field>
-        <Field label="Client billing rate"><input className={controlClass} name="client_billing_rate" defaultValue={field(call, "client_billing_rate") || opportunity.billingRate || ""} /></Field>
         <Field label="Current staffing situation"><textarea className={textareaClass} name="current_staffing" defaultValue={field(call, "current_staffing")} /></Field>
         <Field label="Reason for hiring"><textarea className={textareaClass} name="reason_for_hiring" defaultValue={field(call, "reason_for_hiring")} /></Field>
         <Field label="Main pain point"><textarea className={textareaClass} name="main_pain_point" defaultValue={field(call, "main_pain_point")} /></Field>
@@ -278,7 +275,7 @@ function Recruitment({ opportunity }: { opportunity: OpportunityRecord }) {
       ) : (
         <SectionCard title={field(request, "company_name") || opportunity.companyName} description={`Recruitment status ${field(request, "status")} · target ${formatDate(field(request, "target_on"))}`}>
           <dl className="grid gap-2 text-sm md:grid-cols-2">
-            {["headcount", "work_arrangement", "schedule", "preferred_staff", "tools", "billing_rate", "ideal_candidate", "deal_breakers", "tasks", "notes"].map((key) => (
+            {["headcount", "work_arrangement", "schedule", "preferred_staff", "tools", "ideal_candidate", "deal_breakers", "tasks", "notes"].map((key) => (
               <div key={key}><dt className="text-xs text-muted-foreground">{key.replaceAll("_", " ")}</dt><dd>{field(request, key) || "—"}</dd></div>
             ))}
           </dl>
@@ -406,7 +403,6 @@ function Interviews({ opportunity }: { opportunity: OpportunityRecord }) {
 function Sow({ opportunity }: { opportunity: OpportunityRecord }) {
   const contract = opportunity.contract;
   const client = opportunity.client;
-  const mrr = client ? Number(field(client, "monthly_recurring_revenue")) : null;
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <SectionCard title="SOW / contract">
@@ -420,25 +416,21 @@ function Sow({ opportunity }: { opportunity: OpportunityRecord }) {
           <Field label="SOW signed"><input className={controlClass} type="date" name="sow_signed_on" defaultValue={field(contract, "sow_signed_on").slice(0, 10)} /></Field>
           <Field label="Expected start"><input className={controlClass} type="date" name="expected_start_on" defaultValue={field(contract, "expected_start_on").slice(0, 10)} /></Field>
           <Field label="Headcount"><input className={controlClass} name="headcount" defaultValue={field(contract, "headcount") || opportunity.headcount || ""} /></Field>
-          <Field label="Billing rate"><input className={controlClass} name="billing_rate" defaultValue={field(contract, "billing_rate") || opportunity.billingRate || ""} /></Field>
           <Field label="Notes"><textarea className={textareaClass} name="notes" defaultValue={field(contract, "notes")} /></Field>
           <SubmitButton>Save SOW</SubmitButton>
         </ActionForm>
       </SectionCard>
-      <SectionCard title="Client start" description="Moves the opportunity to Client Started and records closed MRR and ARR.">
+      <SectionCard title="Client start" description="Moves the opportunity to Client Started and records the start date and headcount.">
         {client ? (
           <dl className="grid grid-cols-2 gap-3 text-sm">
             <div><dt className="text-xs text-muted-foreground">Start</dt><dd>{formatDate(field(client, "start_date"))}</dd></div>
             <div><dt className="text-xs text-muted-foreground">VAs</dt><dd>{field(client, "number_of_vas")}</dd></div>
-            <div><dt className="text-xs text-muted-foreground">MRR</dt><dd>{formatMoney(mrr)}</dd></div>
-            <div><dt className="text-xs text-muted-foreground">ARR</dt><dd>{formatMoney(Number(field(client, "annual_recurring_revenue")))}</dd></div>
           </dl>
         ) : (
           <ActionForm action={startClient} className="grid gap-3">
             <input type="hidden" name="opportunity_id" value={opportunity.id} />
             <Field label="Start date"><input className={controlClass} type="date" name="start_date" required /></Field>
             <Field label="Number of VAs"><input className={controlClass} name="number_of_vas" defaultValue={opportunity.headcount ?? ""} required /></Field>
-            <Field label="Billing rate"><input className={controlClass} name="billing_rate" defaultValue={opportunity.billingRate ?? ""} required /></Field>
             <Field label="Note"><input className={controlClass} name="note" /></Field>
             <SubmitButton>Mark client started</SubmitButton>
           </ActionForm>

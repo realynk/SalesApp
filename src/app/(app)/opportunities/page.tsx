@@ -5,7 +5,7 @@ import { PipelineBoard } from "@/components/pipeline-board";
 import { Button } from "@/components/ui/button";
 import { BOARD_STAGES, OPPORTUNITY_STAGES, RISK_LEVELS, WAITING_ON, isHiddenBoardStage, stageLabel } from "@/lib/domain";
 import { getOwners, listLeads, listOpportunities } from "@/lib/data";
-import { firstParam, formatDate, formatMoney } from "@/lib/format";
+import { firstParam, formatDate } from "@/lib/format";
 
 export default async function OpportunitiesPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const query = await searchParams;
@@ -154,7 +154,6 @@ export default async function OpportunitiesPage({ searchParams }: { searchParams
                 <th className="px-4 py-3">Due</th>
                 <th className="px-4 py-3">Owner</th>
                 <th className="px-4 py-3">Risk</th>
-                <th className="px-4 py-3">MRR</th>
               </tr>
             </thead>
             <tbody>
@@ -170,7 +169,6 @@ export default async function OpportunitiesPage({ searchParams }: { searchParams
                   <td className="px-4 py-3">{formatDate(opportunity.nextActionDate)}</td>
                   <td className="px-4 py-3">{opportunity.ownerName ?? "Unassigned"}</td>
                   <td className="px-4 py-3"><RiskBadge risk={opportunity.riskLevel} /></td>
-                  <td className="px-4 py-3 font-mono">{formatMoney(opportunity.mrr)}</td>
                 </tr>
               ))}
             </tbody>

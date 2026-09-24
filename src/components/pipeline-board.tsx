@@ -20,7 +20,7 @@ import {
 } from "@dnd-kit/core";
 import { GripVertical } from "lucide-react";
 import { RISK_LEVELS, STAGE_PLAYBOOK, PROFILE_SEND_STAGE, BOOKED_CALL_STAGE, SALES_CALL_COMPLETE_STAGE, WAITING_ON, boardStage, isHiddenBoardStage, stageLabel, type OpportunityStage } from "@/lib/domain";
-import { formatDate, formatMoney } from "@/lib/format";
+import { formatDate } from "@/lib/format";
 import { dropLeadOnStage, dropOpportunityOnStage } from "@/server/actions";
 import { BookedCallDialog } from "@/components/booked-call-dialog";
 import { ProfileSendDialog, type ProfileSendDraft } from "@/components/profile-send-dialog";
@@ -46,7 +46,6 @@ export type BoardOpportunity = {
   nextAction: string | null;
   nextActionDate: string | null;
   ownerName: string | null;
-  mrr: number | null;
   waitingOn: string;
   riskLevel: string;
   email: string | null;
@@ -71,7 +70,6 @@ type BoardItem = {
   nextAction: string | null;
   nextActionDate: string | null;
   ownerName: string | null;
-  mrr: number | null;
   waitingOn: string;
   riskLevel: string;
   email: string | null;
@@ -95,7 +93,6 @@ function fromOpportunity(opportunity: BoardOpportunity): BoardItem {
     nextAction: opportunity.nextAction,
     nextActionDate: opportunity.nextActionDate,
     ownerName: opportunity.ownerName,
-    mrr: opportunity.mrr,
     waitingOn: opportunity.waitingOn,
     riskLevel: opportunity.riskLevel,
     email: opportunity.email,
@@ -116,7 +113,6 @@ function fromLead(lead: BoardLead, opportunity?: BoardOpportunity): BoardItem {
     nextAction: lead.nextFollowUp?.title ?? "Drag onto a stage to start the client journey",
     nextActionDate: lead.nextFollowUp?.dueOn ?? null,
     ownerName: null,
-    mrr: null,
     waitingOn: "internal",
     riskLevel: "low",
     email: lead.email,
@@ -215,7 +211,7 @@ export function PipelineBoard({
       setNotice(
         stage === "Lost"
           ? "Open the opportunity and add a lost reason before moving it to Lost."
-          : "Open the opportunity and use Client start so the start date, headcount, and rate are recorded.",
+          : "Open the opportunity and use Client start so the start date and headcount are recorded.",
       );
       return;
     }
@@ -341,7 +337,6 @@ function BoardColumn({
     disabled: !acceptsDrop,
     data: { stage },
   });
-  const value = items.reduce((sum, item) => sum + (item.mrr ?? 0), 0);
   const sendpilotIntake = stage === "Interested";
 
   return (
@@ -357,7 +352,6 @@ function BoardColumn({
           {sendpilotIntake ? "From SendPilot" : null}
           {sendpilotIntake ? " · " : null}
           {items.length} {sendpilotIntake ? (items.length === 1 ? "lead" : "leads") : items.length === 1 ? "opportunity" : "opportunities"}
-          {value ? ` · ${formatMoney(value)}` : ""}
         </p>
       </header>
       <ul className="flex min-h-32 flex-col gap-2 px-2 pb-3">
@@ -418,7 +412,6 @@ function CardBody({ item }: { item: BoardItem }) {
         <CardField label={item.kind === "lead" ? "Follow-up" : "Next action"} value={item.nextAction ?? "Set the next action"} />
         <CardField label="Due" value={formatDate(item.nextActionDate)} />
         {item.kind === "opportunity" ? <CardField label="Owner" value={item.ownerName ?? "Unassigned"} /> : <CardField label="Source" value="SendPilot Interested" />}
-        {item.kind === "opportunity" ? <CardField label="Potential MRR" value={formatMoney(item.mrr)} /> : null}
       </dl>
     </>
   );

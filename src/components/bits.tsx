@@ -4,7 +4,7 @@ import { ChevronLeft } from "lucide-react";
 import { cn } from "cn";
 import type { AttentionItem, OpportunityStage, RiskLevel } from "@/lib/domain";
 import { stageLabel } from "@/lib/domain";
-import { formatDate, formatMoney } from "@/lib/format";
+import { formatDate } from "@/lib/format";
 
 export const controlClass =
   "h-9 w-full rounded-lg border border-input bg-card px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/40";
@@ -117,10 +117,6 @@ export function SectionCard({ title, description, children, action }: { title: s
       <div className="px-4 py-3">{children}</div>
     </section>
   );
-}
-
-export function Money({ value }: { value: number | null }) {
-  return <span className="font-mono">{formatMoney(value)}</span>;
 }
 
 export function DataError({ message }: { message: string }) {

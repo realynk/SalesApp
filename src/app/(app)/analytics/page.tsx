@@ -1,13 +1,13 @@
 import { KpiCard, PageHeader } from "@/components/bits";
 import { getAnalytics } from "@/lib/data";
-import { formatMoney, formatPercent } from "@/lib/format";
+import { formatPercent } from "@/lib/format";
 
 export default async function AnalyticsPage() {
   const data = await getAnalytics();
   const overall = data.totalLeads === 0 ? null : data.clientsStarted / data.totalLeads;
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="Reporting" title="Sales metrics" description="SendPilot counts and internal stage counts are labeled separately. Closed revenue is not counted while an opportunity is still in the pipeline." />
+      <PageHeader eyebrow="Reporting" title="Sales metrics" description="SendPilot counts and internal stage counts are labeled separately. This page counts activity, not revenue." />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard label="Total leads" value={String(data.totalLeads)} detail="Source records" />
         <KpiCard label="Interested leads" value={String(data.interested)} detail="Current SendPilot status" />
@@ -22,7 +22,7 @@ export default async function AnalyticsPage() {
         <KpiCard label="SOWs signed" value={String(data.sowsSigned)} />
         <KpiCard label="Clients started" value={String(data.clientsStarted)} />
         <KpiCard label="Won" value={String(data.won)} />
-        <KpiCard label="Lost" value={String(data.lost)} detail={formatMoney(data.lostValue)} />
+        <KpiCard label="Lost" value={String(data.lost)} />
         <KpiCard label="Nurture" value={String(data.nurtured)} />
         <KpiCard label="Lead → client" value={formatPercent(overall)} detail="Clients started / leads" />
       </div>
@@ -60,7 +60,6 @@ export default async function AnalyticsPage() {
           </tbody>
         </table>
       </section>
-      <p className="text-sm text-muted-foreground">Pipeline value {formatMoney(data.pipelineValue)} · closed MRR from won opportunities {formatMoney(data.closedMrr)}. Pipeline value excludes nurture, lost, and won.</p>
     </div>
   );
 }

@@ -3,8 +3,6 @@ import {
   buildAttention,
   dateInTimeZone,
   daysBetween,
-  pipelineRows,
-  potentialMrr,
   todayInTimeZone,
   conversionRates,
   timeMetrics,
@@ -72,7 +70,6 @@ export type OpportunitySummary = {
   lastActivitySummary: string | null;
   headcount: number | null;
   billingRate: number | null;
-  mrr: number | null;
   ownerId: string | null;
   ownerName: string | null;
   leadId: string;
@@ -114,7 +111,6 @@ function mapOpportunity(value: Row): OpportunitySummary {
     lastActivitySummary: str(value.last_activity_summary),
     headcount,
     billingRate,
-    mrr: potentialMrr(headcount, billingRate),
     ownerId: str(value.owner_id),
     ownerName: str(owner?.full_name),
     leadId: String(value.lead_id),
@@ -168,7 +164,7 @@ export const getCommandCenter = cache(async () => {
       supabase.from("contracts").select("opportunity_id, status, expected_start_on, sow_sent_on").limit(300),
       supabase.from("strategy_calls").select("opportunity_id, call_on, status, company_name").limit(300),
       supabase.from("leads").select("id, sendpilot_status, contacts(first_name, last_name), companies(name)").eq("sendpilot_status", "Interested").limit(500),
-      supabase.from("clients").select("id, start_date, monthly_recurring_revenue, number_of_vas").limit(300),
+      supabase.from("clients").select("id, start_date").limit(300),
     ]);
 
   raiseIf(opportunityResult.error);
@@ -296,8 +292,6 @@ export const getCommandCenter = cache(async () => {
   const weekEnd = addDaysLocal(weekStart, 6);
   const month = today.slice(0, 7);
   const clients = rows(clientResult.data);
-  const pipelineValue = opportunities.filter((item) => item.status === "active").reduce((sum, item) => sum + (item.mrr ?? 0), 0);
-  const closedMrr = clients.reduce((sum, item) => sum + (num(item.monthly_recurring_revenue) ?? 0), 0);
   const activeCount = opportunities.filter((item) => item.status === "active" || item.status === "nurture" || item.status === "on_hold").length;
 
   return {
@@ -306,10 +300,7 @@ export const getCommandCenter = cache(async () => {
     today,
     attention,
     opportunities,
-    pipeline: pipelineRows(opportunities.map((item) => ({ stage: item.stage, status: item.status, headcount: item.headcount, billingRate: item.billingRate }))),
     kpis: {
-      pipelineValue,
-      closedMrr,
       activeOpportunities: activeCount,
       nurture: opportunities.filter((item) => item.status === "nurture").length,
       interestedLeads: rows(leadResult.data).length,
@@ -705,7 +696,7 @@ export async function getAnalytics() {
     supabase.from("interviews").select("id", { count: "exact", head: true }),
     supabase.from("contracts").select("status"),
     supabase.from("clients").select("id", { count: "exact", head: true }),
-    supabase.from("opportunities").select("stage, status, headcount, billing_rate").limit(1000),
+    supabase.from("opportunities").select("stage, status").limit(1000),
   ]);
   [leads, history, recruitment, batches, interviews, contracts, clients, opportunities].forEach((result) => raiseIf(result.error));
   const leadRows = rows(leads.data);
@@ -735,13 +726,6 @@ export async function getAnalytics() {
     strategyCalls: new Set(events.filter((event) => event.stage === "Strategy Call Complete" || event.stage === "Strategy Call Scheduled").map((event) => event.opportunityId)).size,
     conversions: conversionRates(events),
     durations: timeMetrics(events),
-    lostValue: opportunityRows
-      .filter((item) => item.status === "lost")
-      .reduce((sum, item) => sum + (potentialMrr(num(item.headcount), num(item.billing_rate)) ?? 0), 0),
-    pipelineValue: opportunityRows
-      .filter((item) => item.status === "active")
-      .reduce((sum, item) => sum + (potentialMrr(num(item.headcount), num(item.billing_rate)) ?? 0), 0),
-    closedMrr: opportunityRows.filter((item) => item.status === "won").reduce((sum, item) => sum + (potentialMrr(num(item.headcount), num(item.billing_rate)) ?? 0), 0),
   };
 }
 

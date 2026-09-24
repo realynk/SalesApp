@@ -196,7 +196,7 @@ async function createOpportunityForLead(
   if (!nextAction || !nextActionDate) return { error: "Every opportunity needs a next action and a due date." };
   const headcount = optionalNumber(formData, "headcount");
   const billingRate = optionalNumber(formData, "billing_rate");
-  if (Number.isNaN(headcount) || Number.isNaN(billingRate)) return { error: "Headcount and billing rate must be numbers." };
+  if (Number.isNaN(headcount) || Number.isNaN(billingRate)) return { error: "Headcount must be a number." };
   const nurture = stage === "On Hold / Nurture";
   const { data, error: insertError } = await supabase
     .from("opportunities")
@@ -771,7 +771,7 @@ export async function saveStrategyCall(_state: ActionState, formData: FormData):
   if (!["Draft", "Scheduled", "Complete", "Cancelled"].includes(status)) return { error: "Choose a strategy call status." };
   const headcount = optionalNumber(formData, "headcount_requirement");
   const rate = optionalNumber(formData, "client_billing_rate");
-  if (Number.isNaN(headcount) || Number.isNaN(rate)) return { error: "Headcount and billing rate must be numbers." };
+  if (Number.isNaN(headcount) || Number.isNaN(rate)) return { error: "Headcount must be a number." };
   const payload = {
     opportunity_id: opportunityId,
     call_on: dateField(formData, "call_on"),
@@ -1032,7 +1032,7 @@ export async function saveContract(_state: ActionState, formData: FormData): Pro
   if (!isUuid(opportunityId) || !(CONTRACT_STATUSES as readonly string[]).includes(status)) return { error: "Choose an SOW status." };
   const headcount = optionalNumber(formData, "headcount");
   const rate = optionalNumber(formData, "billing_rate");
-  if (Number.isNaN(headcount) || Number.isNaN(rate)) return { error: "Headcount and billing rate must be numbers." };
+  if (Number.isNaN(headcount) || Number.isNaN(rate)) return { error: "Headcount must be a number." };
   const payload = {
     opportunity_id: opportunityId,
     status,
@@ -1069,19 +1069,19 @@ export async function startClient(_state: ActionState, formData: FormData): Prom
   const startDate = dateField(formData, "start_date");
   const vas = optionalNumber(formData, "number_of_vas");
   const rate = optionalNumber(formData, "billing_rate");
-  if (!isUuid(opportunityId) || !startDate || vas == null || rate == null || Number.isNaN(vas) || Number.isNaN(rate)) {
-    return { error: "Start date, number of VAs, and billing rate are required." };
+  if (!isUuid(opportunityId) || !startDate || vas == null || Number.isNaN(vas)) {
+    return { error: "Start date and number of VAs are required." };
   }
   const { error } = await supabase.rpc("start_client", {
     p_opportunity_id: opportunityId,
     p_start_date: startDate,
     p_number_of_vas: vas,
-    p_billing_rate: rate,
+    p_billing_rate: rate == null || Number.isNaN(rate) ? 0 : rate,
     p_note: optionalText(formData, "note"),
   });
   if (error) return { error: actionError(error) };
   refresh(`/opportunities/${opportunityId}`, "/dashboard", "/analytics");
-  return { success: "Client started. Revenue is now closed, not pipeline." };
+  return { success: "Client started." };
 }
 
 export async function addNote(_state: ActionState, formData: FormData): Promise<ActionState> {
