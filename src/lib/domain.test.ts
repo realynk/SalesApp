@@ -46,6 +46,9 @@ test("labels the profile-send stage and defaults check-backs from the call", () 
   assert.equal(stageLabel("SOW Sent"), "SOW Prep / Sent");
   assert.equal(boardStage("SOW Sent"), "SOW Preparation");
   assert.equal(isHiddenBoardStage("SOW Sent"), true);
+  assert.equal(boardStage("SOW Negotiation"), "SOW Preparation");
+  assert.equal(stageLabel("SOW Negotiation"), "SOW Prep / Sent");
+  assert.equal(isHiddenBoardStage("SOW Negotiation"), true);
   assert.deepEqual(salesCallCompleteTasks("2026-10-10"), [
     { title: "Send the meeting notes", dueOn: "2026-10-10" },
     { title: "Send the talent request to the recruitment team", dueOn: "2026-10-10" },
