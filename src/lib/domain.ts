@@ -302,11 +302,14 @@ export function salesCallCompleteTasks(callOn: string) {
   return SALES_CALL_COMPLETE_TASKS.map((title) => ({ title, dueOn: callOn }));
 }
 
+export const INTERVIEW_COMPLETE_STAGE: OpportunityStage = "Interview Complete";
+
 export const HIDDEN_BOARD_STAGES = [
   "Strategy Call Complete",
   "Requirements Captured",
   "Profiles Ready",
   "Client Review",
+  "Candidate Selected",
 ] as const satisfies readonly OpportunityStage[];
 
 const BOARD_STAGE_ALIAS: Partial<Record<OpportunityStage, OpportunityStage>> = {
@@ -314,6 +317,7 @@ const BOARD_STAGE_ALIAS: Partial<Record<OpportunityStage, OpportunityStage>> = {
   "Requirements Captured": SALES_CALL_COMPLETE_STAGE,
   "Profiles Ready": "Recruitment",
   "Client Review": "Profiles Sent",
+  "Candidate Selected": INTERVIEW_COMPLETE_STAGE,
 };
 
 export function isHiddenBoardStage(stage: string) {
@@ -330,6 +334,7 @@ export function stageLabel(stage: string) {
   if (stage === PROFILE_SEND_STAGE) return "Sent Profiles to the client";
   if (stage === BOOKED_CALL_STAGE) return "Booked Sales Call";
   if (stage === SALES_CALL_COMPLETE_STAGE) return "Sales Call Complete";
+  if (stage === INTERVIEW_COMPLETE_STAGE) return "Interview Complete / Candidate Selected";
   if (isHiddenBoardStage(stage)) return stageLabel(boardStage(stage as OpportunityStage));
   return stage;
 }
