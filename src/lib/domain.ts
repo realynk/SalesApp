@@ -341,7 +341,7 @@ export function stageLabel(stage: string) {
   if (stage === SALES_CALL_COMPLETE_STAGE) return "Sales Call Complete";
   if (stage === INTERVIEW_COMPLETE_STAGE) return "Interview Complete / Candidate Selected";
   if (stage === SOW_PREP_STAGE) return "SOW Prep / Sent";
-  if (stage === "Won") return "Trial period";
+  if (stage === "Onboarding") return "Trial period";
   if (isHiddenBoardStage(stage)) return stageLabel(boardStage(stage as OpportunityStage));
   return stage;
 }
