@@ -96,7 +96,7 @@ export async function loadSampleWorkspace(): Promise<void> {
   const { supabase } = await requireUser();
   const { error } = await supabase.rpc("load_sample_workspace");
   if (error) redirect(`/dashboard?notice=${encodeURIComponent(actionError(error))}`);
-  refresh("/dashboard", "/leads", "/opportunities", "/reconciliation", "/recruitment", "/analytics", "/follow-ups");
+  refresh("/dashboard", "/leads", "/opportunities", "/reconciliation", "/recruitment", "/reporting", "/follow-ups");
   redirect("/dashboard");
 }
 
@@ -426,7 +426,7 @@ export async function moveStage(_state: ActionState, formData: FormData): Promis
     p_lost_reason: optionalText(formData, "lost_reason"),
   });
   if (error) return { error: actionError(error) };
-  refresh(`/opportunities/${id}`, "/dashboard", "/opportunities", "/analytics");
+  refresh(`/opportunities/${id}`, "/dashboard", "/opportunities", "/reporting");
   return { success: `Moved to ${stage}. History was kept.` };
 }
 
@@ -1141,7 +1141,7 @@ export async function saveContract(_state: ActionState, formData: FormData): Pro
   } else if (status === "Signed" && previous !== "Signed") {
     await supabase.from("activities").insert({ opportunity_id: opportunityId, type: "sow_signed", title: "SOW signed", actor_id: userId });
   }
-  refresh(`/opportunities/${opportunityId}`, "/dashboard", "/analytics");
+  refresh(`/opportunities/${opportunityId}`, "/dashboard", "/reporting");
   return { success: "SOW saved." };
 }
 
@@ -1162,7 +1162,7 @@ export async function startClient(_state: ActionState, formData: FormData): Prom
     p_note: optionalText(formData, "note"),
   });
   if (error) return { error: actionError(error) };
-  refresh(`/opportunities/${opportunityId}`, "/dashboard", "/analytics");
+  refresh(`/opportunities/${opportunityId}`, "/dashboard", "/reporting");
   return { success: "Client started." };
 }
 

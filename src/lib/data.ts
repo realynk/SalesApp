@@ -1,19 +1,27 @@
 import { cache } from "react";
 import {
+  ACCOUNT_FLAGS,
+  BOARD_STAGES,
+  NOT_INTERESTED_INTAKE,
+  NOT_INTERESTED_OUTCOMES,
+  SENDPILOT_STATUSES,
+  accountFlag,
+  boardStage,
   buildAttention,
+  conversionRates,
   dateInTimeZone,
   daysBetween,
-  todayInTimeZone,
-  conversionRates,
+  notInterestedColumn,
+  notInterestedOutcome,
+  stageLabel,
   timeMetrics,
+  todayInTimeZone,
+  type AccountFlag,
   type OpportunityStage,
   type OpportunityStatus,
   type RiskLevel,
-  type WaitingOn,
   type SendPilotStatus,
-  notInterestedOutcome,
-  accountFlag,
-  type AccountFlag,
+  type WaitingOn,
 } from "@/lib/domain";
 import { raiseIf } from "@/lib/errors";
 import { fullName } from "@/lib/format";
@@ -762,6 +770,54 @@ export async function getAnalytics() {
     strategyCalls: new Set(events.filter((event) => event.stage === "Strategy Call Complete" || event.stage === "Strategy Call Scheduled").map((event) => event.opportunityId)).size,
     conversions: conversionRates(events),
     durations: timeMetrics(events),
+  };
+}
+
+export async function getReporting() {
+  const [center, leads, analytics] = await Promise.all([getCommandCenter(), listLeads({}), getAnalytics()]);
+  const laterLeadIds = new Set(
+    center.opportunities.filter((item) => boardStage(item.stage) !== "Interested").map((item) => item.leadId),
+  );
+  const openTasks = center.schedule.followUps.filter((item) => item.status === "open");
+  const sendpilot = SENDPILOT_STATUSES.map((status) => ({
+    label: status,
+    count: leads.filter((lead) => lead.sendpilotStatus === status).length,
+    href:
+      status === "Interested"
+        ? "/opportunities"
+        : status === "Not Interested"
+          ? "/opportunities?interest=not-interested"
+          : `/leads?status=${encodeURIComponent(status)}`,
+  }));
+  const journey = BOARD_STAGES.map((stage) => ({
+    label: stageLabel(stage),
+    count:
+      stage === "Interested"
+        ? leads.filter((lead) => lead.sendpilotStatus === "Interested" && !laterLeadIds.has(lead.id)).length
+        : center.opportunities.filter((item) => boardStage(item.stage) === stage).length,
+    href: stage === "On Hold / Nurture" ? "/follow-ups" : "/opportunities",
+  }));
+  const outcomes = [NOT_INTERESTED_INTAKE, ...NOT_INTERESTED_OUTCOMES].map((column) => ({
+    label: column,
+    count: leads.filter((lead) => lead.sendpilotStatus === "Not Interested" && notInterestedColumn(lead.notInterestedOutcome) === column).length,
+    href: "/opportunities?interest=not-interested",
+  }));
+  const flags = ACCOUNT_FLAGS.map((flag) => ({
+    label: flag,
+    count: leads.filter((lead) => lead.accountFlag === flag).length,
+  }));
+  return {
+    today: center.today,
+    totalLeads: leads.length,
+    openTasks: openTasks.length,
+    overdueTasks: openTasks.filter((item) => item.dueOn < center.today).length,
+    dueToday: openTasks.filter((item) => item.dueOn === center.today).length,
+    sendpilot,
+    journey,
+    outcomes,
+    flags,
+    conversions: analytics.conversions,
+    durations: analytics.durations,
   };
 }
 

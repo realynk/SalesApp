@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, FolderSync, Handshake, LayoutDashboard, Menu, Search, Settings, Sprout, Users } from "lucide-react";
+import { Bell, ChartColumn, FolderSync, Handshake, LayoutDashboard, Menu, Search, Settings, Sprout, Users } from "lucide-react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -12,6 +12,7 @@ import { signOut } from "@/server/actions";
 const NAV = [
   { href: "/dashboard", label: "Command Center", icon: LayoutDashboard },
   { href: "/opportunities", label: "Client journey", icon: Handshake },
+  { href: "/reporting", label: "Reporting", icon: ChartColumn },
   { href: "/leads", label: "Leads", icon: Users },
   { href: "/reconciliation", label: "SendPilot import", icon: FolderSync },
   { href: "/follow-ups", label: "Nurture", icon: Sprout },
