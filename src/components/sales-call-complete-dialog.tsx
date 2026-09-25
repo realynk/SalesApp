@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { AccountFlagSelect } from "@/components/account-flag-field";
 import { controlClass, Field, textareaClass } from "@/components/bits";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { SALES_CALL_COMPLETE_TASKS } from "@/lib/domain";
+import { SALES_CALL_COMPLETE_TASKS, type AccountFlag } from "@/lib/domain";
 import { saveSalesCallCompleteFromBoard } from "@/server/actions";
 
 export type SalesCallCompleteDraft = {
@@ -12,6 +13,7 @@ export type SalesCallCompleteDraft = {
   opportunityId: string | null;
   companyName: string;
   contactName: string;
+  accountFlag: AccountFlag | null;
 };
 
 export function SalesCallCompleteDialog({
@@ -73,6 +75,9 @@ export function SalesCallCompleteDialog({
               ))}
             </ol>
           </div>
+          <Field label="Flag">
+            <AccountFlagSelect defaultValue={draft?.accountFlag ?? null} />
+          </Field>
           <Field label="Notes">
             <textarea className={textareaClass} name="notes" placeholder="What to send, who to include on the GC, or anything recruitment needs" />
           </Field>

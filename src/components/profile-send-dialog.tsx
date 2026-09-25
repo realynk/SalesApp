@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { AccountFlagSelect } from "@/components/account-flag-field";
 import { controlClass, Field, textareaClass } from "@/components/bits";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import type { AccountFlag } from "@/lib/domain";
 import { saveProfileSendFromBoard } from "@/server/actions";
 
 export type ProfileSendDraft = {
@@ -12,6 +14,7 @@ export type ProfileSendDraft = {
   companyName: string;
   contactName: string;
   email: string | null;
+  accountFlag: AccountFlag | null;
 };
 
 export function ProfileSendDialog({
@@ -65,6 +68,9 @@ export function ProfileSendDialog({
           </Field>
           <Field label="Initial proposal call date">
             <input className={controlClass} name="call_on" type="date" />
+          </Field>
+          <Field label="Flag">
+            <AccountFlagSelect defaultValue={draft?.accountFlag ?? null} />
           </Field>
           <Field label="Notes">
             <textarea className={textareaClass} name="notes" placeholder="What you sent, what they asked for, or what to confirm on the call" />

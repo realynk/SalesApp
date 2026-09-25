@@ -117,6 +117,29 @@ export function notInterestedColumn(value?: string | null): NotInterestedColumn 
   return notInterestedOutcome(value) ?? NOT_INTERESTED_INTAKE;
 }
 
+export const ACCOUNT_FLAGS = [
+  "Urgent",
+  "Follow up",
+  "Waiting on client",
+  "Waiting on recruitment",
+  "At risk",
+] as const;
+
+export type AccountFlag = (typeof ACCOUNT_FLAGS)[number];
+
+export function accountFlag(value?: string | null): AccountFlag | null {
+  if (value && (ACCOUNT_FLAGS as readonly string[]).includes(value)) return value as AccountFlag;
+  return null;
+}
+
+export const ACCOUNT_FLAG_TONE: Record<AccountFlag, string> = {
+  Urgent: "border-[#fda29b] bg-[#fef3f2] text-[#b42318]",
+  "Follow up": "border-[#84caff] bg-[#eff8ff] text-[#175cd3]",
+  "Waiting on client": "border-[#f7b27a] bg-[#fef6ee] text-[#b54708]",
+  "Waiting on recruitment": "border-[#bdb4fe] bg-[#f4f3ff] text-[#5925dc]",
+  "At risk": "border-[#f97066] bg-[#fef3f2] text-[#912018]",
+};
+
 export const ACTIVITY_TYPES = [
   "lead_imported",
   "sendpilot_status_changed",
@@ -677,7 +700,7 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
       label: WEEK_TASK_LABEL.follow_up,
       title: followUp.title,
       company: followUp.companyName,
-      href: followUp.opportunityId ? `/opportunities/${followUp.opportunityId}?tab=follow-ups` : `/leads/${followUp.leadId ?? ""}`,
+      href: followUp.opportunityId ? `/opportunities/${followUp.opportunityId}` : `/leads/${followUp.leadId ?? ""}`,
     });
   }
 
@@ -693,7 +716,7 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
       label: WEEK_TASK_LABEL.strategy_call,
       title: sameDayAction ?? "Sales call scheduled",
       company: call.companyName,
-      href: `/opportunities/${call.opportunityId}?tab=strategy`,
+      href: `/opportunities/${call.opportunityId}`,
     });
   }
 
@@ -707,7 +730,7 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
       label: WEEK_TASK_LABEL.interview,
       title: interview.candidateName,
       company: interview.companyName,
-      href: `/opportunities/${interview.opportunityId}?tab=interviews`,
+      href: `/opportunities/${interview.opportunityId}`,
     });
   }
 
@@ -735,7 +758,7 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
       label: WEEK_TASK_LABEL.profiles,
       title: `${batch.profileCount} profiles awaiting a response`,
       company: batch.companyName,
-      href: `/opportunities/${batch.opportunityId}?tab=recruitment`,
+      href: `/opportunities/${batch.opportunityId}`,
     });
   }
 
@@ -765,7 +788,7 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
         label: WEEK_TASK_LABEL.sow,
         title: "Check back on the SOW",
         company: contract.companyName,
-        href: `/opportunities/${contract.opportunityId}?tab=sow`,
+        href: `/opportunities/${contract.opportunityId}`,
       });
     }
     if (contract.expectedStartOn && waitingOnSignature && !occupied(contract.opportunityId, contract.expectedStartOn)) {
@@ -776,7 +799,7 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
         label: WEEK_TASK_LABEL.start,
         title: "Expected start",
         company: contract.companyName,
-        href: `/opportunities/${contract.opportunityId}?tab=sow`,
+        href: `/opportunities/${contract.opportunityId}`,
       });
     }
   }
@@ -793,7 +816,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
 
   for (const followUp of input.followUps) {
     if (followUp.status !== "open") continue;
-    const href = followUp.opportunityId ? `/opportunities/${followUp.opportunityId}?tab=follow-ups` : `/leads/${followUp.leadId}`;
+    const href = followUp.opportunityId ? `/opportunities/${followUp.opportunityId}` : `/leads/${followUp.leadId}`;
     const delta = daysBetween(input.today, followUp.dueOn);
     if (delta < 0) {
       items.push({
@@ -910,7 +933,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
         severity: "upcoming",
         title: opportunity.companyName,
         detail: "Waiting on recruitment",
-        href: `/opportunities/${opportunity.id}?tab=recruitment`,
+        href: `/opportunities/${opportunity.id}`,
         dueOn: opportunity.nextActionDate,
         sections: ["waiting_recruitment"],
       });
@@ -939,7 +962,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
         severity: "overdue",
         title: `${batch.companyName} · ${batch.profileCount} profile${batch.profileCount === 1 ? "" : "s"} sent`,
         detail: `No response · ${waiting} days waiting${batch.followUpOn ? ` · follow-up ${batch.followUpOn}` : ""}`,
-        href: `/opportunities/${batch.opportunityId}?tab=recruitment`,
+        href: `/opportunities/${batch.opportunityId}`,
         dueOn: batch.followUpOn,
         sections: ["needs", "waiting_client", "at_risk"],
       });
@@ -984,7 +1007,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
       severity: delta === 0 ? "today" : "upcoming",
       title: `${interview.candidateName} × ${interview.companyName}`,
       detail: `${interview.status} · ${interview.interviewOn}`,
-      href: `/opportunities/${interview.opportunityId}?tab=interviews`,
+      href: `/opportunities/${interview.opportunityId}`,
       dueOn: interview.interviewOn,
       sections: delta === 0 ? ["today"] : ["upcoming"],
     });
@@ -1000,7 +1023,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
       severity: delta === 0 ? "today" : "upcoming",
       title: `Strategy call · ${call.companyName}`,
       detail: call.callOn,
-      href: `/opportunities/${call.opportunityId}?tab=strategy`,
+      href: `/opportunities/${call.opportunityId}`,
       dueOn: call.callOn,
       sections: delta === 0 ? ["today"] : ["upcoming"],
     });
@@ -1014,7 +1037,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
         severity: "risk",
         title: `${contract.companyName} SOW is awaiting signature`,
         detail: contract.status,
-        href: `/opportunities/${contract.opportunityId}?tab=sow`,
+        href: `/opportunities/${contract.opportunityId}`,
         dueOn: contract.expectedStartOn,
         sections: ["needs", "waiting_client"],
       });
@@ -1030,7 +1053,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
         severity: "upcoming",
         title: `${contract.companyName} start date`,
         detail: contract.expectedStartOn,
-        href: `/opportunities/${contract.opportunityId}?tab=sow`,
+        href: `/opportunities/${contract.opportunityId}`,
         dueOn: contract.expectedStartOn,
         sections: ["upcoming"],
       });

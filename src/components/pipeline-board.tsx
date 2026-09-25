@@ -19,9 +19,10 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { GripVertical } from "lucide-react";
-import { RISK_LEVELS, STAGE_PLAYBOOK, PROFILE_SEND_STAGE, BOOKED_CALL_STAGE, SALES_CALL_COMPLETE_STAGE, WAITING_ON, boardStage, isHiddenBoardStage, stageLabel, type OpportunityStage } from "@/lib/domain";
+import { RISK_LEVELS, STAGE_PLAYBOOK, PROFILE_SEND_STAGE, BOOKED_CALL_STAGE, SALES_CALL_COMPLETE_STAGE, WAITING_ON, boardStage, isHiddenBoardStage, stageLabel, type AccountFlag, type OpportunityStage } from "@/lib/domain";
 import { formatDate } from "@/lib/format";
-import { dropLeadOnStage, dropOpportunityOnStage } from "@/server/actions";
+import { dropLeadOnStage, dropOpportunityOnStage, setAccountFlagFromBoard } from "@/server/actions";
+import { AccountFlagSelect, FlagBadge } from "@/components/account-flag-field";
 import { BookedCallDialog } from "@/components/booked-call-dialog";
 import { ProfileSendDialog, type ProfileSendDraft } from "@/components/profile-send-dialog";
 import { SalesCallCompleteDialog } from "@/components/sales-call-complete-dialog";
@@ -49,6 +50,7 @@ export type BoardOpportunity = {
   waitingOn: string;
   riskLevel: string;
   email: string | null;
+  accountFlag: AccountFlag | null;
 };
 
 export type BoardLead = {
@@ -57,6 +59,7 @@ export type BoardLead = {
   contactName: string;
   email: string | null;
   nextFollowUp: { title: string; dueOn: string } | null;
+  accountFlag: AccountFlag | null;
 };
 
 type BoardItem = {
@@ -73,6 +76,7 @@ type BoardItem = {
   waitingOn: string;
   riskLevel: string;
   email: string | null;
+  accountFlag: AccountFlag | null;
   href: string;
 };
 
@@ -96,6 +100,7 @@ function fromOpportunity(opportunity: BoardOpportunity): BoardItem {
     waitingOn: opportunity.waitingOn,
     riskLevel: opportunity.riskLevel,
     email: opportunity.email,
+    accountFlag: opportunity.accountFlag,
     href: `/opportunities/${opportunity.id}`,
   };
 }
@@ -116,6 +121,7 @@ function fromLead(lead: BoardLead, opportunity?: BoardOpportunity): BoardItem {
     waitingOn: "internal",
     riskLevel: "low",
     email: lead.email,
+    accountFlag: lead.accountFlag,
     href: `/leads/${lead.id}`,
   };
 }
@@ -196,6 +202,22 @@ export function PipelineBoard({
     router.refresh();
   }
 
+  async function persistFlag(item: BoardItem, flag: AccountFlag | null) {
+    const previous = items;
+    setItems(previous.map((entry) => (entry.id === item.id ? { ...entry, accountFlag: flag } : entry)));
+    const formData = new FormData();
+    formData.set("lead_id", item.leadId);
+    if (item.opportunityId) formData.set("opportunity_id", item.opportunityId);
+    formData.set("account_flag", flag ?? "");
+    const result = await setAccountFlagFromBoard(formData);
+    if (result?.error) {
+      setItems(previous);
+      setNotice(result.error);
+      return;
+    }
+    setNotice(null);
+  }
+
   function handleDragStart(event: DragStartEvent) {
     setActiveId(String(event.active.id));
     setNotice(null);
@@ -235,7 +257,7 @@ export function PipelineBoard({
   return (
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">
-        The Interested column is every lead tagged Interested in SendPilot who has not moved further. Drag a card onto a later stage to start or continue the journey.
+        The Interested column is every lead tagged Interested in SendPilot who has not moved further. Drag a card to a later stage. Flag the account if you need to spot it quickly.
       </p>
       {notice ? <p className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground">{notice}</p> : null}
       <DndContext
@@ -255,6 +277,7 @@ export function PipelineBoard({
                 items={column.items}
                 acceptsDrop={column.acceptsDrop}
                 disabledId={pendingId}
+                onFlagChange={persistFlag}
               />
             ))}
           </div>
@@ -271,6 +294,7 @@ export function PipelineBoard({
           companyName: prompt.item.companyName,
           contactName: prompt.item.contactName,
           email: prompt.item.email,
+          accountFlag: prompt.item.accountFlag,
         } satisfies ProfileSendDraft : null}
         onCancel={() => {
           if (prompt) setItems(prompt.previous);
@@ -288,6 +312,7 @@ export function PipelineBoard({
           opportunityId: prompt.item.opportunityId,
           companyName: prompt.item.companyName,
           contactName: prompt.item.contactName,
+          accountFlag: prompt.item.accountFlag,
         } : null}
         onCancel={() => {
           if (prompt) setItems(prompt.previous);
@@ -305,6 +330,7 @@ export function PipelineBoard({
           opportunityId: prompt.item.opportunityId,
           companyName: prompt.item.companyName,
           contactName: prompt.item.contactName,
+          accountFlag: prompt.item.accountFlag,
         } : null}
         onCancel={() => {
           if (prompt) setItems(prompt.previous);
@@ -325,12 +351,14 @@ function BoardColumn({
   items,
   acceptsDrop,
   disabledId,
+  onFlagChange,
 }: {
   stage: OpportunityStage;
   tone: string;
   items: BoardItem[];
   acceptsDrop: boolean;
   disabledId: string | null;
+  onFlagChange: (item: BoardItem, flag: AccountFlag | null) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: stage,
@@ -357,7 +385,7 @@ function BoardColumn({
       <ul className="flex min-h-32 flex-col gap-2 px-2 pb-3">
         {items.map((item) => (
           <li key={item.id}>
-            <DraggableCard item={item} disabled={disabledId === item.id} />
+            <DraggableCard item={item} disabled={disabledId === item.id} onFlagChange={onFlagChange} />
           </li>
         ))}
         {items.length === 0 ? (
@@ -370,7 +398,15 @@ function BoardColumn({
   );
 }
 
-function DraggableCard({ item, disabled }: { item: BoardItem; disabled: boolean }) {
+function DraggableCard({
+  item,
+  disabled,
+  onFlagChange,
+}: {
+  item: BoardItem;
+  disabled: boolean;
+  onFlagChange: (item: BoardItem, flag: AccountFlag | null) => void;
+}) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: item.id,
     disabled,
@@ -379,12 +415,20 @@ function DraggableCard({ item, disabled }: { item: BoardItem; disabled: boolean 
 
   return (
     <div ref={setNodeRef} className={isDragging ? "opacity-30" : undefined} {...listeners} {...attributes}>
-      <ItemCard item={item} />
+      <ItemCard item={item} onFlagChange={onFlagChange} />
     </div>
   );
 }
 
-function ItemCard({ item, overlay = false }: { item: BoardItem; overlay?: boolean }) {
+function ItemCard({
+  item,
+  overlay = false,
+  onFlagChange,
+}: {
+  item: BoardItem;
+  overlay?: boolean;
+  onFlagChange?: (item: BoardItem, flag: AccountFlag | null) => void;
+}) {
   return (
     <article className={`rounded-lg border border-border bg-card p-3 shadow-sm ${overlay ? "rotate-1 cursor-grabbing shadow-lg" : "cursor-grab"}`}>
       <div className="flex items-start gap-2">
@@ -397,6 +441,11 @@ function ItemCard({ item, overlay = false }: { item: BoardItem; overlay?: boolea
               <CardBody item={item} />
             </Link>
           )}
+          {overlay || !onFlagChange ? null : (
+            <div className="mt-2">
+              <AccountFlagSelect compact value={item.accountFlag} onChange={(flag) => onFlagChange(item, flag)} />
+            </div>
+          )}
         </div>
       </div>
     </article>
@@ -406,7 +455,10 @@ function ItemCard({ item, overlay = false }: { item: BoardItem; overlay?: boolea
 function CardBody({ item }: { item: BoardItem }) {
   return (
     <>
-      <p className="text-sm font-semibold">{item.companyName}</p>
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-sm font-semibold">{item.companyName}</p>
+        <FlagBadge flag={item.accountFlag} />
+      </div>
       <p className="mt-0.5 text-xs text-muted-foreground">{item.contactName}</p>
       <dl className="mt-2 space-y-1 text-xs">
         <CardField label={item.kind === "lead" ? "Follow-up" : "Next action"} value={item.nextAction ?? "Set the next action"} />

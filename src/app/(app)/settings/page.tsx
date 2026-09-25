@@ -10,7 +10,7 @@ export default async function SettingsPage() {
   const integration = sendPilotIntegrationStatus();
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="Workspace" title="Settings" description="Thresholds control when opportunities are called stale, when profiles have waited too long, and how soon a date is called approaching." />
+      <PageHeader eyebrow="Workspace" title="Settings" description="How soon a reminder is treated as approaching, and when a card is called stale." />
       <ActionForm action={saveSettings} className="grid max-w-xl gap-3 rounded-xl border border-border bg-card p-4">
         <Field label="Stale after days"><input className={controlClass} name="stale_after_days" type="number" min={1} max={180} defaultValue={settings.staleAfterDays} /></Field>
         <Field label="Profiles waiting days"><input className={controlClass} name="profiles_waiting_days" type="number" min={1} max={90} defaultValue={settings.profilesWaitingDays} /></Field>

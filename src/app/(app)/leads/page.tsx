@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { controlClass, Field, Notice, PageHeader, StageBadge } from "@/components/bits";
 import { Button } from "@/components/ui/button";
-import { SENDPILOT_STATUSES, OPPORTUNITY_STAGES, NOT_INTERESTED_OUTCOMES, NURTURE_REASON_SUGGESTIONS, STAGE_PLAYBOOK, isHiddenBoardStage, stageLabel } from "@/lib/domain";
+import { SENDPILOT_STATUSES, NOT_INTERESTED_OUTCOMES } from "@/lib/domain";
 import { listLeads } from "@/lib/data";
-import { firstParam, formatDate, formatDateTime } from "@/lib/format";
+import { firstParam, formatDate } from "@/lib/format";
 import { createLead } from "@/server/actions";
 import { ActionForm, SubmitButton } from "@/components/forms";
 
@@ -16,7 +16,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
       <PageHeader
         eyebrow="Leads"
         title="Source records"
-        description="Open a lead to change its status, schedule a follow-up reminder, or add notes. SendPilot status stays separate from the sales pipeline."
+        description="SendPilot and imported contacts. Open one to change status or add a reminder. The board is where the journey lives."
         actions={<Button asChild><Link href="/leads/import">Import file</Link></Button>}
       />
       <Notice message={firstParam(query.notice)} />
@@ -38,11 +38,10 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
           <thead className="text-xs tracking-wide text-muted-foreground uppercase">
             <tr>
               <th className="px-4 py-3">Contact</th>
+              <th className="px-4 py-3">Flag</th>
               <th className="px-4 py-3">SendPilot</th>
-              <th className="px-4 py-3">If not interested</th>
-              <th className="px-4 py-3">Opportunity</th>
-              <th className="px-4 py-3">Next follow-up</th>
-              <th className="px-4 py-3">Last sync</th>
+              <th className="px-4 py-3">Journey</th>
+              <th className="px-4 py-3">Next task</th>
             </tr>
           </thead>
           <tbody>
@@ -52,11 +51,10 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
                   <Link href={`/leads/${lead.id}`} className="font-medium">{lead.contactName}</Link>
                   <p className="text-xs text-muted-foreground">{lead.companyName} · {lead.email ?? "No email"}</p>
                 </td>
+                <td className="px-4 py-3">{lead.accountFlag ?? <span className="text-muted-foreground">—</span>}</td>
                 <td className="px-4 py-3">{lead.sendpilotStatus ?? lead.rawStatus ?? "—"}</td>
-                <td className="px-4 py-3">{lead.sendpilotStatus === "Not Interested" ? lead.notInterestedOutcome ?? "Not Interested" : <span className="text-muted-foreground">—</span>}</td>
-                <td className="px-4 py-3">{lead.opportunityStage ? <StageBadge stage={lead.opportunityStage} /> : <span className="text-destructive">Not found</span>}</td>
+                <td className="px-4 py-3">{lead.opportunityStage ? <StageBadge stage={lead.opportunityStage} /> : <span className="text-muted-foreground">On the board</span>}</td>
                 <td className="px-4 py-3">{lead.nextFollowUp ? <><p>{lead.nextFollowUp.title}</p><p className="text-xs text-muted-foreground">{formatDate(lead.nextFollowUp.dueOn)}</p></> : <span className="text-muted-foreground">None</span>}</td>
-                <td className="px-4 py-3 text-muted-foreground">{formatDateTime(lead.lastSyncedAt)}</td>
               </tr>
             ))}
           </tbody>
@@ -85,21 +83,6 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
             </select>
           </Field>
           <Field label="Source"><input className={controlClass} name="source" defaultValue="Manual" /></Field>
-          <label className="flex items-center gap-2 text-sm md:col-span-2">
-            <input type="checkbox" name="create_opportunity" value="yes" />
-            Also create a sales opportunity
-          </label>
-          <Field label="Stage">
-            <select className={controlClass} name="stage" defaultValue="Interested">
-              {OPPORTUNITY_STAGES.filter((stage) => !["Won", "Lost", "Client Started"].includes(stage) && !isHiddenBoardStage(stage)).map((stage) => <option key={stage} value={stage}>{stageLabel(stage)}</option>)}
-            </select>
-          </Field>
-          <Field label="Next action"><input className={controlClass} name="next_action" defaultValue={STAGE_PLAYBOOK.Interested.nextAction} /></Field>
-          <Field label="Next action date"><input className={controlClass} name="next_action_date" type="date" /></Field>
-          <Field label="Nurture reason">
-            <input className={controlClass} name="nurture_reason" list="nurture-reasons" placeholder="Timing, budget, or your own note" />
-            <datalist id="nurture-reasons">{NURTURE_REASON_SUGGESTIONS.map((reason) => <option key={reason} value={reason} />)}</datalist>
-          </Field>
           <div className="md:col-span-2"><SubmitButton>Save lead</SubmitButton></div>
         </ActionForm>
       </section>

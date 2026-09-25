@@ -16,6 +16,7 @@ import {
   NOT_INTERESTED_INTAKE,
   NOT_INTERESTED_OUTCOMES,
   notInterestedOutcome,
+  accountFlag,
   STAGE_PLAYBOOK,
   PROFILE_SEND_STAGE,
   BOOKED_CALL_STAGE,
@@ -185,9 +186,13 @@ async function createOpportunityForLead(
   leadId: string,
   formData: FormData,
 ) {
-  const { data: lead, error } = await supabase.from("leads").select("id, company_id, contact_id, companies(name), contacts(first_name, last_name)").eq("id", leadId).maybeSingle();
-  if (error || !lead) return { error: "That lead could not be found." };
-  const record = lead as { company_id: string; contact_id: string; companies: { name: string } | { name: string }[] | null };
+  let loaded = await supabase.from("leads").select("id, company_id, contact_id, account_flag, companies(name), contacts(first_name, last_name)").eq("id", leadId).maybeSingle();
+  if (loaded.error && /account_flag/i.test(loaded.error.message ?? "")) {
+    loaded = await supabase.from("leads").select("id, company_id, contact_id, companies(name), contacts(first_name, last_name)").eq("id", leadId).maybeSingle();
+  }
+  if (loaded.error || !loaded.data) return { error: "That lead could not be found." };
+  const lead = loaded.data;
+  const record = lead as { company_id: string; contact_id: string; account_flag?: string | null; companies: { name: string } | { name: string }[] | null };
   const company = Array.isArray(record.companies) ? record.companies[0] : record.companies;
   const stage = text(formData, "stage") || "Interested";
   if (!(OPPORTUNITY_STAGES as readonly string[]).includes(stage)) return { error: "Choose a pipeline stage." };
@@ -223,6 +228,10 @@ async function createOpportunityForLead(
     .single();
   if (insertError || !data) return { error: actionError(insertError) };
   const opportunityId = String((data as { id: string }).id);
+  const inheritedFlag = accountFlag(record.account_flag);
+  if (inheritedFlag) {
+    await supabase.from("opportunities").update({ account_flag: inheritedFlag }).eq("id", opportunityId);
+  }
   await supabase.from("activities").insert({
     opportunity_id: opportunityId,
     lead_id: leadId,
@@ -327,6 +336,49 @@ function outcomeColumnError(error: { message: string; code?: string }) {
   return actionError(error);
 }
 
+function flagColumnError(error: { message: string; code?: string }) {
+  if (error.code === "PGRST204" || /account_flag/i.test(error.message)) {
+    return "Apply supabase/migrations/20260924183000_account_flags.sql in the Supabase SQL editor so account flags can be saved.";
+  }
+  return actionError(error);
+}
+
+async function writeAccountFlag(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  input: { leadId: string; opportunityId?: string | null; flag: string | null },
+) {
+  const flag = accountFlag(input.flag);
+  if (isUuid(input.leadId)) {
+    const { error } = await supabase.from("leads").update({ account_flag: flag }).eq("id", input.leadId);
+    if (error) return { error: flagColumnError(error) };
+  }
+  if (input.opportunityId && isUuid(input.opportunityId)) {
+    const { error } = await supabase.from("opportunities").update({ account_flag: flag }).eq("id", input.opportunityId);
+    if (error) return { error: flagColumnError(error) };
+  }
+  return { success: flag ? `Flagged as ${flag}.` : "Flag cleared." };
+}
+
+export async function setAccountFlagFromBoard(formData: FormData): Promise<ActionState> {
+  const { supabase } = await requireUser();
+  const leadId = text(formData, "lead_id");
+  if (!isUuid(leadId)) return { error: "Choose an account." };
+  const saved = await writeAccountFlag(supabase, {
+    leadId,
+    opportunityId: optionalText(formData, "opportunity_id"),
+    flag: optionalText(formData, "account_flag"),
+  });
+  if (saved.error) return saved;
+  const opportunityId = optionalText(formData, "opportunity_id");
+  refresh("/opportunities", "/leads", "/dashboard", `/leads/${leadId}`);
+  if (opportunityId && isUuid(opportunityId)) refresh(`/opportunities/${opportunityId}`);
+  return saved;
+}
+
+export async function setAccountFlag(_state: ActionState, formData: FormData): Promise<ActionState> {
+  return setAccountFlagFromBoard(formData);
+}
+
 export async function createOpportunity(_state: ActionState, formData: FormData): Promise<ActionState> {
   const { supabase, userId } = await requireUser();
   const leadId = text(formData, "lead_id");
@@ -343,12 +395,9 @@ export async function updateNextAction(_state: ActionState, formData: FormData):
   const id = text(formData, "opportunity_id");
   const nextAction = text(formData, "next_action");
   const nextActionDate = dateField(formData, "next_action_date");
-  const waiting = text(formData, "waiting_on");
-  const risk = text(formData, "risk_level");
+  const waiting = (WAITING_ON as readonly string[]).includes(text(formData, "waiting_on")) ? text(formData, "waiting_on") : "internal";
+  const risk = (RISK_LEVELS as readonly string[]).includes(text(formData, "risk_level")) ? text(formData, "risk_level") : "low";
   if (!isUuid(id) || !nextAction || !nextActionDate) return { error: "Next action and due date are required." };
-  if (!(WAITING_ON as readonly string[]).includes(waiting) || !(RISK_LEVELS as readonly string[]).includes(risk)) {
-    return { error: "Choose who this is waiting on and a risk level." };
-  }
   const { error } = await supabase.from("opportunities").update({ next_action: nextAction, next_action_date: nextActionDate, waiting_on: waiting, risk_level: risk }).eq("id", id);
   if (error) return { error: actionError(error) };
   await supabase.from("activities").insert({ opportunity_id: id, type: "record_updated", title: "Next action updated", body: `${nextAction} · ${nextActionDate}`, actor_id: userId });
@@ -543,6 +592,13 @@ export async function saveProfileSendFromBoard(formData: FormData): Promise<Acti
   );
   if (taskError) return { error: actionError(taskError) };
 
+  const flagged = await writeAccountFlag(supabase, {
+    leadId,
+    opportunityId,
+    flag: optionalText(formData, "account_flag"),
+  });
+  if (flagged.error) return flagged;
+
   refresh("/opportunities", "/leads", "/dashboard", "/follow-ups", `/leads/${leadId}`, `/opportunities/${opportunityId}`);
   return { success: "Profile send recorded. The check-back tasks are on reminders and the week calendar." };
 }
@@ -619,6 +675,13 @@ export async function saveBookedSalesCallFromBoard(formData: FormData): Promise<
     details: `Booked sales call at ${clock}`,
     due_on: callOn,
   });
+
+  const flagged = await writeAccountFlag(supabase, {
+    leadId,
+    opportunityId,
+    flag: optionalText(formData, "account_flag"),
+  });
+  if (flagged.error) return flagged;
 
   refresh("/opportunities", "/leads", "/dashboard", "/follow-ups", `/leads/${leadId}`, `/opportunities/${opportunityId}`);
   return { success: "Sales call booked. It is on reminders, tasks, and the week calendar." };
@@ -714,6 +777,13 @@ export async function saveSalesCallCompleteFromBoard(formData: FormData): Promis
     })),
   );
   if (taskError) return { error: actionError(taskError) };
+
+  const flagged = await writeAccountFlag(supabase, {
+    leadId,
+    opportunityId,
+    flag: optionalText(formData, "account_flag"),
+  });
+  if (flagged.error) return flagged;
 
   refresh("/opportunities", "/leads", "/dashboard", "/follow-ups", `/leads/${leadId}`, `/opportunities/${opportunityId}`);
   return { success: "Sales call marked complete. The three tasks are on reminders and the week calendar." };
@@ -1136,10 +1206,23 @@ export async function addTask(_state: ActionState, formData: FormData): Promise<
   const opportunityId = text(formData, "opportunity_id");
   const title = text(formData, "title");
   if (!isUuid(opportunityId) || !title) return { error: "Task title is required." };
-  const { error } = await supabase.from("tasks").insert({ opportunity_id: opportunityId, title, details: optionalText(formData, "details"), due_on: dateField(formData, "due_on"), owner_id: userId });
+  const dueOn = dateField(formData, "due_on");
+  const { error } = await supabase.from("tasks").insert({ opportunity_id: opportunityId, title, details: optionalText(formData, "details"), due_on: dueOn, owner_id: userId });
   if (error) return { error: actionError(error) };
-  refresh(`/opportunities/${opportunityId}`);
-  return { success: "Task added." };
+  const { data: opportunity } = await supabase.from("opportunities").select("lead_id").eq("id", opportunityId).maybeSingle();
+  const leadId = opportunity ? String((opportunity as { lead_id?: string }).lead_id ?? "") : "";
+  if (dueOn) {
+    await supabase.from("follow_ups").insert({
+      opportunity_id: opportunityId,
+      lead_id: isUuid(leadId) ? leadId : null,
+      owner_id: userId,
+      title,
+      due_on: dueOn,
+      notes: optionalText(formData, "details"),
+    });
+  }
+  refresh(`/opportunities/${opportunityId}`, "/dashboard", "/follow-ups");
+  return { success: "Task added. It will show on the week calendar if it has a due date." };
 }
 
 export async function uploadDocument(_state: ActionState, formData: FormData): Promise<ActionState> {

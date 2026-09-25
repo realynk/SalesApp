@@ -23,11 +23,13 @@ import {
   NOT_INTERESTED_INTAKE,
   NOT_INTERESTED_OUTCOMES,
   notInterestedColumn,
+  type AccountFlag,
   type NotInterestedColumn,
   type NotInterestedOutcome,
 } from "@/lib/domain";
 import { formatDate } from "@/lib/format";
-import { dropLeadOnOutcome } from "@/server/actions";
+import { AccountFlagSelect, FlagBadge } from "@/components/account-flag-field";
+import { dropLeadOnOutcome, setAccountFlagFromBoard } from "@/server/actions";
 
 const COLUMN_TONE = [
   "border-t-[#f97066]",
@@ -46,6 +48,7 @@ export type NotInterestedCard = {
   contactName: string;
   notInterestedOutcome: NotInterestedOutcome | null;
   nextFollowUp: { title: string; dueOn: string } | null;
+  accountFlag: AccountFlag | null;
 };
 
 const collisionDetection: CollisionDetection = (args) => {
@@ -113,10 +116,25 @@ export function NotInterestedBoard({ leads }: { leads: NotInterestedCard[] }) {
     void persistMove(lead, column, previous);
   }
 
+  async function persistFlag(lead: NotInterestedCard, flag: AccountFlag | null) {
+    const previous = items;
+    setItems(previous.map((item) => (item.id === lead.id ? { ...item, accountFlag: flag } : item)));
+    const formData = new FormData();
+    formData.set("lead_id", lead.id);
+    formData.set("account_flag", flag ?? "");
+    const result = await setAccountFlagFromBoard(formData);
+    if (result?.error) {
+      setItems(previous);
+      setNotice(result.error);
+      return;
+    }
+    setNotice(null);
+  }
+
   return (
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">
-        The Not Interested column is every lead tagged Not Interested in SendPilot who has not been sorted further. Drag a card onto Nurture, No longer in the company, Not the decision maker, Not relevant, or Stop.
+        The Not Interested column is every lead tagged Not Interested in SendPilot. Drag a card onto Nurture or another reason.
       </p>
       {notice ? <p className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground">{notice}</p> : null}
       <DndContext
@@ -129,7 +147,7 @@ export function NotInterestedBoard({ leads }: { leads: NotInterestedCard[] }) {
         <div className="overflow-x-auto pb-2">
           <div className="flex min-w-max items-start gap-3">
             {columns.map((column) => (
-              <OutcomeColumn key={column.column} column={column.column} tone={column.tone} items={column.items} disabledId={pendingId} />
+              <OutcomeColumn key={column.column} column={column.column} tone={column.tone} items={column.items} disabledId={pendingId} onFlagChange={persistFlag} />
             ))}
           </div>
         </div>
@@ -146,11 +164,13 @@ function OutcomeColumn({
   tone,
   items,
   disabledId,
+  onFlagChange,
 }: {
   column: NotInterestedColumn;
   tone: string;
   items: NotInterestedCard[];
   disabledId: string | null;
+  onFlagChange: (lead: NotInterestedCard, flag: AccountFlag | null) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: column, data: { column } });
   const sendpilotIntake = column === NOT_INTERESTED_INTAKE;
@@ -170,7 +190,7 @@ function OutcomeColumn({
       <ul className="flex min-h-32 flex-col gap-2 px-2 pb-3">
         {items.map((lead) => (
           <li key={lead.id}>
-            <DraggableLead lead={lead} disabled={disabledId === lead.id} />
+            <DraggableLead lead={lead} disabled={disabledId === lead.id} onFlagChange={onFlagChange} />
           </li>
         ))}
         {items.length === 0 ? (
@@ -181,16 +201,32 @@ function OutcomeColumn({
   );
 }
 
-function DraggableLead({ lead, disabled }: { lead: NotInterestedCard; disabled: boolean }) {
+function DraggableLead({
+  lead,
+  disabled,
+  onFlagChange,
+}: {
+  lead: NotInterestedCard;
+  disabled: boolean;
+  onFlagChange: (lead: NotInterestedCard, flag: AccountFlag | null) => void;
+}) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: lead.id, disabled, data: { lead } });
   return (
     <div ref={setNodeRef} className={isDragging ? "opacity-30" : undefined} {...listeners} {...attributes}>
-      <LeadCard lead={lead} />
+      <LeadCard lead={lead} onFlagChange={onFlagChange} />
     </div>
   );
 }
 
-function LeadCard({ lead, overlay = false }: { lead: NotInterestedCard; overlay?: boolean }) {
+function LeadCard({
+  lead,
+  overlay = false,
+  onFlagChange,
+}: {
+  lead: NotInterestedCard;
+  overlay?: boolean;
+  onFlagChange?: (lead: NotInterestedCard, flag: AccountFlag | null) => void;
+}) {
   return (
     <article className={`rounded-lg border border-border bg-card p-3 shadow-sm ${overlay ? "rotate-1 cursor-grabbing shadow-lg" : "cursor-grab"}`}>
       <div className="flex items-start gap-2">
@@ -203,6 +239,11 @@ function LeadCard({ lead, overlay = false }: { lead: NotInterestedCard; overlay?
               <CardBody lead={lead} />
             </Link>
           )}
+          {overlay || !onFlagChange ? null : (
+            <div className="mt-2">
+              <AccountFlagSelect compact value={lead.accountFlag} onChange={(flag) => onFlagChange(lead, flag)} />
+            </div>
+          )}
         </div>
       </div>
     </article>
@@ -212,7 +253,10 @@ function LeadCard({ lead, overlay = false }: { lead: NotInterestedCard; overlay?
 function CardBody({ lead }: { lead: NotInterestedCard }) {
   return (
     <>
-      <p className="text-sm font-semibold">{lead.companyName}</p>
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-sm font-semibold">{lead.companyName}</p>
+        <FlagBadge flag={lead.accountFlag} />
+      </div>
       <p className="mt-0.5 text-xs text-muted-foreground">{lead.contactName}</p>
       <p className="mt-2 text-xs">{lead.nextFollowUp ? lead.nextFollowUp.title : "No follow-up scheduled"}</p>
       <p className="mt-1 text-xs text-muted-foreground">{lead.nextFollowUp ? `Due ${formatDate(lead.nextFollowUp.dueOn)}` : "Open the lead to set a reminder"}</p>

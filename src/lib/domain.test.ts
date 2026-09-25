@@ -9,6 +9,7 @@ import {
   mapImportRecords,
   median,
   normalizeSendPilotStatus,
+  accountFlag,
   notInterestedColumn,
   notInterestedOutcome,
   boardStage,
@@ -60,6 +61,16 @@ test("labels the profile-send stage and defaults check-backs from the call", () 
   assert.equal(formatClock("09:05"), "9:05 AM");
   assert.deepEqual(profileSendCheckBacks("2026-10-10", "2026-10-01"), { oneDay: "2026-10-11", twoDays: "2026-10-12" });
   assert.deepEqual(profileSendCheckBacks(null, "2026-10-01"), { oneDay: "2026-10-02", twoDays: "2026-10-03" });
+});
+
+test("accepts only known account flags", () => {
+  assert.equal(accountFlag(null), null);
+  assert.equal(accountFlag("Urgent"), "Urgent");
+  assert.equal(accountFlag("Follow up"), "Follow up");
+  assert.equal(accountFlag("Waiting on client"), "Waiting on client");
+  assert.equal(accountFlag("Waiting on recruitment"), "Waiting on recruitment");
+  assert.equal(accountFlag("At risk"), "At risk");
+  assert.equal(accountFlag("hot"), null);
 });
 
 test("keeps unsorted Not Interested leads in the SendPilot intake column", () => {

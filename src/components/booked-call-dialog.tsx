@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { AccountFlagSelect } from "@/components/account-flag-field";
 import { controlClass, Field } from "@/components/bits";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import type { AccountFlag } from "@/lib/domain";
 import { saveBookedSalesCallFromBoard } from "@/server/actions";
 
 export type BookedCallDraft = {
@@ -11,6 +13,7 @@ export type BookedCallDraft = {
   opportunityId: string | null;
   companyName: string;
   contactName: string;
+  accountFlag: AccountFlag | null;
 };
 
 export function BookedCallDialog({
@@ -59,6 +62,9 @@ export function BookedCallDialog({
           </Field>
           <Field label="Meeting time">
             <input className={controlClass} name="call_time" type="time" required defaultValue="10:00" />
+          </Field>
+          <Field label="Flag">
+            <AccountFlagSelect defaultValue={draft?.accountFlag ?? null} />
           </Field>
           <DialogFooter>
             <Button type="button" variant="outline" disabled={pending} onClick={onCancel}>Cancel</Button>

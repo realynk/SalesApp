@@ -1,9 +1,9 @@
 export class AppDataError extends Error {}
 
-export function raiseIf(error: { message: string; code?: string } | null) {
+export function raiseIf(error: { message?: string; code?: string } | null) {
   if (!error) return;
   console.error(error);
-  if (error.code === "42P01" || error.code === "PGRST205" || /does not exist|schema cache/i.test(error.message)) {
+  if (error.code === "42P01" || error.code === "PGRST205" || /does not exist|schema cache/i.test(error.message ?? "")) {
     throw new AppDataError(
       "The database schema is missing a column or table. Apply the latest file in supabase/migrations in the Supabase SQL editor, then reload.",
     );

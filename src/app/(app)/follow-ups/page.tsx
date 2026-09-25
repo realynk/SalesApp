@@ -21,7 +21,7 @@ export default async function NurturePage({ searchParams }: { searchParams: Prom
       <PageHeader
         eyebrow="Pipeline"
         title="Nurture"
-        description="Held accounts keep a reason, a next date, and notes. SendPilot Not Interested leads start on the Not Interested column of the client journey board, then sort into Nurture or another reason."
+        description="Held Not Interested accounts with a next date. Open Client journey to sort new ones."
       />
       <Notice message={firstParam(query.notice)} />
       <ul className="divide-y divide-border rounded-xl border border-border bg-card">
@@ -33,7 +33,7 @@ export default async function NurturePage({ searchParams }: { searchParams: Prom
             <li key={opportunity.id} className="flex flex-wrap items-start justify-between gap-4 px-4 py-4 text-sm">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <Link className="font-medium" href={`/opportunities/${opportunity.id}?tab=follow-ups`}>{opportunity.companyName}</Link>
+                  <Link className="font-medium" href={`/opportunities/${opportunity.id}`}>{opportunity.companyName}</Link>
                   <StageBadge stage={opportunity.stage} />
                 </div>
                 <p className="mt-1 text-muted-foreground">{opportunity.contactName}</p>

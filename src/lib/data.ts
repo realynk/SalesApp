@@ -12,6 +12,8 @@ import {
   type WaitingOn,
   type SendPilotStatus,
   notInterestedOutcome,
+  accountFlag,
+  type AccountFlag,
 } from "@/lib/domain";
 import { raiseIf } from "@/lib/errors";
 import { fullName } from "@/lib/format";
@@ -81,6 +83,7 @@ export type OpportunitySummary = {
   nurtureReason: string | null;
   nurtureNotes: string | null;
   lostReason: string | null;
+  accountFlag: AccountFlag | null;
 };
 
 const DEFAULT_SETTINGS: Settings = {
@@ -122,10 +125,19 @@ function mapOpportunity(value: Row): OpportunitySummary {
     nurtureReason: str(value.nurture_reason),
     nurtureNotes: str(value.nurture_notes),
     lostReason: str(value.lost_reason),
+    accountFlag: accountFlag(str(value.account_flag)),
   };
 }
 
 const OPPORTUNITY_SELECT = `
+  id, title, stage, status, risk_level, waiting_on, next_action, next_action_date,
+  last_activity_at, last_activity_summary, headcount, billing_rate, owner_id, lead_id,
+  company_id, contact_id, nurture_reason, nurture_notes, lost_reason, notes, account_flag, created_at,
+  companies(id, name, industry, timezone, website, notes),
+  contacts(id, first_name, last_name, email, phone, linkedin_url, title),
+  profiles(id, full_name)
+`;
+const OPPORTUNITY_SELECT_FALLBACK = `
   id, title, stage, status, risk_level, waiting_on, next_action, next_action_date,
   last_activity_at, last_activity_summary, headcount, billing_rate, owner_id, lead_id,
   company_id, contact_id, nurture_reason, nurture_notes, lost_reason, notes, created_at,
@@ -167,7 +179,10 @@ export const getCommandCenter = cache(async () => {
       supabase.from("clients").select("id, start_date").limit(300),
     ]);
 
-  raiseIf(opportunityResult.error);
+  const loadedOpportunities = missingAccountFlagColumn(opportunityResult.error)
+    ? await supabase.from("opportunities").select(OPPORTUNITY_SELECT_FALLBACK).limit(500)
+    : opportunityResult;
+  raiseIf(loadedOpportunities.error);
   raiseIf(followResult.error);
   raiseIf(batchResult.error);
   raiseIf(recruitmentResult.error);
@@ -177,7 +192,7 @@ export const getCommandCenter = cache(async () => {
   raiseIf(leadResult.error);
   raiseIf(clientResult.error);
 
-  const opportunities = rows(opportunityResult.data).map(mapOpportunity);
+  const opportunities = rows(loadedOpportunities.data).map(mapOpportunity);
   const opportunityIds = new Set(opportunities.map((opportunity) => opportunity.leadId));
   const companyByOpportunity = new Map(opportunities.map((opportunity) => [opportunity.id, opportunity.companyName]));
 
@@ -366,6 +381,8 @@ export async function getOwners() {
 export async function listLeads(filters: { q?: string; status?: string; review?: string }) {
   const { supabase } = await requireUser();
   const leadSelect =
+    "id, source, sendpilot_status, sendpilot_status_raw, not_interested_outcome, account_flag, last_synced_at, requires_review, review_reason, created_at, company_id, contact_id, companies(id, name), contacts(id, first_name, last_name, email, phone, linkedin_url, title)";
+  const leadSelectWithoutFlag =
     "id, source, sendpilot_status, sendpilot_status_raw, not_interested_outcome, last_synced_at, requires_review, review_reason, created_at, company_id, contact_id, companies(id, name), contacts(id, first_name, last_name, email, phone, linkedin_url, title)";
   const leadSelectFallback =
     "id, source, sendpilot_status, sendpilot_status_raw, last_synced_at, requires_review, review_reason, created_at, company_id, contact_id, companies(id, name), contacts(id, first_name, last_name, email, phone, linkedin_url, title)";
@@ -374,9 +391,13 @@ export async function listLeads(filters: { q?: string; status?: string; review?:
     supabase.from("opportunities").select("id, lead_id, stage, status").limit(500),
     supabase.from("follow_ups").select("id, lead_id, title, due_on, status").eq("status", "open").order("due_on").limit(500),
   ]);
-  const leadResult = missingOutcomeColumn(firstLeadResult.error)
-    ? await supabase.from("leads").select(leadSelectFallback).order("updated_at", { ascending: false }).limit(500)
-    : firstLeadResult;
+  let leadResult: { data: unknown; error: { message?: string; code?: string } | null } = firstLeadResult;
+  if (missingAccountFlagColumn(leadResult.error)) {
+    leadResult = await supabase.from("leads").select(leadSelectWithoutFlag).order("updated_at", { ascending: false }).limit(500);
+  }
+  if (missingOutcomeColumn(leadResult.error)) {
+    leadResult = await supabase.from("leads").select(leadSelectFallback).order("updated_at", { ascending: false }).limit(500);
+  }
   raiseIf(leadResult.error);
   raiseIf(opportunityResult.error);
   raiseIf(followResult.error);
@@ -411,6 +432,7 @@ export async function listLeads(filters: { q?: string; status?: string; review?:
         opportunityStage: opportunity ? (str(opportunity.stage) as OpportunityStage) : null,
         nextFollowUp: nextFollowUpByLead.get(String(item.id)) ?? null,
         notInterestedOutcome: notInterestedOutcome(str(item.not_interested_outcome)),
+        accountFlag: accountFlag(str(item.account_flag)),
       };
     })
     .filter((lead) => {
@@ -430,17 +452,27 @@ function missingOutcomeColumn(error: { message?: string; code?: string } | null)
   return Boolean(error && (error.code === "PGRST204" || /not_interested_outcome/i.test(error.message ?? "")));
 }
 
+function missingAccountFlagColumn(error: { message?: string; code?: string } | null) {
+  return Boolean(error && (error.code === "PGRST204" || /account_flag/i.test(error.message ?? "")));
+}
+
 export async function getLead(id: string) {
   if (!isUuid(id)) return null;
   const { supabase } = await requireUser();
   const detailSelect =
+    "id, source, sendpilot_status, sendpilot_status_raw, not_interested_outcome, account_flag, last_synced_at, requires_review, review_reason, created_at, companies(id, name, industry, website, timezone, notes), contacts(id, first_name, last_name, email, phone, linkedin_url, title)";
+  const detailWithoutFlag =
     "id, source, sendpilot_status, sendpilot_status_raw, not_interested_outcome, last_synced_at, requires_review, review_reason, created_at, companies(id, name, industry, website, timezone, notes), contacts(id, first_name, last_name, email, phone, linkedin_url, title)";
   const detailFallback =
     "id, source, sendpilot_status, sendpilot_status_raw, last_synced_at, requires_review, review_reason, created_at, companies(id, name, industry, website, timezone, notes), contacts(id, first_name, last_name, email, phone, linkedin_url, title)";
   const first = await supabase.from("leads").select(detailSelect).eq("id", id).maybeSingle();
-  const loaded = missingOutcomeColumn(first.error)
-    ? await supabase.from("leads").select(detailFallback).eq("id", id).maybeSingle()
-    : first;
+  let loaded: { data: unknown; error: { message?: string; code?: string } | null } = first;
+  if (missingAccountFlagColumn(first.error)) {
+    loaded = await supabase.from("leads").select(detailWithoutFlag).eq("id", id).maybeSingle();
+  }
+  if (missingOutcomeColumn(loaded.error)) {
+    loaded = await supabase.from("leads").select(detailFallback).eq("id", id).maybeSingle();
+  }
   raiseIf(loaded.error);
   if (!loaded.data) return null;
   const record = loaded.data as Row;
@@ -462,6 +494,7 @@ export async function getLead(id: string) {
     sendpilotStatus: str(record.sendpilot_status) as SendPilotStatus | null,
     rawStatus: str(record.sendpilot_status_raw),
     notInterestedOutcome: notInterestedOutcome(str(record.not_interested_outcome)),
+    accountFlag: accountFlag(str(record.account_flag)),
     lastSyncedAt: str(record.last_synced_at),
     requiresReview: bool(record.requires_review),
     reviewReason: str(record.review_reason),
@@ -539,11 +572,14 @@ export async function getOpportunity(id: string) {
   if (!isUuid(id)) return null;
   const { supabase } = await requireUser();
   const settings = await getSettings();
-  const { data, error } = await supabase.from("opportunities").select(`${OPPORTUNITY_SELECT}, leads(id, sendpilot_status, source, last_synced_at)`).eq("id", id).maybeSingle();
-  raiseIf(error);
-  if (!data) return null;
-  const summary = mapOpportunity(data as Row);
-  const lead = row((data as Row).leads);
+  const first = await supabase.from("opportunities").select(`${OPPORTUNITY_SELECT}, leads(id, sendpilot_status, source, last_synced_at)`).eq("id", id).maybeSingle();
+  const loaded = missingAccountFlagColumn(first.error)
+    ? await supabase.from("opportunities").select(`${OPPORTUNITY_SELECT_FALLBACK}, leads(id, sendpilot_status, source, last_synced_at)`).eq("id", id).maybeSingle()
+    : first;
+  raiseIf(loaded.error);
+  if (!loaded.data) return null;
+  const summary = mapOpportunity(loaded.data as Row);
+  const lead = row((loaded.data as Row).leads);
   const [activities, history, followUps, strategy, recruitment, batches, interviews, contract, client, notes, documents, tasks] = await Promise.all([
     supabase.from("activities").select("id, type, title, body, occurred_at").or(`opportunity_id.eq.${id},lead_id.eq.${summary.leadId}`).order("occurred_at", { ascending: false }).limit(200),
     supabase.from("pipeline_stage_history").select("id, previous_stage, new_stage, changed_at, note").eq("opportunity_id", id).order("changed_at", { ascending: false }),
@@ -580,7 +616,7 @@ export async function getOpportunity(id: string) {
 
   return {
     ...summary,
-    notesText: str((data as Row).notes),
+    notesText: str((loaded.data as Row).notes),
     sendpilotStatus: str(lead?.sendpilot_status) as SendPilotStatus | null,
     sendpilotSource: str(lead?.source),
     lastSyncedAt: str(lead?.last_synced_at),
