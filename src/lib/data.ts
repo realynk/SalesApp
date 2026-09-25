@@ -795,7 +795,7 @@ export async function getReporting() {
       stage === "Interested"
         ? leads.filter((lead) => lead.sendpilotStatus === "Interested" && !laterLeadIds.has(lead.id)).length
         : center.opportunities.filter((item) => boardStage(item.stage) === stage).length,
-    href: stage === "On Hold / Nurture" ? "/follow-ups" : "/opportunities",
+    href: "/opportunities",
   }));
   const outcomes = [NOT_INTERESTED_INTAKE, ...NOT_INTERESTED_OUTCOMES].map((column) => ({
     label: column,

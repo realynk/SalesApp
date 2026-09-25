@@ -834,7 +834,7 @@ export async function completeFollowUp(formData: FormData) {
   const leadId = optionalText(formData, "lead_id");
   if (!isUuid(id)) return;
   const { error } = await supabase.from("follow_ups").update({ status: "completed", completed_at: new Date().toISOString() }).eq("id", id);
-  if (error) redirect(`/follow-ups?notice=${encodeURIComponent(actionError(error))}`);
+  if (error) redirect(`/dashboard?notice=${encodeURIComponent(actionError(error))}`);
   await supabase.from("activities").insert({
     opportunity_id: opportunityId,
     lead_id: leadId,
