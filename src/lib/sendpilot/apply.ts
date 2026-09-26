@@ -15,6 +15,7 @@ import {
   resolveSendPilotSourceStatus,
   type SendPilotWebhookIdentifiers,
 } from "@/lib/sendpilot/events";
+import { identitiesOverlap } from "./suppress";
 import { createAdminClient, supabaseServiceRoleKey } from "@/lib/supabase/admin";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -29,6 +30,7 @@ type MatchedLead = {
   companyId: string;
   sendpilotStatus: string | null;
   sendpilotStatusRaw: string | null;
+  archived: boolean;
 };
 
 function asErrorMessage(error: unknown) {
@@ -91,7 +93,7 @@ async function finishEvent(
 async function leadBySendPilotId(supabase: SupabaseClient, sendpilotLeadId: string): Promise<MatchedLead | null> {
   const { data, error } = await supabase
     .from("leads")
-    .select("id, contact_id, company_id, sendpilot_status, sendpilot_status_raw")
+    .select("id, contact_id, company_id, sendpilot_status, sendpilot_status_raw, archived_at")
     .eq("sendpilot_lead_id", sendpilotLeadId)
     .maybeSingle();
   if (error) throw error;
@@ -102,6 +104,7 @@ async function leadBySendPilotId(supabase: SupabaseClient, sendpilotLeadId: stri
     companyId: String(data.company_id),
     sendpilotStatus: data.sendpilot_status ? String(data.sendpilot_status) : null,
     sendpilotStatusRaw: data.sendpilot_status_raw ? String(data.sendpilot_status_raw) : null,
+    archived: Boolean(data.archived_at),
   };
 }
 
@@ -118,7 +121,7 @@ async function leadByExternalRecord(supabase: SupabaseClient, sendpilotLeadId: s
   if (!data?.matched_lead_id) return null;
   const { data: lead, error: leadError } = await supabase
     .from("leads")
-    .select("id, contact_id, company_id, sendpilot_status, sendpilot_status_raw")
+    .select("id, contact_id, company_id, sendpilot_status, sendpilot_status_raw, archived_at")
     .eq("id", data.matched_lead_id)
     .maybeSingle();
   if (leadError) throw leadError;
@@ -129,6 +132,7 @@ async function leadByExternalRecord(supabase: SupabaseClient, sendpilotLeadId: s
     companyId: String(lead.company_id),
     sendpilotStatus: lead.sendpilot_status ? String(lead.sendpilot_status) : null,
     sendpilotStatusRaw: lead.sendpilot_status_raw ? String(lead.sendpilot_status_raw) : null,
+    archived: Boolean(lead.archived_at),
   };
 }
 
@@ -149,7 +153,7 @@ async function contactsByKey(
 async function leadForContact(supabase: SupabaseClient, contactId: string): Promise<MatchedLead | null> {
   const { data, error } = await supabase
     .from("leads")
-    .select("id, contact_id, company_id, sendpilot_status, sendpilot_status_raw")
+    .select("id, contact_id, company_id, sendpilot_status, sendpilot_status_raw, archived_at")
     .eq("contact_id", contactId)
     .maybeSingle();
   if (error) throw error;
@@ -160,6 +164,7 @@ async function leadForContact(supabase: SupabaseClient, contactId: string): Prom
     companyId: String(data.company_id),
     sendpilotStatus: data.sendpilot_status ? String(data.sendpilot_status) : null,
     sendpilotStatusRaw: data.sendpilot_status_raw ? String(data.sendpilot_status_raw) : null,
+    archived: Boolean(data.archived_at),
   };
 }
 
@@ -196,6 +201,7 @@ async function matchLead(
         companyId: String(contact.company_id),
         sendpilotStatus: null,
         sendpilotStatusRaw: null,
+        archived: false,
       },
       classification: "existing_contact",
       reviewReason: null,
@@ -203,6 +209,25 @@ async function matchLead(
   }
 
   return { match: null, classification: "unmatched", reviewReason: null };
+}
+
+async function findActiveSuppression(supabase: SupabaseClient, ids: SendPilotWebhookIdentifiers) {
+  const rows: Array<{ sendpilot_lead_id: string | null; email: string | null; linkedin_url: string | null }> = [];
+  if (ids.leadId) {
+    const byId = await supabase.from("sendpilot_suppressions").select("sendpilot_lead_id, email, linkedin_url").is("released_at", null).eq("sendpilot_lead_id", ids.leadId).limit(5);
+    if (byId.data) rows.push(...byId.data);
+  }
+  const emailKey = normalizeEmail(ids.email);
+  if (emailKey) {
+    const byEmail = await supabase.from("sendpilot_suppressions").select("sendpilot_lead_id, email, linkedin_url").is("released_at", null).eq("email_key", emailKey).limit(5);
+    if (byEmail.data) rows.push(...byEmail.data);
+  }
+  const linkedinKey = normalizeLinkedIn(ids.linkedinUrl);
+  if (linkedinKey) {
+    const byLinkedin = await supabase.from("sendpilot_suppressions").select("sendpilot_lead_id, email, linkedin_url").is("released_at", null).eq("linkedin_key", linkedinKey).limit(5);
+    if (byLinkedin.data) rows.push(...byLinkedin.data);
+  }
+  return rows.some((row) => identitiesOverlap(ids, { sendpilotLeadId: row.sendpilot_lead_id, email: row.email, linkedinUrl: row.linkedin_url }));
 }
 
 async function findOrCreateCompany(supabase: SupabaseClient, companyName: string) {
@@ -254,7 +279,7 @@ async function createLeadFromWebhook(
       sendpilot_status_raw: input.sendpilotStatusRaw,
       last_synced_at: new Date().toISOString(),
     })
-    .select("id, contact_id, company_id, sendpilot_status, sendpilot_status_raw")
+    .select("id, contact_id, company_id, sendpilot_status, sendpilot_status_raw, archived_at")
     .single();
   if (leadInsert.error || !leadInsert.data) throw leadInsert.error ?? new Error("Could not create lead.");
   await supabase.from("activities").insert({
@@ -281,6 +306,7 @@ async function createLeadFromWebhook(
     companyId,
     sendpilotStatus: leadInsert.data.sendpilot_status ? String(leadInsert.data.sendpilot_status) : null,
     sendpilotStatusRaw: leadInsert.data.sendpilot_status_raw ? String(leadInsert.data.sendpilot_status_raw) : null,
+    archived: false,
   };
 }
 
@@ -303,7 +329,7 @@ async function ensureLeadForContact(
       sendpilot_status_raw: sendpilotStatusRaw,
       last_synced_at: new Date().toISOString(),
     })
-    .select("id, contact_id, company_id, sendpilot_status, sendpilot_status_raw")
+    .select("id, contact_id, company_id, sendpilot_status, sendpilot_status_raw, archived_at")
     .single();
   if (leadInsert.error || !leadInsert.data) throw leadInsert.error ?? new Error("Could not create lead for existing contact.");
   return {
@@ -312,6 +338,7 @@ async function ensureLeadForContact(
     companyId: String(leadInsert.data.company_id),
     sendpilotStatus: leadInsert.data.sendpilot_status ? String(leadInsert.data.sendpilot_status) : null,
     sendpilotStatusRaw: leadInsert.data.sendpilot_status_raw ? String(leadInsert.data.sendpilot_status_raw) : null,
+    archived: Boolean(leadInsert.data.archived_at),
   };
 }
 
@@ -516,6 +543,28 @@ export async function applySendPilotWebhook(rawBody: string): Promise<ApplyResul
 
     let created = false;
     let lead = matched.match;
+    const suppressed = !lead?.leadId ? await findActiveSuppression(supabase, ids) : false;
+    if (suppressed) {
+      await writeSyncAndRecord(supabase, {
+        eventType,
+        eventId,
+        ids,
+        classification: "suppressed",
+        reviewRequired: true,
+        reviewReason: "This SendPilot lead was permanently deleted. Recreate it only from import review.",
+        leadId: null,
+        contactId: lead?.contactId ?? null,
+        raw: envelope.data,
+        counts: { newRecords: 0, updatedRecords: 0, unmatchedRecords: 0, possibleDuplicates: 0 },
+      });
+      await finishEvent(supabase, {
+        eventId,
+        status: "ignored",
+        result: { reason: "suppressed" },
+      });
+      console.info("[sendpilot.webhook]", { eventId, eventType, outcome: "suppressed" });
+      return { httpStatus: 200, body: { ok: true, suppressed: true, eventId, eventType } };
+    }
     if (!lead) {
       if (!ids.linkedinUrl && !ids.email) {
         await writeSyncAndRecord(supabase, {
@@ -563,6 +612,7 @@ export async function applySendPilotWebhook(rawBody: string): Promise<ApplyResul
     };
     if (status.raw) leadUpdate.sendpilot_status_raw = status.raw;
     if (status.applyNormalized) leadUpdate.sendpilot_status = status.normalized;
+    // Archived leads stay archived. Webhooks never clear archived_at.
 
     const { error: updateError } = await supabase.from("leads").update(leadUpdate).eq("id", lead.leadId);
     if (updateError) throw updateError;
@@ -601,7 +651,7 @@ export async function applySendPilotWebhook(rawBody: string): Promise<ApplyResul
         body: ids.reply,
         metadata: { campaignId: ids.campaignId, sendpilotLeadId: ids.leadId },
       });
-    } else if (status.applyNormalized && status.normalized !== previousStatus) {
+    } else if (status.applyNormalized && status.normalized !== previousStatus && !lead.archived) {
       activityType = status.normalized === "Interested" && previousStatus !== "Interested"
         ? "lead_became_interested"
         : "sendpilot_status_changed";
@@ -642,6 +692,7 @@ export async function applySendPilotWebhook(rawBody: string): Promise<ApplyResul
         created,
         sendpilotStatus: status.applyNormalized ? status.normalized : previousStatus,
         opportunityStageUntouched: true,
+        archived: lead.archived,
         activityType,
       },
     });

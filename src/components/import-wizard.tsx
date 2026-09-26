@@ -12,6 +12,8 @@ type Preview = {
   updated: number;
   possible_duplicates: number;
   unmatched: number;
+  archived?: number;
+  suppressed?: number;
   rows: Array<Record<string, string | null>>;
 };
 
@@ -52,7 +54,7 @@ export function ImportWizard() {
     router.refresh();
   }
 
-  const exceptions = preview?.rows.filter((row) => row.classification !== "new" && row.classification !== "existing") ?? [];
+  const exceptions = preview?.rows.filter((row) => row.classification !== "new" && row.classification !== "existing" && row.classification !== "archived") ?? [];
 
   return (
     <div className="space-y-6">
@@ -66,16 +68,18 @@ export function ImportWizard() {
       {preview ? (
         <section className="rounded-xl border border-border bg-card p-4">
           <h2 className="text-lg font-semibold">{preview.total} records detected</h2>
-          <div className="mt-4 grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <div className="mt-4 grid gap-3 sm:grid-cols-3 lg:grid-cols-8">
             <Count label="New" value={preview.new} />
             <Count label="Existing" value={preview.existing} />
             <Count label="Updated" value={preview.updated} />
+            <Count label="Archived kept" value={preview.archived ?? 0} />
             <Count label="Possible duplicates" value={preview.possible_duplicates} />
             <Count label="Unmatched" value={preview.unmatched} />
-            <Count label="Needs review" value={preview.possible_duplicates + preview.unmatched} />
+            <Count label="Suppressed" value={preview.suppressed ?? 0} />
+            <Count label="Needs review" value={preview.possible_duplicates + preview.unmatched + (preview.suppressed ?? 0)} />
           </div>
           <p className="mt-4 text-sm leading-6 text-muted-foreground">
-            New contacts will be created. Existing contacts will be updated only when the SendPilot status or an empty field changes. Possible duplicates and unmatched rows are stored for review and are not turned into contacts.
+            New contacts will be created. Existing contacts will be updated only when the SendPilot status or an empty field changes. Archived leads stay archived. Permanently deleted SendPilot leads stay suppressed until you recreate them from review. Possible duplicates and unmatched rows are stored for review and are not turned into contacts.
           </p>
           {exceptions.length > 0 ? (
             <div className="mt-4 overflow-x-auto">

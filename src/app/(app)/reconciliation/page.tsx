@@ -64,6 +64,9 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
               <ActionForm action={createFromReviewedRecord} className="mt-3 space-y-2">
                 <input type="hidden" name="record_id" value={String(record.id)} />
                 <label className="flex items-center gap-2"><input type="checkbox" name="confirm" value="yes" required /> I checked this and want a contact created anyway.</label>
+                {String(record.classification) === "suppressed" ? (
+                  <label className="flex items-center gap-2"><input type="checkbox" name="lift_suppression" value="yes" required /> Recreate this permanently deleted SendPilot lead on purpose.</label>
+                ) : null}
                 <SubmitButton variant="outline">Create contact from this row</SubmitButton>
               </ActionForm>
             </li>
