@@ -22,7 +22,10 @@ export default async function SettingsPage() {
       <section className="max-w-xl rounded-xl border border-border bg-card p-4">
         <h2 className="text-sm font-semibold">SendPilot</h2>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">{integration.message}</p>
-        <p className="mt-2 text-sm">File import is ready. API calls are disabled.</p>
+        <p className="mt-2 text-sm">
+          File import is ready. Server-side API {integration.apiEnabled ? "is enabled" : "is not enabled"}.
+          Webhook signature {integration.webhookConfigured ? "is configured" : "is not configured"}.
+        </p>
       </section>
       <ActionForm action={updateProfile} className="grid max-w-xl gap-3 rounded-xl border border-border bg-card p-4">
         <h2 className="text-sm font-semibold">Your profile</h2>

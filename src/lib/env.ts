@@ -13,13 +13,20 @@ export function supabaseKey() {
 }
 
 export function sendPilotIntegrationStatus() {
-  const hasCredentials = Boolean(process.env.SENDPILOT_API_BASE_URL || process.env.SENDPILOT_API_KEY || process.env.SENDPILOT_WEBHOOK_SECRET);
+  const apiEnabled = Boolean(process.env.SENDPILOT_API_BASE_URL && process.env.SENDPILOT_API_KEY);
+  const webhookConfigured = Boolean(process.env.SENDPILOT_WEBHOOK_SECRET);
+  const hasCredentials = apiEnabled || webhookConfigured;
   return {
     fileImportReady: true,
     credentialsPresent: hasCredentials,
-    apiEnabled: false,
-    message: hasCredentials
-      ? "SendPilot credentials are present, but Realynk does not call undocumented SendPilot endpoints. CSV, XLS, and XLSX import remains the sync path until an API contract is confirmed."
-      : "SendPilot API is not configured. Import a CSV, XLS, or XLSX export. No SendPilot endpoint is called.",
+    apiEnabled,
+    webhookConfigured,
+    message: webhookConfigured
+      ? apiEnabled
+        ? "SendPilot webhooks and the server-side API are configured. CSV, XLS, and XLSX import remains available as a manual fallback. SendPilot tags stay separate from the client journey."
+        : "SendPilot webhook verification is configured. Set SENDPILOT_API_BASE_URL and SENDPILOT_API_KEY so the app can fetch a lead when a webhook payload is incomplete. CSV, XLS, and XLSX import remains available."
+      : apiEnabled
+        ? "SendPilot API credentials are present. Add SENDPILOT_WEBHOOK_SECRET from SendPilot → Integrations → Webhooks, then subscribe to this app's webhook URL. CSV, XLS, and XLSX import remains available."
+        : "SendPilot live sync is not fully configured. Import a CSV, XLS, or XLSX export, or add the SendPilot API key, base URL, and webhook secret.",
   };
 }
