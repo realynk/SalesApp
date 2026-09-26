@@ -443,6 +443,7 @@ const STATUS_ALIASES: Record<string, SendPilotStatus> = {
   booked: "Meeting Booked",
   "meeting complete": "Meeting Complete",
   "meeting completed": "Meeting Complete",
+  "meeting complete not closed": "Meeting Complete",
   closed: "Closed",
   "wrong person": "Wrong Person",
   "no response": "No Response",
@@ -452,7 +453,7 @@ const STATUS_ALIASES: Record<string, SendPilotStatus> = {
 
 export function normalizeSendPilotStatus(value: string | null | undefined): SendPilotStatus | null {
   if (!value) return null;
-  const cleaned = value.trim().toLowerCase().replace(/\s+/g, " ");
+  const cleaned = value.trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
   if (!cleaned) return null;
   return STATUS_ALIASES[cleaned] ?? STATUS_ALIASES[cleaned.replace(/\s+/g, "")] ?? null;
 }

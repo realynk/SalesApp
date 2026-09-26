@@ -87,7 +87,10 @@ test("normalizes SendPilot statuses without inventing new ones", () => {
   assert.equal(normalizeSendPilotStatus("Not Interested"), "Not Interested");
   assert.equal(normalizeSendPilotStatus("meeting completed"), "Meeting Complete");
   assert.equal(normalizeSendPilotStatus("no reply"), "No Response");
-  assert.equal(normalizeSendPilotStatus("warm"), null);
+  assert.equal(normalizeSendPilotStatus("INTERESTED"), "Interested");
+  assert.equal(normalizeSendPilotStatus("MEETING_COMPLETE_NOT_CLOSED"), "Meeting Complete");
+  assert.equal(normalizeSendPilotStatus("WRONG_PERSON"), "Wrong Person");
+  assert.equal(normalizeSendPilotStatus("REPLY_RECEIVED"), null);
 });
 
 test("calculates potential revenue only from headcount and rate", () => {

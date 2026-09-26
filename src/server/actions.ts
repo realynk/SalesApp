@@ -32,6 +32,8 @@ import {
   todayInTimeZone,
   type ActivityType,
   type OpportunityStage,
+  normalizeEmail,
+  normalizeLinkedIn,
 } from "@/lib/domain";
 import { actionError } from "@/lib/errors";
 import { getSettings } from "@/lib/data";
@@ -114,6 +116,8 @@ export async function createLead(_state: ActionState, formData: FormData): Promi
   if (email) {
     const { data: existing } = await supabase.from("contacts").select("id").eq("email_key", email).maybeSingle();
     if (existing) return { error: "A contact with that email already exists. Open the existing lead instead of creating a duplicate." };
+    const { data: suppressed } = await supabase.from("sendpilot_suppressions").select("id").is("released_at", null).eq("email_key", email).maybeSingle();
+    if (suppressed) return { error: "That email belongs to a permanently deleted SendPilot lead. Recreate it from SendPilot import review, not from this form." };
   }
   const { data: company, error: companyError } = await supabase.from("companies").insert({ name: companyName }).select("id").single();
   if (companyError) {
@@ -180,17 +184,83 @@ async function insertLead(
   redirect(`/leads/${leadId}`);
 }
 
+export async function archiveLead(_state: ActionState, formData: FormData): Promise<ActionState> {
+  return archiveLeadIds([text(formData, "lead_id")], `/leads/${text(formData, "lead_id")}`);
+}
+
+export async function restoreLead(_state: ActionState, formData: FormData): Promise<ActionState> {
+  const { supabase, userId } = await requireUser();
+  const leadId = text(formData, "lead_id");
+  if (!isUuid(leadId)) return { error: "That lead could not be found." };
+  const { error } = await supabase.from("leads").update({ archived_at: null, archived_by: null }).eq("id", leadId);
+  if (error) return { error: actionError(error) };
+  await supabase.from("activities").insert({
+    lead_id: leadId,
+    type: "record_updated",
+    title: "Lead restored from archive",
+    actor_id: userId,
+  });
+  refresh("/leads", "/opportunities", "/dashboard", "/reconciliation", "/reporting", `/leads/${leadId}`);
+  redirect(`/leads/${leadId}?notice=${encodeURIComponent("Lead restored.")}`);
+}
+
+export async function archiveSelectedLeads(_state: ActionState, formData: FormData): Promise<ActionState> {
+  const ids = formData.getAll("lead_id").map((value) => String(value)).filter((value) => isUuid(value));
+  return archiveLeadIds(ids, "/leads");
+}
+
+async function archiveLeadIds(ids: string[], fallbackPath: string): Promise<ActionState> {
+  const { supabase, userId } = await requireUser();
+  const unique = [...new Set(ids)].filter((id) => isUuid(id)).slice(0, 50);
+  if (unique.length === 0) return { error: "Select at least one lead to archive." };
+  const { error } = await supabase
+    .from("leads")
+    .update({ archived_at: new Date().toISOString(), archived_by: userId })
+    .in("id", unique)
+    .is("archived_at", null);
+  if (error) return { error: actionError(error) };
+  await supabase.from("activities").insert(unique.map((leadId) => ({
+    lead_id: leadId,
+    type: "record_updated" as const,
+    title: "Lead archived",
+    actor_id: userId,
+  })));
+  refresh("/leads", "/opportunities", "/dashboard", "/reconciliation", "/reporting");
+  if (unique.length === 1 && fallbackPath.startsWith("/leads/")) {
+    redirect(`${fallbackPath}?notice=${encodeURIComponent("Lead archived.")}`);
+  }
+  redirect(`/leads?notice=${encodeURIComponent(`${unique.length} lead${unique.length === 1 ? "" : "s"} archived.`)}`);
+}
+
+export async function deleteLeadPermanently(_state: ActionState, formData: FormData): Promise<ActionState> {
+  const { supabase } = await requireUser();
+  const leadId = text(formData, "lead_id");
+  const confirmName = text(formData, "confirm_name");
+  if (!isUuid(leadId)) return { error: "That lead could not be found." };
+  if (text(formData, "confirm_delete") !== "yes") return { error: "Confirm that permanent deletion cannot be undone." };
+  const { error } = await supabase.rpc("delete_lead_permanently", { p_lead_id: leadId, p_confirm_name: confirmName });
+  if (error) return { error: actionError(error) };
+  refresh("/leads", "/opportunities", "/dashboard", "/reconciliation", "/reporting");
+  redirect("/leads?notice=" + encodeURIComponent("Lead permanently deleted. SendPilot will not recreate it unless you restore it from review."));
+}
+
 async function createOpportunityForLead(
   supabase: Awaited<ReturnType<typeof createClient>>,
   userId: string,
   leadId: string,
   formData: FormData,
 ) {
-  let loaded = await supabase.from("leads").select("id, company_id, contact_id, account_flag, companies(name), contacts(first_name, last_name)").eq("id", leadId).maybeSingle();
+  let loaded = await supabase.from("leads").select("id, company_id, contact_id, account_flag, archived_at, companies(name), contacts(first_name, last_name)").eq("id", leadId).maybeSingle();
+  if (loaded.error && /archived_at/i.test(loaded.error.message ?? "")) {
+    loaded = await supabase.from("leads").select("id, company_id, contact_id, account_flag, companies(name), contacts(first_name, last_name)").eq("id", leadId).maybeSingle();
+  }
   if (loaded.error && /account_flag/i.test(loaded.error.message ?? "")) {
     loaded = await supabase.from("leads").select("id, company_id, contact_id, companies(name), contacts(first_name, last_name)").eq("id", leadId).maybeSingle();
   }
   if (loaded.error || !loaded.data) return { error: "That lead could not be found." };
+  if ((loaded.data as { archived_at?: string | null }).archived_at) {
+    return { error: "Restore this archived lead before starting a client journey." };
+  }
   const lead = loaded.data;
   const record = lead as { company_id: string; contact_id: string; account_flag?: string | null; companies: { name: string } | { name: string }[] | null };
   const company = Array.isArray(record.companies) ? record.companies[0] : record.companies;
@@ -1316,6 +1386,31 @@ export async function createFromReviewedRecord(_state: ActionState, formData: Fo
   if (error || !data) return { error: "That import row could not be found." };
   const record = data as Record<string, string | null | boolean>;
   if (record.applied) return { error: "This row was already applied." };
+  const classification = String(record.classification ?? "");
+  const emailKey = normalizeEmail(String(record.email ?? ""));
+  const linkedinKey = normalizeLinkedIn(String(record.linkedin_url ?? ""));
+  const externalId = String(record.external_id ?? "").trim() || null;
+  let suppressed = classification === "suppressed";
+  if (emailKey) {
+    const found = await supabase.from("sendpilot_suppressions").select("id").is("released_at", null).eq("email_key", emailKey).limit(1);
+    if (found.data && found.data.length) suppressed = true;
+  }
+  if (!suppressed && linkedinKey) {
+    const found = await supabase.from("sendpilot_suppressions").select("id").is("released_at", null).eq("linkedin_key", linkedinKey).limit(1);
+    if (found.data && found.data.length) suppressed = true;
+  }
+  if (!suppressed && externalId) {
+    const found = await supabase.from("sendpilot_suppressions").select("id").is("released_at", null).eq("sendpilot_lead_id", externalId).limit(1);
+    if (found.data && found.data.length) suppressed = true;
+  }
+  if (suppressed && text(formData, "lift_suppression") !== "yes") {
+    return { error: "This SendPilot lead was permanently deleted. Check the box to recreate it on purpose." };
+  }
+  if (suppressed) {
+    if (emailKey) await supabase.from("sendpilot_suppressions").update({ released_at: new Date().toISOString(), released_by: userId }).is("released_at", null).eq("email_key", emailKey);
+    if (linkedinKey) await supabase.from("sendpilot_suppressions").update({ released_at: new Date().toISOString(), released_by: userId }).is("released_at", null).eq("linkedin_key", linkedinKey);
+    if (externalId) await supabase.from("sendpilot_suppressions").update({ released_at: new Date().toISOString(), released_by: userId }).is("released_at", null).eq("sendpilot_lead_id", externalId);
+  }
   const companyName = String(record.company_name || "Unknown company");
   const { data: company } = await supabase.from("companies").select("id").ilike("name", companyName).maybeSingle();
   let companyId = company ? String((company as { id: string }).id) : "";

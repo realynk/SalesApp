@@ -1,29 +1,39 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AccountFlagControl, FlagBadge } from "@/components/account-flag-field";
-import { controlClass, Field, PageHeader, SectionCard, StageBadge, textareaClass } from "@/components/bits";
+import { LeadActionsMenu } from "@/components/lead-actions-menu";
+import { controlClass, Field, Notice, PageHeader, SectionCard, StageBadge, textareaClass } from "@/components/bits";
 import { ActionForm, SubmitButton } from "@/components/forms";
 import { NOT_INTERESTED_OUTCOMES, SENDPILOT_STATUSES } from "@/lib/domain";
 import { getLead } from "@/lib/data";
-import { formatDate } from "@/lib/format";
+import { firstParam, formatDate } from "@/lib/format";
 import { addNote, completeFollowUp, createFollowUp, updateLeadStatus } from "@/server/actions";
 
-export default async function LeadDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function LeadDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { id } = await params;
+  const query = await searchParams;
   const lead = await getLead(id);
   if (!lead) notFound();
   const openOpportunity = lead.opportunities.find((item) => item.status === "active" || item.status === "nurture" || item.status === "on_hold");
   const openTasks = lead.followUps.filter((item) => item.status === "open");
+  const archived = Boolean(lead.archivedAt);
 
   return (
     <div className="space-y-6">
       <PageHeader
-        back={{ href: "/leads", label: "Back to leads" }}
+        back={{ href: archived ? "/leads?archived=1" : "/leads", label: archived ? "Back to archived leads" : "Back to leads" }}
         eyebrow={lead.company.name}
         title={lead.contact.name}
         description={`${lead.contact.email ?? "No email"} · SendPilot ${lead.sendpilotStatus ?? lead.rawStatus ?? "unknown"}`}
         actions={
           <div className="flex flex-wrap items-center gap-3">
+            <LeadActionsMenu leadId={lead.id} name={lead.contact.name} archived={archived} />
             <FlagBadge flag={lead.accountFlag} />
             {openOpportunity ? (
               <Link className="text-sm text-primary underline" href={`/opportunities/${openOpportunity.id}`}>Open on the journey</Link>
@@ -33,6 +43,12 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
           </div>
         }
       />
+      <Notice message={firstParam(query.notice)} />
+      {archived ? (
+        <p className="rounded-xl border border-border bg-card px-4 py-3 text-sm">
+          This lead is archived. SendPilot can still update the source tag. It stays off the board until you restore it.
+        </p>
+      ) : null}
       <div className="grid gap-4 xl:grid-cols-2">
         <SectionCard title="SendPilot status" description="This tracks the source tag alongside SendPilot. It is not a live write back.">
           {openOpportunity ? (

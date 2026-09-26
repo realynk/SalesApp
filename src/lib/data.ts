@@ -183,7 +183,7 @@ export const getCommandCenter = cache(async () => {
       supabase.from("interviews").select("id, opportunity_id, candidate_name, client_name, interview_at, status").limit(300),
       supabase.from("contracts").select("opportunity_id, status, expected_start_on, sow_sent_on").limit(300),
       supabase.from("strategy_calls").select("opportunity_id, call_on, status, company_name").limit(300),
-      supabase.from("leads").select("id, sendpilot_status, contacts(first_name, last_name), companies(name)").eq("sendpilot_status", "Interested").limit(500),
+      supabase.from("leads").select("id, sendpilot_status, archived_at, contacts(first_name, last_name), companies(name)").eq("sendpilot_status", "Interested").is("archived_at", null).limit(500),
       supabase.from("clients").select("id, start_date").limit(300),
     ]);
 
@@ -197,10 +197,24 @@ export const getCommandCenter = cache(async () => {
   raiseIf(interviewResult.error);
   raiseIf(contractResult.error);
   raiseIf(callResult.error);
-  raiseIf(leadResult.error);
+  let loadedLeads: { data: unknown; error: { message?: string; code?: string } | null } = leadResult;
+  if (missingArchivedColumn(leadResult.error)) {
+    loadedLeads = await supabase.from("leads").select("id, sendpilot_status, contacts(first_name, last_name), companies(name)").eq("sendpilot_status", "Interested").limit(500);
+  }
+  raiseIf(loadedLeads.error);
   raiseIf(clientResult.error);
 
-  const opportunities = rows(loadedOpportunities.data).map(mapOpportunity);
+  const archivedIds = new Set<string>();
+  if (!missingArchivedColumn(leadResult.error)) {
+    const archivedResult = await supabase.from("leads").select("id").not("archived_at", "is", null).limit(2000);
+    if (!archivedResult.error) {
+      for (const item of rows(archivedResult.data)) archivedIds.add(String(item.id));
+    }
+  }
+
+  const allOpportunities = rows(loadedOpportunities.data).map(mapOpportunity);
+  const archivedOpportunityIds = new Set(allOpportunities.filter((item) => archivedIds.has(item.leadId)).map((item) => item.id));
+  const opportunities = allOpportunities.filter((item) => !archivedIds.has(item.leadId));
   const opportunityIds = new Set(opportunities.map((opportunity) => opportunity.leadId));
   const companyByOpportunity = new Map(opportunities.map((opportunity) => [opportunity.id, opportunity.companyName]));
 
@@ -208,28 +222,34 @@ export const getCommandCenter = cache(async () => {
   for (const opportunity of opportunities) {
     companyByLead.set(opportunity.leadId, opportunity.companyName);
   }
-  for (const item of rows(leadResult.data)) {
+  for (const item of rows(loadedLeads.data)) {
     const company = row(item.companies);
     const name = str(company?.name);
     if (name) companyByLead.set(String(item.id), name);
   }
 
-  const followUps = rows(followResult.data).map((item) => {
-    const opportunityId = str(item.opportunity_id);
-    const leadId = str(item.lead_id);
-    return {
-      id: String(item.id),
-      opportunityId,
-      leadId,
-      title: str(item.title) ?? "Follow-up",
-      dueOn: str(item.due_on) ?? today,
-      status: "open" as const,
-      companyName:
-        (opportunityId ? companyByOpportunity.get(opportunityId) : null) ??
-        (leadId ? companyByLead.get(leadId) : null) ??
-        "Follow-up",
-    };
-  });
+  const followUps = rows(followResult.data)
+    .map((item) => {
+      const opportunityId = str(item.opportunity_id);
+      const leadId = str(item.lead_id);
+      return {
+        id: String(item.id),
+        opportunityId,
+        leadId,
+        title: str(item.title) ?? "Follow-up",
+        dueOn: str(item.due_on) ?? today,
+        status: "open" as const,
+        companyName:
+          (opportunityId ? companyByOpportunity.get(opportunityId) : null) ??
+          (leadId ? companyByLead.get(leadId) : null) ??
+          "Follow-up",
+      };
+    })
+    .filter((item) => {
+      if (item.leadId && archivedIds.has(item.leadId)) return false;
+      if (item.opportunityId && archivedOpportunityIds.has(item.opportunityId)) return false;
+      return true;
+    });
 
   const profileBatches = rows(batchResult.data).map((item) => ({
     id: String(item.id),
@@ -273,7 +293,7 @@ export const getCommandCenter = cache(async () => {
     status: str(item.status) ?? "Draft",
   }));
 
-  const unmatchedInterested = rows(leadResult.data)
+  const unmatchedInterested = rows(loadedLeads.data)
     .filter((lead) => !opportunityIds.has(String(lead.id)))
     .map((lead) => {
       const contact = row(lead.contacts);
@@ -326,7 +346,7 @@ export const getCommandCenter = cache(async () => {
     kpis: {
       activeOpportunities: activeCount,
       nurture: opportunities.filter((item) => item.status === "nurture").length,
-      interestedLeads: rows(leadResult.data).length,
+      interestedLeads: rows(loadedLeads.data).length,
       interestedWithoutOpportunity: unmatchedInterested.length,
       profilesInReview: opportunities.filter((item) => item.stage === "Profiles Sent" || item.stage === "Client Review").length,
       meetingsThisWeek: strategyCalls.filter((call) => call.callOn && call.callOn >= weekStart && call.callOn <= weekEnd).length,
@@ -386,9 +406,11 @@ export async function getOwners() {
   return rows(data).map((item) => ({ id: String(item.id), name: str(item.full_name) ?? "User", email: str(item.email) ?? "" }));
 }
 
-export async function listLeads(filters: { q?: string; status?: string; review?: string }) {
+export async function listLeads(filters: { q?: string; status?: string; review?: string; archived?: boolean }) {
   const { supabase } = await requireUser();
   const leadSelect =
+    "id, source, sendpilot_status, sendpilot_status_raw, not_interested_outcome, account_flag, archived_at, last_synced_at, requires_review, review_reason, created_at, company_id, contact_id, companies(id, name), contacts(id, first_name, last_name, email, phone, linkedin_url, title)";
+  const leadSelectWithoutArchive =
     "id, source, sendpilot_status, sendpilot_status_raw, not_interested_outcome, account_flag, last_synced_at, requires_review, review_reason, created_at, company_id, contact_id, companies(id, name), contacts(id, first_name, last_name, email, phone, linkedin_url, title)";
   const leadSelectWithoutFlag =
     "id, source, sendpilot_status, sendpilot_status_raw, not_interested_outcome, last_synced_at, requires_review, review_reason, created_at, company_id, contact_id, companies(id, name), contacts(id, first_name, last_name, email, phone, linkedin_url, title)";
@@ -400,6 +422,9 @@ export async function listLeads(filters: { q?: string; status?: string; review?:
     supabase.from("follow_ups").select("id, lead_id, title, due_on, status").eq("status", "open").order("due_on").limit(500),
   ]);
   let leadResult: { data: unknown; error: { message?: string; code?: string } | null } = firstLeadResult;
+  if (missingArchivedColumn(leadResult.error)) {
+    leadResult = await supabase.from("leads").select(leadSelectWithoutArchive).order("updated_at", { ascending: false }).limit(500);
+  }
   if (missingAccountFlagColumn(leadResult.error)) {
     leadResult = await supabase.from("leads").select(leadSelectWithoutFlag).order("updated_at", { ascending: false }).limit(500);
   }
@@ -441,9 +466,15 @@ export async function listLeads(filters: { q?: string; status?: string; review?:
         nextFollowUp: nextFollowUpByLead.get(String(item.id)) ?? null,
         notInterestedOutcome: notInterestedOutcome(str(item.not_interested_outcome)),
         accountFlag: accountFlag(str(item.account_flag)),
+        archivedAt: str(item.archived_at),
       };
     })
     .filter((lead) => {
+      if (filters.archived) {
+        if (!lead.archivedAt) return false;
+      } else if (lead.archivedAt) {
+        return false;
+      }
       if (filters.status && lead.sendpilotStatus !== filters.status) return false;
       if (filters.review === "yes" && !lead.requiresReview) return false;
       if (filters.review === "missing" && lead.opportunityId) return false;
@@ -460,6 +491,10 @@ function missingOutcomeColumn(error: { message?: string; code?: string } | null)
   return Boolean(error && (error.code === "PGRST204" || /not_interested_outcome/i.test(error.message ?? "")));
 }
 
+function missingArchivedColumn(error: { message?: string; code?: string } | null) {
+  return Boolean(error && (error.code === "PGRST204" || /archived_at/i.test(error.message ?? "")));
+}
+
 function missingAccountFlagColumn(error: { message?: string; code?: string } | null) {
   return Boolean(error && (error.code === "PGRST204" || /account_flag/i.test(error.message ?? "")));
 }
@@ -468,6 +503,8 @@ export async function getLead(id: string) {
   if (!isUuid(id)) return null;
   const { supabase } = await requireUser();
   const detailSelect =
+    "id, source, sendpilot_status, sendpilot_status_raw, not_interested_outcome, account_flag, archived_at, last_synced_at, requires_review, review_reason, created_at, companies(id, name, industry, website, timezone, notes), contacts(id, first_name, last_name, email, phone, linkedin_url, title)";
+  const detailWithoutArchive =
     "id, source, sendpilot_status, sendpilot_status_raw, not_interested_outcome, account_flag, last_synced_at, requires_review, review_reason, created_at, companies(id, name, industry, website, timezone, notes), contacts(id, first_name, last_name, email, phone, linkedin_url, title)";
   const detailWithoutFlag =
     "id, source, sendpilot_status, sendpilot_status_raw, not_interested_outcome, last_synced_at, requires_review, review_reason, created_at, companies(id, name, industry, website, timezone, notes), contacts(id, first_name, last_name, email, phone, linkedin_url, title)";
@@ -475,7 +512,10 @@ export async function getLead(id: string) {
     "id, source, sendpilot_status, sendpilot_status_raw, last_synced_at, requires_review, review_reason, created_at, companies(id, name, industry, website, timezone, notes), contacts(id, first_name, last_name, email, phone, linkedin_url, title)";
   const first = await supabase.from("leads").select(detailSelect).eq("id", id).maybeSingle();
   let loaded: { data: unknown; error: { message?: string; code?: string } | null } = first;
-  if (missingAccountFlagColumn(first.error)) {
+  if (missingArchivedColumn(first.error)) {
+    loaded = await supabase.from("leads").select(detailWithoutArchive).eq("id", id).maybeSingle();
+  }
+  if (missingAccountFlagColumn(loaded.error)) {
     loaded = await supabase.from("leads").select(detailWithoutFlag).eq("id", id).maybeSingle();
   }
   if (missingOutcomeColumn(loaded.error)) {
@@ -503,6 +543,7 @@ export async function getLead(id: string) {
     rawStatus: str(record.sendpilot_status_raw),
     notInterestedOutcome: notInterestedOutcome(str(record.not_interested_outcome)),
     accountFlag: accountFlag(str(record.account_flag)),
+    archivedAt: str(record.archived_at),
     lastSyncedAt: str(record.last_synced_at),
     requiresReview: bool(record.requires_review),
     reviewReason: str(record.review_reason),
@@ -733,7 +774,7 @@ export async function getReconciliation() {
 export async function getAnalytics() {
   const { supabase } = await requireUser();
   const [leads, history, recruitment, batches, interviews, contracts, clients, opportunities] = await Promise.all([
-    supabase.from("leads").select("sendpilot_status").limit(5000),
+    supabase.from("leads").select("sendpilot_status").is("archived_at", null).limit(5000),
     supabase.from("pipeline_stage_history").select("opportunity_id, new_stage, changed_at").limit(8000),
     supabase.from("recruitment_requests").select("id", { count: "exact", head: true }),
     supabase.from("profile_batches").select("id", { count: "exact", head: true }),
@@ -742,8 +783,12 @@ export async function getAnalytics() {
     supabase.from("clients").select("id", { count: "exact", head: true }),
     supabase.from("opportunities").select("stage, status").limit(1000),
   ]);
-  [leads, history, recruitment, batches, interviews, contracts, clients, opportunities].forEach((result) => raiseIf(result.error));
-  const leadRows = rows(leads.data);
+  let leadRowsResult = leads;
+  if (missingArchivedColumn(leads.error)) {
+    leadRowsResult = await supabase.from("leads").select("sendpilot_status").limit(5000);
+  }
+  [leadRowsResult, history, recruitment, batches, interviews, contracts, clients, opportunities].forEach((result) => raiseIf(result.error));
+  const leadRows = rows(leadRowsResult.data);
   const countStatus = (status: string) => leadRows.filter((lead) => lead.sendpilot_status === status).length;
   const opportunityRows = rows(opportunities.data);
   const events = rows(history.data).map((item) => ({
