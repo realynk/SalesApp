@@ -3,7 +3,6 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import * as XLSX from "xlsx";
 import {
   ACTIVITY_TYPES,
   CANDIDATE_STATUSES,
@@ -26,8 +25,6 @@ import {
   formatClock,
   WAITING_ON,
   addBusinessDays,
-  importSourceFromFilename,
-  mapImportRecords,
   stageRequiresNextAction,
   todayInTimeZone,
   type ActivityType,
@@ -1310,71 +1307,6 @@ export async function uploadDocument(_state: ActionState, formData: FormData): P
   await supabase.from("activities").insert({ opportunity_id: opportunityId, type: "record_updated", title: `Document added: ${file.name}`, actor_id: userId });
   refresh(`/opportunities/${opportunityId}`);
   return { success: "Document uploaded." };
-}
-
-export async function previewImport(formData: FormData) {
-  await requireUser();
-  const { supabase } = await requireUser();
-  const file = formData.get("file");
-  if (!(file instanceof File)) return { ok: false as const, error: "Choose a CSV, XLS, or XLSX file." };
-  const lower = file.name.toLowerCase();
-  if (!lower.endsWith(".csv") && !lower.endsWith(".xls") && !lower.endsWith(".xlsx")) {
-    return { ok: false as const, error: "Use a CSV, XLS, or XLSX export. Other file types are not imported." };
-  }
-  try {
-    const workbook = XLSX.read(Buffer.from(await file.arrayBuffer()), { type: "buffer" });
-    const sheet = workbook.Sheets[workbook.SheetNames[0] ?? ""];
-    if (!sheet) return { ok: false as const, error: "That workbook has no sheets." };
-    const records = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
-    const mapped = mapImportRecords(records);
-    if (mapped.length === 0) return { ok: false as const, error: "That file has headings but no data rows." };
-    if (mapped.length > 5000) return { ok: false as const, error: "Import up to 5,000 rows at a time." };
-    const rows = mapped.map((row) => ({
-      row_number: row.rowNumber,
-      name: row.name,
-      first_name: row.firstName,
-      last_name: row.lastName,
-      company: row.company,
-      email: row.email,
-      linkedin_url: row.linkedinUrl,
-      phone: row.phone,
-      sendpilot_status: row.sendpilotStatus,
-      source: row.source,
-      extra: row.extra,
-    }));
-    const payload = { filename: file.name, source: importSourceFromFilename(file.name), rows };
-    const { data, error } = await supabase.rpc("preview_sendpilot_import", { payload });
-    if (error) return { ok: false as const, error: actionError(error) };
-    return { ok: true as const, preview: data as PreviewPayload, rows, filename: file.name, source: payload.source };
-  } catch (error) {
-    console.error(error);
-    return { ok: false as const, error: "The file could not be read. Export it again as CSV or XLSX and retry." };
-  }
-}
-
-type PreviewPayload = {
-  total: number;
-  new: number;
-  existing: number;
-  updated: number;
-  possible_duplicates: number;
-  unmatched: number;
-  review: number;
-  rows: Array<Record<string, string | null>>;
-};
-
-export async function applyImport(input: { filename: string; source: string; rows: unknown[] }) {
-  const { supabase } = await requireUser();
-  const parsed = z.object({
-    filename: z.string().min(1).max(200),
-    source: z.enum(["csv", "xls", "xlsx"]),
-    rows: z.array(z.record(z.string(), z.unknown())).min(1).max(5000),
-  }).safeParse(input);
-  if (!parsed.success) return { ok: false as const, error: "The import confirmation was incomplete. Upload the file again." };
-  const { data, error } = await supabase.rpc("apply_sendpilot_import", { payload: parsed.data });
-  if (error) return { ok: false as const, error: actionError(error) };
-  refresh("/leads", "/reconciliation", "/dashboard");
-  return { ok: true as const, result: data as { sync_id: string; total: number; new: number; existing: number; updated: number; possible_duplicates: number; unmatched: number; errors: number } };
 }
 
 export async function createFromReviewedRecord(_state: ActionState, formData: FormData): Promise<ActionState> {
