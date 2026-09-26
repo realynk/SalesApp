@@ -1,0 +1,91 @@
+import Link from "next/link";
+import { controlClass, Field, Notice, PageHeader, StageBadge } from "@/components/bits";
+import { Button } from "@/components/ui/button";
+import { SENDPILOT_STATUSES, NOT_INTERESTED_OUTCOMES } from "@/lib/domain";
+import { listLeads } from "@/lib/data";
+import { firstParam, formatDate } from "@/lib/format";
+import { createLead } from "@/server/actions";
+import { ActionForm, SubmitButton } from "@/components/forms";
+
+export default async function LeadsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const query = await searchParams;
+  const filters = { q: firstParam(query.q), status: firstParam(query.status), review: firstParam(query.review) };
+  const leads = await listLeads(filters);
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Leads"
+        title="Source records"
+        description="SendPilot and imported contacts. Open one to change status or add a reminder. The board is where the journey lives."
+        actions={<Button asChild><Link href="/leads/import">Import file</Link></Button>}
+      />
+      <Notice message={firstParam(query.notice)} />
+      <form className="grid gap-3 rounded-xl border border-border bg-card p-4 md:grid-cols-4">
+        <input className={controlClass} name="q" defaultValue={filters.q} placeholder="Name, company, email, LinkedIn" />
+        <select className={controlClass} name="status" defaultValue={filters.status ?? ""}>
+          <option value="">All SendPilot statuses</option>
+          {SENDPILOT_STATUSES.map((status) => <option key={status}>{status}</option>)}
+        </select>
+        <select className={controlClass} name="review" defaultValue={filters.review ?? ""}>
+          <option value="">All leads</option>
+          <option value="missing">No opportunity yet</option>
+          <option value="yes">Needs review</option>
+        </select>
+        <Button type="submit" variant="outline">Filter</Button>
+      </form>
+      <div className="overflow-x-auto rounded-xl border border-border bg-card">
+        <table className="w-full min-w-[760px] text-left text-sm">
+          <thead className="text-xs tracking-wide text-muted-foreground uppercase">
+            <tr>
+              <th className="px-4 py-3">Contact</th>
+              <th className="px-4 py-3">Flag</th>
+              <th className="px-4 py-3">SendPilot</th>
+              <th className="px-4 py-3">Journey</th>
+              <th className="px-4 py-3">Next task</th>
+            </tr>
+          </thead>
+          <tbody>
+            {leads.map((lead) => (
+              <tr key={lead.id} className="border-t border-border">
+                <td className="px-4 py-3">
+                  <Link href={`/leads/${lead.id}`} className="font-medium">{lead.contactName}</Link>
+                  <p className="text-xs text-muted-foreground">{lead.companyName} · {lead.email ?? "No email"}</p>
+                </td>
+                <td className="px-4 py-3">{lead.accountFlag ?? <span className="text-muted-foreground">—</span>}</td>
+                <td className="px-4 py-3">{lead.sendpilotStatus ?? lead.rawStatus ?? "—"}</td>
+                <td className="px-4 py-3">{lead.opportunityStage ? <StageBadge stage={lead.opportunityStage} /> : <span className="text-muted-foreground">On the board</span>}</td>
+                <td className="px-4 py-3">{lead.nextFollowUp ? <><p>{lead.nextFollowUp.title}</p><p className="text-xs text-muted-foreground">{formatDate(lead.nextFollowUp.dueOn)}</p></> : <span className="text-muted-foreground">None</span>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {leads.length === 0 ? <p className="px-4 py-8 text-sm text-muted-foreground">No leads match these filters.</p> : null}
+      </div>
+      <section className="rounded-xl border border-border bg-card p-4">
+        <h2 className="text-sm font-semibold">Add a lead manually</h2>
+        <ActionForm action={createLead} className="mt-4 grid gap-3 md:grid-cols-2">
+          <Field label="First name"><input className={controlClass} name="first_name" required /></Field>
+          <Field label="Last name"><input className={controlClass} name="last_name" /></Field>
+          <Field label="Company"><input className={controlClass} name="company" required /></Field>
+          <Field label="Email"><input className={controlClass} name="email" type="email" /></Field>
+          <Field label="LinkedIn URL"><input className={controlClass} name="linkedin_url" /></Field>
+          <Field label="Phone"><input className={controlClass} name="phone" /></Field>
+          <Field label="SendPilot status">
+            <select className={controlClass} name="sendpilot_status" defaultValue="Interested">
+              <option value="">Unknown</option>
+              {SENDPILOT_STATUSES.map((status) => <option key={status}>{status}</option>)}
+            </select>
+          </Field>
+          <Field label="If not interested">
+            <select className={controlClass} name="not_interested_outcome" defaultValue="">
+              <option value="">Not yet sorted</option>
+              {NOT_INTERESTED_OUTCOMES.map((outcome) => <option key={outcome}>{outcome}</option>)}
+            </select>
+          </Field>
+          <Field label="Source"><input className={controlClass} name="source" defaultValue="Manual" /></Field>
+          <div className="md:col-span-2"><SubmitButton>Save lead</SubmitButton></div>
+        </ActionForm>
+      </section>
+    </div>
+  );
+}
