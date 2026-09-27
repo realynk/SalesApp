@@ -369,6 +369,10 @@ export async function updateLeadStatus(_state: ActionState, formData: FormData):
   return { success: "Lead status saved." };
 }
 
+export async function updateLeadStatusFromList(formData: FormData): Promise<ActionState> {
+  return updateLeadStatus(null, formData);
+}
+
 export async function dropLeadOnOutcome(formData: FormData): Promise<ActionState> {
   const { supabase, userId } = await requireUser();
   const leadId = text(formData, "lead_id");
