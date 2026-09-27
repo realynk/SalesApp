@@ -2,6 +2,7 @@ import Link from "next/link";
 import { controlClass, Field, Notice, PageHeader, StageBadge } from "@/components/bits";
 import { Button } from "@/components/ui/button";
 import { LeadBulkArchive } from "@/components/lead-bulk-archive";
+import { SendPilotStatusControl } from "@/components/sendpilot-status-field";
 import { SENDPILOT_STATUSES, NOT_INTERESTED_OUTCOMES } from "@/lib/domain";
 import { listLeads } from "@/lib/data";
 import { firstParam, formatDate } from "@/lib/format";
@@ -39,7 +40,13 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
                 <p className="text-xs text-muted-foreground">{lead.companyName} · {lead.email ?? "No email"}</p>
               </td>
               <td className="px-4 py-3">{lead.accountFlag ?? <span className="text-muted-foreground">—</span>}</td>
-              <td className="px-4 py-3">{lead.sendpilotStatus ?? lead.rawStatus ?? "—"}</td>
+              <td className="px-4 py-3">
+                <SendPilotStatusControl
+                  leadId={lead.id}
+                  status={lead.sendpilotStatus}
+                  outcome={lead.notInterestedOutcome}
+                />
+              </td>
               <td className="px-4 py-3">{lead.opportunityStage ? <StageBadge stage={lead.opportunityStage} /> : <span className="text-muted-foreground">On the board</span>}</td>
               <td className="px-4 py-3">{lead.nextFollowUp ? <><p>{lead.nextFollowUp.title}</p><p className="text-xs text-muted-foreground">{formatDate(lead.nextFollowUp.dueOn)}</p></> : <span className="text-muted-foreground">None</span>}</td>
             </tr>
@@ -57,7 +64,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
         description={
           archived
             ? "Hidden from the board, dashboard, and active lists. Restore one to work it again."
-            : "SendPilot and imported contacts. Open one to change status or add a reminder. The board is where the journey lives."
+            : "SendPilot and imported contacts. Change the SendPilot tag in this list, or open a lead to add a reminder. The board is where the journey lives."
         }
         actions={
           <div className="flex flex-wrap gap-2">
