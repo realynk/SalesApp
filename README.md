@@ -18,7 +18,7 @@ Next.js, TypeScript, Tailwind CSS, shadcn/ui, and Supabase (Postgres, Auth, Stor
 
 5. `npm install`
 6. `npm run dev`
-7. Sign in. From the command center, load the sample workspace or import a SendPilot CSV, XLS, or XLSX file.
+7. Sign in. Import a SendPilot CSV, XLS, or XLSX file. If an old demo workspace is still loaded, remove it from Settings.
 
 On Vercel, set the same public environment variables and deploy. No service-role key is required for the app. Row level security allows signed-in internal users to read and write workspace data.
 

@@ -10,7 +10,7 @@ export default function SetupPage() {
         <li>1. Create a Supabase project and run <code className="rounded bg-muted px-1">supabase/migrations/20260923170000_command_center.sql</code>.</li>
         <li>2. In Authentication, create the Sales & Growth Lead and turn off public sign-ups.</li>
         <li>3. Set <code className="rounded bg-muted px-1">NEXT_PUBLIC_SUPABASE_URL</code> and <code className="rounded bg-muted px-1">NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY</code> in Vercel, then redeploy.</li>
-        <li>4. Sign in and load the sample workspace, or import a SendPilot CSV, XLS, or XLSX export.</li>
+        <li>4. Sign in and import a SendPilot CSV, XLS, or XLSX export.</li>
       </ol>
     </main>
   );
