@@ -182,7 +182,9 @@ async function insertLead(
 }
 
 export async function archiveLead(_state: ActionState, formData: FormData): Promise<ActionState> {
-  return archiveLeadIds([text(formData, "lead_id")], `/leads/${text(formData, "lead_id")}`);
+  const leadId = text(formData, "lead_id");
+  const next = optionalText(formData, "next") ?? `/leads/${leadId}`;
+  return archiveLeadIds([leadId], next);
 }
 
 export async function restoreLead(_state: ActionState, formData: FormData): Promise<ActionState> {
@@ -223,10 +225,9 @@ async function archiveLeadIds(ids: string[], fallbackPath: string): Promise<Acti
     actor_id: userId,
   })));
   refresh("/leads", "/opportunities", "/dashboard", "/reconciliation", "/reporting");
-  if (unique.length === 1 && fallbackPath.startsWith("/leads/")) {
-    redirect(`${fallbackPath}?notice=${encodeURIComponent("Lead archived.")}`);
-  }
-  redirect(`/leads?notice=${encodeURIComponent(`${unique.length} lead${unique.length === 1 ? "" : "s"} archived.`)}`);
+  const notice = unique.length === 1 ? "Lead archived." : `${unique.length} leads archived.`;
+  const separator = fallbackPath.includes("?") ? "&" : "?";
+  redirect(`${fallbackPath}${separator}notice=${encodeURIComponent(notice)}`);
 }
 
 export async function deleteLeadPermanently(_state: ActionState, formData: FormData): Promise<ActionState> {
