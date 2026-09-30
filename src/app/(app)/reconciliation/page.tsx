@@ -56,7 +56,7 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
         <h2 className="text-sm font-semibold">Rows held for review</h2>
         <ul className="mt-3 space-y-4">
           {data.records.map((record) => (
-            <ReviewRecordCard key={String(record.id)} record={record} />
+            <ReviewRecordCard key={record.id} record={record} />
           ))}
           {data.records.length === 0 ? <li className="text-sm text-muted-foreground">No unmatched or duplicate rows are waiting.</li> : null}
         </ul>

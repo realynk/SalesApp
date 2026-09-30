@@ -770,6 +770,18 @@ export type ExistingReviewLead = {
   opportunityStage: string | null;
 };
 
+export type ReviewRecord = {
+  id: string;
+  classification: string | null;
+  review_reason: string | null;
+  full_name: string | null;
+  company_name: string | null;
+  email: string | null;
+  sendpilot_status: string | null;
+  created_at: string | null;
+  existing: ExistingReviewLead | null;
+};
+
 export async function getReconciliation() {
   const { supabase } = await requireUser();
   const [syncs, records, leads] = await Promise.all([
@@ -789,7 +801,7 @@ export async function getReconciliation() {
     if (leadIds.length && contactIds.length) leadQuery = leadQuery.or(`id.in.(${leadIds.join(",")}),contact_id.in.(${contactIds.join(",")})`);
     else if (leadIds.length) leadQuery = leadQuery.in("id", leadIds);
     else leadQuery = leadQuery.in("contact_id", contactIds);
-    let loadedLeads = await leadQuery;
+    let loadedLeads: { data: unknown; error: { message?: string; code?: string } | null } = await leadQuery;
     if (missingArchivedColumn(loadedLeads.error)) {
       let fallback = supabase.from("leads").select("id, contact_id, sendpilot_status, companies(name), contacts(first_name, last_name, email)");
       if (leadIds.length && contactIds.length) fallback = fallback.or(`id.in.(${leadIds.join(",")}),contact_id.in.(${contactIds.join(",")})`);
@@ -829,13 +841,26 @@ export async function getReconciliation() {
   }
   return {
     syncs: rows(syncs.data),
-    records: recordRows.map((item) => ({
-      ...item,
-      existing:
-        (str(item.matched_lead_id) ? existingByLead.get(String(item.matched_lead_id)) : null) ??
-        (str(item.matched_contact_id) ? existingByContact.get(String(item.matched_contact_id)) : null) ??
-        null,
-    })),
+    records: recordRows.flatMap((item): ReviewRecord[] => {
+      const id = str(item.id);
+      if (!id) return [];
+      const matchedLeadId = str(item.matched_lead_id);
+      const matchedContactId = str(item.matched_contact_id);
+      return [{
+        id,
+        classification: str(item.classification),
+        review_reason: str(item.review_reason),
+        full_name: str(item.full_name),
+        company_name: str(item.company_name),
+        email: str(item.email),
+        sendpilot_status: str(item.sendpilot_status),
+        created_at: str(item.created_at),
+        existing:
+          (matchedLeadId ? existingByLead.get(matchedLeadId) : null) ??
+          (matchedContactId ? existingByContact.get(matchedContactId) : null) ??
+          null,
+      }];
+    }),
     missingOpportunities: leads,
   };
 }

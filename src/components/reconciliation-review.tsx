@@ -1,27 +1,15 @@
 import Link from "next/link";
 import { ActionForm, SubmitButton } from "@/components/forms";
-import type { ExistingReviewLead } from "@/lib/data";
+import type { ReviewRecord } from "@/lib/data";
 import { formatDateTime } from "@/lib/format";
 import { applyReviewedDuplicate, createFromReviewedRecord, skipReviewedRecord } from "@/server/actions";
-
-export type ReviewRecord = {
-  id: unknown;
-  classification?: unknown;
-  review_reason?: unknown;
-  full_name?: unknown;
-  company_name?: unknown;
-  email?: unknown;
-  sendpilot_status?: unknown;
-  created_at?: unknown;
-  existing?: ExistingReviewLead | null;
-};
 
 function textValue(value: unknown, fallback: string) {
   return typeof value === "string" && value.length > 0 ? value : fallback;
 }
 
 export function ReviewRecordCard({ record }: { record: ReviewRecord }) {
-  const id = String(record.id);
+  const id = record.id;
   const classification = textValue(record.classification, "unmatched");
   const importedTag = textValue(record.sendpilot_status, "None");
   const existing = record.existing ?? null;
