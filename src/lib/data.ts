@@ -800,6 +800,7 @@ export async function getAnalytics() {
   return {
     totalLeads: leadRows.length,
     interested: countStatus("Interested"),
+    notInterested: countStatus("Not Interested"),
     meetingsBooked: countStatus("Meeting Booked"),
     meetingsCompleted: countStatus("Meeting Complete"),
     recruitmentRequests: recruitment.count ?? 0,
@@ -853,7 +854,10 @@ export async function getReporting() {
   }));
   return {
     today: center.today,
-    totalLeads: leads.length,
+    totalLeads: analytics.totalLeads,
+    taggedInterested: analytics.interested,
+    taggedNotInterested: analytics.notInterested,
+    bookedCalls: analytics.meetingsBooked,
     openTasks: openTasks.length,
     overdueTasks: openTasks.filter((item) => item.dueOn < center.today).length,
     dueToday: openTasks.filter((item) => item.dueOn === center.today).length,

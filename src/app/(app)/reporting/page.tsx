@@ -15,13 +15,21 @@ export default async function ReportingPage() {
         description="SendPilot tags, where accounts sit on the journey, and whether tasks are getting done. No revenue."
       />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <KpiCard label="Leads" value={String(data.totalLeads)} />
-        <KpiCard label="Open tasks" value={String(data.openTasks)} detail={`${data.dueToday} due today`} />
-        <KpiCard label="Overdue tasks" value={String(data.overdueTasks)} />
+        <KpiCard label="Leads" value={String(data.totalLeads)} href="/leads" />
         <KpiCard
-          label="Interested on the board"
-          value={String(data.journey.find((row) => row.label === "Interested")?.count ?? 0)}
-          detail="Tagged Interested and not moved further"
+          label="Total tagged as Interested"
+          value={String(data.taggedInterested)}
+          href="/opportunities"
+        />
+        <KpiCard
+          label="Total tagged as Not Interested"
+          value={String(data.taggedNotInterested)}
+          href="/opportunities?interest=not-interested"
+        />
+        <KpiCard
+          label="Total booked call"
+          value={String(data.bookedCalls)}
+          href="/leads?status=Meeting%20Booked"
         />
       </div>
       <div className="grid gap-4 xl:grid-cols-2">
