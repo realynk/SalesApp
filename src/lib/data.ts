@@ -1,6 +1,5 @@
 import { cache } from "react";
 import {
-  ACCOUNT_FLAGS,
   BOARD_STAGES,
   NOT_INTERESTED_INTAKE,
   NOT_INTERESTED_OUTCOMES,
@@ -848,10 +847,6 @@ export async function getReporting() {
     count: leads.filter((lead) => lead.sendpilotStatus === "Not Interested" && notInterestedColumn(lead.notInterestedOutcome) === column).length,
     href: "/opportunities?interest=not-interested",
   }));
-  const flags = ACCOUNT_FLAGS.map((flag) => ({
-    label: flag,
-    count: leads.filter((lead) => lead.accountFlag === flag).length,
-  }));
   return {
     today: center.today,
     totalLeads: analytics.totalLeads,
@@ -864,7 +859,6 @@ export async function getReporting() {
     sendpilot,
     journey,
     outcomes,
-    flags,
     conversions: analytics.conversions,
     durations: analytics.durations,
   };

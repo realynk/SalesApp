@@ -5,7 +5,6 @@ import { formatPercent } from "@/lib/format";
 
 export default async function ReportingPage() {
   const data = await getReporting();
-  const noFlag = Math.max(0, data.totalLeads - data.flags.reduce((sum, row) => sum + row.count, 0));
 
   return (
     <div className="space-y-6">
@@ -41,9 +40,6 @@ export default async function ReportingPage() {
         </SectionCard>
         <SectionCard title="Not Interested" description="How those leads have been sorted.">
           <CountList rows={data.outcomes} />
-        </SectionCard>
-        <SectionCard title="Flags" description="Accounts you marked on the board.">
-          <CountList rows={[...data.flags, { label: "No flag", count: noFlag }]} />
         </SectionCard>
       </div>
       <SectionCard title="Conversion" description="How often accounts that entered a stage later reached the next one.">
