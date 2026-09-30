@@ -32,6 +32,7 @@ import {
   normalizeEmail,
   normalizeLinkedIn,
 } from "@/lib/domain";
+import { importedSendPilotStatus, parseDuplicateTagging, taggingPatch } from "@/lib/sendpilot/review";
 import { actionError } from "@/lib/errors";
 import { getSettings } from "@/lib/data";
 import { createClient } from "@/lib/supabase/server";
@@ -328,6 +329,20 @@ async function createOpportunityForLead(
     });
   }
   return { id: opportunityId };
+}
+
+async function startOpportunityForLead(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  leadId: string,
+) {
+  const settings = await getSettings();
+  const formData = new FormData();
+  formData.set("stage", "Interested");
+  formData.set("next_action", STAGE_PLAYBOOK.Interested.nextAction);
+  formData.set("waiting_on", STAGE_PLAYBOOK.Interested.waitingOn);
+  formData.set("next_action_date", addBusinessDays(todayInTimeZone(settings.businessTimezone), 2));
+  return createOpportunityForLead(supabase, userId, leadId, formData);
 }
 
 export async function updateLeadStatus(_state: ActionState, formData: FormData): Promise<ActionState> {
@@ -1317,7 +1332,6 @@ export async function createFromReviewedRecord(_state: ActionState, formData: Fo
   const { supabase, userId } = await requireUser();
   const id = text(formData, "record_id");
   if (!isUuid(id)) return { error: "That import row could not be found." };
-  if (text(formData, "confirm") !== "yes") return { error: "Confirm that this should be created even if it may duplicate an existing contact." };
   const { data, error } = await supabase.from("sendpilot_records").select("*").eq("id", id).maybeSingle();
   if (error || !data) return { error: "That import row could not be found." };
   const record = data as Record<string, string | null | boolean>;
@@ -1364,7 +1378,7 @@ export async function createFromReviewedRecord(_state: ActionState, formData: Fo
     linkedin_url: record.linkedin_url,
   }).select("id").single();
   if (contactInsert.error || !contactInsert.data) return { error: actionError(contactInsert.error) };
-  const status = (SENDPILOT_STATUSES as readonly string[]).includes(String(record.sendpilot_status)) ? record.sendpilot_status : null;
+  const status = importedSendPilotStatus(String(record.sendpilot_status ?? ""));
   const leadInsert = await supabase.from("leads").insert({
     contact_id: (contactInsert.data as { id: string }).id,
     company_id: companyId,
@@ -1375,8 +1389,104 @@ export async function createFromReviewedRecord(_state: ActionState, formData: Fo
     requires_review: false,
   }).select("id").single();
   if (leadInsert.error || !leadInsert.data) return { error: actionError(leadInsert.error) };
-  await supabase.from("sendpilot_records").update({ applied: true, review_required: false, matched_contact_id: (contactInsert.data as { id: string }).id, matched_lead_id: (leadInsert.data as { id: string }).id }).eq("id", id);
-  await supabase.from("activities").insert({ lead_id: (leadInsert.data as { id: string }).id, type: "lead_imported", title: "Lead created from a reviewed import row", actor_id: userId });
+  const leadId = (leadInsert.data as { id: string }).id;
+  await supabase.from("sendpilot_records").update({ applied: true, review_required: false, matched_contact_id: (contactInsert.data as { id: string }).id, matched_lead_id: leadId }).eq("id", id);
+  await supabase.from("activities").insert({ lead_id: leadId, type: "lead_imported", title: "Lead created from a reviewed import row", actor_id: userId });
+  if (text(formData, "create_opportunity") === "yes") {
+    const created = await startOpportunityForLead(supabase, userId, leadId);
+    if (created && "error" in created && created.error) return created;
+    refresh("/reconciliation", "/leads", "/opportunities", "/dashboard");
+    if (created && "id" in created) redirect(`/opportunities/${created.id}`);
+  }
   refresh("/reconciliation", "/leads");
-  redirect(`/leads/${(leadInsert.data as { id: string }).id}`);
+  redirect(`/leads/${leadId}?notice=${encodeURIComponent("Lead added from import review.")}`);
+}
+
+export async function skipReviewedRecord(formData: FormData): Promise<void> {
+  const { supabase } = await requireUser();
+  const id = text(formData, "record_id");
+  if (!isUuid(id)) {
+    redirect(`/reconciliation?notice=${encodeURIComponent("That import row could not be found.")}`);
+  }
+  const { data, error } = await supabase.from("sendpilot_records").select("id, applied").eq("id", id).maybeSingle();
+  if (error || !data) {
+    redirect(`/reconciliation?notice=${encodeURIComponent("That import row could not be found.")}`);
+  }
+  if ((data as { applied: boolean }).applied) {
+    redirect(`/reconciliation?notice=${encodeURIComponent("This row was already applied.")}`);
+  }
+  const { error: updateError } = await supabase
+    .from("sendpilot_records")
+    .update({ review_required: false })
+    .eq("id", id)
+    .eq("applied", false);
+  if (updateError) {
+    redirect(`/reconciliation?notice=${encodeURIComponent(actionError(updateError))}`);
+  }
+  refresh("/reconciliation");
+  redirect(`/reconciliation?notice=${encodeURIComponent("Import row skipped. It was not added to leads.")}`);
+}
+
+export async function applyReviewedDuplicate(_state: ActionState, formData: FormData): Promise<ActionState> {
+  const { supabase, userId } = await requireUser();
+  const id = text(formData, "record_id");
+  const tagging = parseDuplicateTagging(text(formData, "tagging"));
+  if (!isUuid(id)) return { error: "That import row could not be found." };
+  if (!tagging) return { error: "Choose whether to keep, replace, or clear the current SendPilot tag." };
+  const { data, error } = await supabase.from("sendpilot_records").select("*").eq("id", id).maybeSingle();
+  if (error || !data) return { error: "That import row could not be found." };
+  const record = data as Record<string, string | null | boolean>;
+  if (record.applied) return { error: "This row was already applied." };
+  const matchedLeadId = String(record.matched_lead_id ?? "");
+  const matchedContactId = String(record.matched_contact_id ?? "");
+  let leadId = isUuid(matchedLeadId) ? matchedLeadId : "";
+  if (!leadId && isUuid(matchedContactId)) {
+    const found = await supabase.from("leads").select("id").eq("contact_id", matchedContactId).maybeSingle();
+    leadId = found.data ? String((found.data as { id: string }).id) : "";
+  }
+  if (!isUuid(leadId)) return { error: "This duplicate is not tied to one current lead. Create a new lead or skip the row." };
+  const importedRaw = String(record.sendpilot_status ?? "") || null;
+  const patch = taggingPatch(tagging, importedSendPilotStatus(importedRaw), importedRaw);
+  if (patch) {
+    let updated = await supabase.from("leads").update({ ...patch, last_synced_at: new Date().toISOString() }).eq("id", leadId);
+    if (updated.error && /not_interested_outcome/i.test(updated.error.message ?? "")) {
+      const { not_interested_outcome: _unused, ...withoutOutcome } = patch;
+      void _unused;
+      updated = await supabase.from("leads").update({ ...withoutOutcome, last_synced_at: new Date().toISOString() }).eq("id", leadId);
+    }
+    if (updated.error) return { error: actionError(updated.error) };
+    await supabase.from("activities").insert({
+      lead_id: leadId,
+      type: tagging === "clear" ? "sendpilot_status_changed" : "sendpilot_status_changed",
+      title: tagging === "clear" ? "SendPilot tagging cleared from import review" : "SendPilot tagging replaced from import review",
+      body: importedRaw ? `Imported tag: ${importedRaw}` : null,
+      actor_id: userId,
+    });
+  } else {
+    await supabase.from("activities").insert({
+      lead_id: leadId,
+      type: "record_updated",
+      title: "Duplicate import row applied; current SendPilot tagging kept",
+      actor_id: userId,
+    });
+  }
+  await supabase.from("sendpilot_records").update({
+    applied: true,
+    review_required: false,
+    matched_lead_id: leadId,
+    matched_contact_id: isUuid(matchedContactId) ? matchedContactId : record.matched_contact_id,
+  }).eq("id", id);
+  if (text(formData, "create_opportunity") === "yes") {
+    const open = await supabase.from("opportunities").select("id").eq("lead_id", leadId).in("status", ["active", "nurture", "on_hold"]).maybeSingle();
+    if (open.data) {
+      refresh("/reconciliation", "/leads", `/leads/${leadId}`);
+      redirect(`/opportunities/${(open.data as { id: string }).id}?notice=${encodeURIComponent("This lead already has an opportunity.")}`);
+    }
+    const created = await startOpportunityForLead(supabase, userId, leadId);
+    if (created && "error" in created && created.error) return created;
+    refresh("/reconciliation", "/leads", "/opportunities", "/dashboard");
+    if (created && "id" in created) redirect(`/opportunities/${created.id}`);
+  }
+  refresh("/reconciliation", "/leads", `/leads/${leadId}`);
+  redirect(`/reconciliation?notice=${encodeURIComponent("Existing lead kept. Import row closed.")}`);
 }

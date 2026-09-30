@@ -759,6 +759,17 @@ export async function getRecruitment(id: string) {
   return { request: record, history: rows(historyResult.data) };
 }
 
+export type ExistingReviewLead = {
+  leadId: string;
+  contactId: string;
+  contactName: string;
+  companyName: string;
+  email: string | null;
+  sendpilotStatus: string | null;
+  opportunityId: string | null;
+  opportunityStage: string | null;
+};
+
 export async function getReconciliation() {
   const { supabase } = await requireUser();
   const [syncs, records, leads] = await Promise.all([
@@ -768,7 +779,65 @@ export async function getReconciliation() {
   ]);
   raiseIf(syncs.error);
   raiseIf(records.error);
-  return { syncs: rows(syncs.data), records: rows(records.data), missingOpportunities: leads };
+  const recordRows = rows(records.data);
+  const contactIds = [...new Set(recordRows.map((item) => str(item.matched_contact_id)).filter((id): id is string => Boolean(id && isUuid(id))))];
+  const leadIds = [...new Set(recordRows.map((item) => str(item.matched_lead_id)).filter((id): id is string => Boolean(id && isUuid(id))))];
+  const existingByLead = new Map<string, ExistingReviewLead>();
+  const existingByContact = new Map<string, ExistingReviewLead>();
+  if (contactIds.length || leadIds.length) {
+    let leadQuery = supabase.from("leads").select("id, contact_id, sendpilot_status, archived_at, companies(name), contacts(first_name, last_name, email)");
+    if (leadIds.length && contactIds.length) leadQuery = leadQuery.or(`id.in.(${leadIds.join(",")}),contact_id.in.(${contactIds.join(",")})`);
+    else if (leadIds.length) leadQuery = leadQuery.in("id", leadIds);
+    else leadQuery = leadQuery.in("contact_id", contactIds);
+    let loadedLeads = await leadQuery;
+    if (missingArchivedColumn(loadedLeads.error)) {
+      let fallback = supabase.from("leads").select("id, contact_id, sendpilot_status, companies(name), contacts(first_name, last_name, email)");
+      if (leadIds.length && contactIds.length) fallback = fallback.or(`id.in.(${leadIds.join(",")}),contact_id.in.(${contactIds.join(",")})`);
+      else if (leadIds.length) fallback = fallback.in("id", leadIds);
+      else fallback = fallback.in("contact_id", contactIds);
+      loadedLeads = await fallback;
+    }
+    raiseIf(loadedLeads.error);
+    const existingLeadIds = rows(loadedLeads.data).map((item) => String(item.id));
+    const opportunities = existingLeadIds.length
+      ? await supabase.from("opportunities").select("id, lead_id, stage, status").in("lead_id", existingLeadIds)
+      : { data: [], error: null };
+    raiseIf(opportunities.error);
+    const opportunityByLead = new Map(
+      rows(opportunities.data)
+        .filter((item) => ["active", "nurture", "on_hold"].includes(String(item.status ?? "")))
+        .map((item) => [String(item.lead_id), item]),
+    );
+    for (const item of rows(loadedLeads.data)) {
+      if (str(item.archived_at)) continue;
+      const contact = row(item.contacts);
+      const company = row(item.companies);
+      const opportunity = opportunityByLead.get(String(item.id));
+      const existing: ExistingReviewLead = {
+        leadId: String(item.id),
+        contactId: String(item.contact_id),
+        contactName: fullName(str(contact?.first_name), str(contact?.last_name)),
+        companyName: str(company?.name) ?? "Unknown company",
+        email: str(contact?.email),
+        sendpilotStatus: str(item.sendpilot_status),
+        opportunityId: opportunity ? String(opportunity.id) : null,
+        opportunityStage: opportunity ? str(opportunity.stage) : null,
+      };
+      existingByLead.set(existing.leadId, existing);
+      existingByContact.set(existing.contactId, existing);
+    }
+  }
+  return {
+    syncs: rows(syncs.data),
+    records: recordRows.map((item) => ({
+      ...item,
+      existing:
+        (str(item.matched_lead_id) ? existingByLead.get(String(item.matched_lead_id)) : null) ??
+        (str(item.matched_contact_id) ? existingByContact.get(String(item.matched_contact_id)) : null) ??
+        null,
+    })),
+    missingOpportunities: leads,
+  };
 }
 
 export async function getAnalytics() {

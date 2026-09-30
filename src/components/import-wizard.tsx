@@ -130,7 +130,7 @@ export function ImportWizard() {
       }
       const result = payload.result ?? {};
       router.push(
-        `/reconciliation?notice=${encodeURIComponent(`${result.new ?? 0} new, ${result.updated ?? 0} updated, ${result.possible_duplicates ?? 0} duplicates held for review.`)}`,
+        `/reconciliation?notice=${encodeURIComponent(`${result.new ?? 0} new and ${result.updated ?? 0} updated leads added. ${result.possible_duplicates ?? 0} duplicates held so you can keep or clear tagging, create a new lead, or skip.`)}`,
       );
       router.refresh();
     } catch {
