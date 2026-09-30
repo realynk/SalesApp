@@ -3,7 +3,7 @@ import { Notice, PageHeader } from "@/components/bits";
 import { Button } from "@/components/ui/button";
 import { getReconciliation } from "@/lib/data";
 import { firstParam, formatDateTime } from "@/lib/format";
-import { createFromReviewedRecord, archiveLead } from "@/server/actions";
+import { createFromReviewedRecord, archiveLeadFromList } from "@/server/actions";
 import { ActionForm, SubmitButton } from "@/components/forms";
 
 export default async function ReconciliationPage({ searchParams }: { searchParams: Promise<{ notice?: string }> }) {
@@ -48,7 +48,7 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
                 <p className="text-muted-foreground">SendPilot status: {lead.sendpilotStatus}. Sales opportunity: not found.</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <form action={async (formData) => { await archiveLead(null, formData); }}>
+                <form action={archiveLeadFromList}>
                   <input type="hidden" name="lead_id" value={lead.id} />
                   <input type="hidden" name="next" value="/reconciliation" />
                   <SubmitButton variant="outline">Remove</SubmitButton>

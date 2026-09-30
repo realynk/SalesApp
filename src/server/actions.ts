@@ -187,6 +187,10 @@ export async function archiveLead(_state: ActionState, formData: FormData): Prom
   return archiveLeadIds([leadId], next);
 }
 
+export async function archiveLeadFromList(formData: FormData): Promise<void> {
+  await archiveLead(null, formData);
+}
+
 export async function restoreLead(_state: ActionState, formData: FormData): Promise<ActionState> {
   const { supabase, userId } = await requireUser();
   const leadId = text(formData, "lead_id");
