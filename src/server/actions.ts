@@ -191,6 +191,31 @@ export async function archiveLeadFromList(formData: FormData): Promise<void> {
   await archiveLead(null, formData);
 }
 
+export async function dismissReviewedRecord(formData: FormData): Promise<void> {
+  const { supabase } = await requireUser();
+  const id = text(formData, "record_id");
+  if (!isUuid(id)) {
+    redirect(`/reconciliation?notice=${encodeURIComponent("That import row could not be found.")}`);
+  }
+  const { data, error } = await supabase.from("sendpilot_records").select("id, applied").eq("id", id).maybeSingle();
+  if (error || !data) {
+    redirect(`/reconciliation?notice=${encodeURIComponent("That import row could not be found.")}`);
+  }
+  if ((data as { applied: boolean }).applied) {
+    redirect(`/reconciliation?notice=${encodeURIComponent("This row was already applied.")}`);
+  }
+  const { error: updateError } = await supabase
+    .from("sendpilot_records")
+    .update({ review_required: false })
+    .eq("id", id)
+    .eq("applied", false);
+  if (updateError) {
+    redirect(`/reconciliation?notice=${encodeURIComponent(actionError(updateError))}`);
+  }
+  refresh("/reconciliation");
+  redirect(`/reconciliation?notice=${encodeURIComponent("Row dismissed.")}`);
+}
+
 export async function restoreLead(_state: ActionState, formData: FormData): Promise<ActionState> {
   const { supabase, userId } = await requireUser();
   const leadId = text(formData, "lead_id");

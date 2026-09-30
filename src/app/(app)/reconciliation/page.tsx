@@ -3,7 +3,7 @@ import { Notice, PageHeader } from "@/components/bits";
 import { Button } from "@/components/ui/button";
 import { getReconciliation } from "@/lib/data";
 import { firstParam, formatDateTime } from "@/lib/format";
-import { createFromReviewedRecord, archiveLeadFromList } from "@/server/actions";
+import { createFromReviewedRecord, archiveLeadFromList, dismissReviewedRecord } from "@/server/actions";
 import { ActionForm, SubmitButton } from "@/components/forms";
 
 export default async function ReconciliationPage({ searchParams }: { searchParams: Promise<{ notice?: string }> }) {
@@ -68,14 +68,20 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
               <p className="font-medium">{String(record.full_name ?? "Unnamed")} — {String(record.company_name ?? "No company")}</p>
               <p className="text-muted-foreground">{String(record.classification)} · {String(record.review_reason ?? "Needs a person to decide")}</p>
               <p className="text-xs text-muted-foreground">{String(record.email ?? "No email")} · {formatDateTime(String(record.created_at ?? ""))}</p>
-              <ActionForm action={createFromReviewedRecord} className="mt-3 space-y-2">
-                <input type="hidden" name="record_id" value={String(record.id)} />
-                <label className="flex items-center gap-2"><input type="checkbox" name="confirm" value="yes" required /> I checked this and want a contact created anyway.</label>
-                {String(record.classification) === "suppressed" ? (
-                  <label className="flex items-center gap-2"><input type="checkbox" name="lift_suppression" value="yes" required /> Recreate this permanently deleted SendPilot lead on purpose.</label>
-                ) : null}
-                <SubmitButton variant="outline">Create contact from this row</SubmitButton>
-              </ActionForm>
+              <div className="mt-3 flex flex-wrap items-end gap-2">
+                <ActionForm action={createFromReviewedRecord} className="space-y-2">
+                  <input type="hidden" name="record_id" value={String(record.id)} />
+                  <label className="flex items-center gap-2"><input type="checkbox" name="confirm" value="yes" required /> I checked this and want a contact created anyway.</label>
+                  {String(record.classification) === "suppressed" ? (
+                    <label className="flex items-center gap-2"><input type="checkbox" name="lift_suppression" value="yes" required /> Recreate this permanently deleted SendPilot lead on purpose.</label>
+                  ) : null}
+                  <SubmitButton variant="outline">Create contact from this row</SubmitButton>
+                </ActionForm>
+                <form action={dismissReviewedRecord}>
+                  <input type="hidden" name="record_id" value={String(record.id)} />
+                  <SubmitButton variant="outline">Dismiss</SubmitButton>
+                </form>
+              </div>
             </li>
           ))}
           {data.records.length === 0 ? <li className="text-sm text-muted-foreground">No unmatched or duplicate rows are waiting.</li> : null}
