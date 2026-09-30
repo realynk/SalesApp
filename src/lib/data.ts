@@ -498,16 +498,16 @@ function missingAccountFlagColumn(error: { message?: string; code?: string } | n
   return Boolean(error && (error.code === "PGRST204" || /account_flag/i.test(error.message ?? "")));
 }
 
-async function countLeads(
-  supabase: Awaited<ReturnType<typeof requireUser>>["supabase"],
-  status?: string,
-) {
-  let query = supabase.from("leads").select("id", { count: "exact", head: true }).is("archived_at", null);
-  if (status) query = query.eq("sendpilot_status", status);
+export async function countLeads(filters: { archived?: boolean; status?: string } = {}) {
+  const { supabase } = await requireUser();
+  let query = supabase.from("leads").select("id", { count: "exact", head: true });
+  if (filters.archived) query = query.not("archived_at", "is", null);
+  else query = query.is("archived_at", null);
+  if (filters.status) query = query.eq("sendpilot_status", filters.status);
   const first = await query;
   if (missingArchivedColumn(first.error)) {
     let fallback = supabase.from("leads").select("id", { count: "exact", head: true });
-    if (status) fallback = fallback.eq("sendpilot_status", status);
+    if (filters.status) fallback = fallback.eq("sendpilot_status", filters.status);
     const second = await fallback;
     raiseIf(second.error);
     return second.count ?? 0;
@@ -799,10 +799,10 @@ export async function getAnalytics() {
     supabase.from("contracts").select("status"),
     supabase.from("clients").select("id", { count: "exact", head: true }),
     supabase.from("opportunities").select("stage, status").limit(1000),
-    countLeads(supabase),
-    countLeads(supabase, "Interested"),
-    countLeads(supabase, "Not Interested"),
-    countLeads(supabase, "Meeting Booked"),
+    countLeads(),
+    countLeads({ status: "Interested" }),
+    countLeads({ status: "Not Interested" }),
+    countLeads({ status: "Meeting Booked" }),
   ]);
   let leadRowsResult = leads;
   if (missingArchivedColumn(leads.error)) {

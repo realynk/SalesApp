@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { LeadBulkArchive } from "@/components/lead-bulk-archive";
 import { SendPilotStatusControl } from "@/components/sendpilot-status-field";
 import { SENDPILOT_STATUSES, NOT_INTERESTED_OUTCOMES } from "@/lib/domain";
-import { listLeads } from "@/lib/data";
+import { countLeads, listLeads } from "@/lib/data";
 import { firstParam, formatDate } from "@/lib/format";
 import { createLead } from "@/server/actions";
 import { ActionForm, SubmitButton } from "@/components/forms";
@@ -13,7 +13,11 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
   const query = await searchParams;
   const archived = firstParam(query.archived) === "1";
   const filters = { q: firstParam(query.q), status: firstParam(query.status), review: firstParam(query.review), archived };
-  const leads = await listLeads(filters);
+  const [leads, totalLeads] = await Promise.all([
+    listLeads(filters),
+    countLeads({ archived, status: filters.status || undefined }),
+  ]);
+  const leadCountLabel = `${totalLeads.toLocaleString("en-US")} ${archived ? "archived leads" : filters.status ? `${filters.status} leads` : "leads"}`;
   const table = (
     <div className="overflow-x-auto rounded-xl border border-border bg-card">
       <table className="w-full min-w-[760px] text-left text-sm">
@@ -54,6 +58,9 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
         </tbody>
       </table>
       {leads.length === 0 ? <p className="px-4 py-8 text-sm text-muted-foreground">No leads match these filters.</p> : null}
+      {!filters.q && !filters.review && totalLeads > leads.length ? (
+        <p className="px-4 py-3 text-xs text-muted-foreground">Showing the {leads.length.toLocaleString("en-US")} most recently updated of {leadCountLabel}.</p>
+      ) : null}
     </div>
   );
   return (
@@ -67,19 +74,24 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
             : "SendPilot and imported contacts. Change the SendPilot tag in this list, or open a lead to add a reminder. The board is where the journey lives."
         }
         actions={
-          <div className="flex flex-wrap gap-2">
-            <Button variant={archived ? "outline" : "default"} size="sm" asChild>
-              <Link href="/leads">Active</Link>
-            </Button>
-            <Button variant={archived ? "default" : "outline"} size="sm" asChild>
-              <Link href="/leads?archived=1">Archived</Link>
-            </Button>
-            {archived ? null : (
-              <Button variant="outline" size="sm" asChild>
-                <Link href="#add-lead">Add lead</Link>
+          <div className="flex flex-col items-end gap-2">
+            <p className="inline-flex h-8 items-center rounded-lg border border-border bg-card px-2.5 text-sm">
+              <span className="font-medium tabular-nums">{leadCountLabel}</span>
+            </p>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button variant={archived ? "outline" : "default"} size="sm" asChild>
+                <Link href="/leads">Active</Link>
               </Button>
-            )}
-            <Button asChild><Link href="/leads/import">Import file</Link></Button>
+              <Button variant={archived ? "default" : "outline"} size="sm" asChild>
+                <Link href="/leads?archived=1">Archived</Link>
+              </Button>
+              {archived ? null : (
+                <Button variant="outline" size="sm" asChild>
+                  <Link href="#add-lead">Add lead</Link>
+                </Button>
+              )}
+              <Button asChild><Link href="/leads/import">Import file</Link></Button>
+            </div>
           </div>
         }
       />
