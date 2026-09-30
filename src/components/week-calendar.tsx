@@ -2,6 +2,7 @@ import Link from "next/link";
 import { format, parseISO } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { addDays, weekStartMonday, type WeekTask } from "@/lib/domain";
+import { completeFollowUp } from "@/server/actions";
 
 function weekHref(week: string, notice?: string, current = false) {
   const params = new URLSearchParams();
@@ -74,7 +75,7 @@ export function WeekCalendar({
                   <p className={`text-sm font-bold ${isToday ? "text-primary" : "text-foreground"}`}>{format(parseISO(day), "d")}</p>
                 </div>
                 <ul className="flex min-h-40 flex-col gap-2 p-2">
-                  {items.length === 0 ? <li className="text-xs text-muted-foreground">Clear</li> : null}
+                  {items.length === 0 ? <li className="text-xs text-muted-foreground">Nothing due</li> : null}
                   {items.map((task) => (
                     <li key={task.id}>
                       <TaskChip task={task} overdue={task.date < today} />
@@ -95,10 +96,22 @@ export function WeekCalendar({
 
 function TaskChip({ task, overdue }: { task: WeekTask; overdue: boolean }) {
   return (
-    <Link href={task.href} className="block rounded-lg border border-border bg-card px-2 py-1.5 hover:border-primary">
-      <p className={`text-[11px] font-medium uppercase ${overdue ? "text-destructive" : "text-primary"}`}>{overdue ? `${task.label} · overdue` : task.label}</p>
-      <p className="mt-0.5 text-xs font-medium leading-4 text-foreground">{task.title}</p>
-      <p className="text-[11px] text-muted-foreground">{task.company}</p>
-    </Link>
+    <div className="rounded-lg border border-border bg-card px-2 py-1.5 hover:border-primary">
+      <Link href={task.href} className="block">
+        <p className={`text-[11px] font-medium uppercase ${overdue ? "text-destructive" : "text-primary"}`}>{overdue ? `${task.label} · overdue` : task.label}</p>
+        <p className="mt-0.5 text-xs font-medium leading-4 text-foreground">{task.title}</p>
+        <p className="text-[11px] text-muted-foreground">{task.company}</p>
+      </Link>
+      {task.followUpId ? (
+        <form action={completeFollowUp} className="mt-1.5">
+          <input type="hidden" name="follow_up_id" value={task.followUpId} />
+          {task.opportunityId ? <input type="hidden" name="opportunity_id" value={task.opportunityId} /> : null}
+          {task.leadId ? <input type="hidden" name="lead_id" value={task.leadId} /> : null}
+          <Button type="submit" variant="outline" size="xs" className="h-6 px-2 text-[11px]">
+            Done
+          </Button>
+        </form>
+      ) : null}
+    </div>
   );
 }
