@@ -499,6 +499,24 @@ function missingAccountFlagColumn(error: { message?: string; code?: string } | n
   return Boolean(error && (error.code === "PGRST204" || /account_flag/i.test(error.message ?? "")));
 }
 
+export async function countLeads(filters: { archived?: boolean; status?: string } = {}) {
+  const { supabase } = await requireUser();
+  let query = supabase.from("leads").select("id", { count: "exact", head: true });
+  if (filters.archived) query = query.not("archived_at", "is", null);
+  else query = query.is("archived_at", null);
+  if (filters.status) query = query.eq("sendpilot_status", filters.status);
+  const first = await query;
+  if (missingArchivedColumn(first.error)) {
+    let fallback = supabase.from("leads").select("id", { count: "exact", head: true });
+    if (filters.status) fallback = fallback.eq("sendpilot_status", filters.status);
+    const second = await fallback;
+    raiseIf(second.error);
+    return second.count ?? 0;
+  }
+  raiseIf(first.error);
+  return first.count ?? 0;
+}
+
 export async function getLead(id: string) {
   if (!isUuid(id)) return null;
   const { supabase } = await requireUser();
