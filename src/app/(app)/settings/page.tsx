@@ -2,7 +2,7 @@ import { controlClass, Field, PageHeader } from "@/components/bits";
 import { ActionForm, SubmitButton } from "@/components/forms";
 import { getSettings } from "@/lib/data";
 import { sendPilotIntegrationStatus } from "@/lib/env";
-import { saveSettings, updateProfile } from "@/server/actions";
+import { clearSampleWorkspace, saveSettings, updateProfile } from "@/server/actions";
 import { requireUser } from "@/server/session";
 
 export default async function SettingsPage() {
@@ -18,6 +18,13 @@ export default async function SettingsPage() {
         <Field label="Approaching window (days)"><input className={controlClass} name="approaching_window_days" type="number" min={1} max={30} defaultValue={settings.approachingWindowDays} /></Field>
         <Field label="Business timezone"><input className={controlClass} name="business_timezone" defaultValue={settings.businessTimezone} /></Field>
         <SubmitButton>Save thresholds</SubmitButton>
+      </ActionForm>
+      <ActionForm action={clearSampleWorkspace} className="max-w-xl space-y-3 rounded-xl border border-border bg-card p-4">
+        <h2 className="text-sm font-semibold">Demo records</h2>
+        <p className="text-sm leading-6 text-muted-foreground">
+          Removes the bundled demo companies and contacts (Northstar Legal Group, Harbor &amp; Co., .example emails, and the sample CSV identities). Real SendPilot leads are left alone unless they used those demo emails.
+        </p>
+        <SubmitButton variant="outline">Remove demo records</SubmitButton>
       </ActionForm>
       <section className="max-w-xl rounded-xl border border-border bg-card p-4">
         <h2 className="text-sm font-semibold">SendPilot</h2>

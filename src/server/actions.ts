@@ -91,12 +91,16 @@ export async function saveSettings(_state: ActionState, formData: FormData): Pro
   return { success: "Settings saved." };
 }
 
-export async function loadSampleWorkspace(): Promise<void> {
+export async function clearSampleWorkspace(_state: ActionState, formData: FormData): Promise<ActionState> {
+  void formData;
   const { supabase } = await requireUser();
-  const { error } = await supabase.rpc("load_sample_workspace");
-  if (error) redirect(`/dashboard?notice=${encodeURIComponent(actionError(error))}`);
-  refresh("/dashboard", "/leads", "/opportunities", "/reconciliation", "/recruitment", "/reporting", "/follow-ups");
-  redirect("/dashboard");
+  const { data, error } = await supabase.rpc("clear_sample_workspace");
+  if (error) return { error: actionError(error) };
+  const result = data as { contacts?: number; companies?: number; opportunities?: number } | null;
+  refresh("/dashboard", "/leads", "/opportunities", "/reconciliation", "/recruitment", "/reporting", "/follow-ups", "/settings");
+  return {
+    success: `Removed ${result?.contacts ?? 0} demo contacts, ${result?.companies ?? 0} demo companies, and ${result?.opportunities ?? 0} demo opportunities.`,
+  };
 }
 
 export async function createLead(_state: ActionState, formData: FormData): Promise<ActionState> {

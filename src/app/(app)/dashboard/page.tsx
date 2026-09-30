@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { buildWeekTasks } from "@/lib/domain";
 import { getCommandCenter } from "@/lib/data";
 import { firstParam } from "@/lib/format";
-import { loadSampleWorkspace } from "@/server/actions";
 
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ notice?: string; week?: string }> }) {
   const query = await searchParams;
@@ -26,7 +25,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   });
   const needs = center.attention.filter((item) => item.sections.includes("needs")).slice(0, 10);
   const hero = center.attention[0];
-  const empty = center.opportunities.length === 0 && !center.settings.sampleLoadedAt;
+  const empty = center.opportunities.length === 0 && center.kpis.interestedLeads === 0;
 
   return (
     <div className="space-y-6">
@@ -46,14 +45,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           title="No leads yet"
           body="Import a SendPilot file so Interested and Not Interested leads show on the board."
           action={
-            <div className="flex flex-wrap justify-center gap-2">
-              <form action={loadSampleWorkspace}>
-                <Button type="submit">Load sample workspace</Button>
-              </form>
-              <Button variant="outline" asChild>
-                <Link href="/leads/import">Import SendPilot file</Link>
-              </Button>
-            </div>
+            <Button asChild>
+              <Link href="/leads/import">Import SendPilot file</Link>
+            </Button>
           }
         />
       ) : null}
