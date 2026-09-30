@@ -74,6 +74,11 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
             <Button variant={archived ? "default" : "outline"} size="sm" asChild>
               <Link href="/leads?archived=1">Archived</Link>
             </Button>
+            {archived ? null : (
+              <Button variant="outline" size="sm" asChild>
+                <Link href="#add-lead">Add lead</Link>
+              </Button>
+            )}
             <Button asChild><Link href="/leads/import">Import file</Link></Button>
           </div>
         }
@@ -95,10 +100,10 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
       </form>
       {archived ? table : <LeadBulkArchive>{table}</LeadBulkArchive>}
       {archived ? null : (
-        <section className="rounded-xl border border-border bg-card p-4">
+        <section id="add-lead" className="scroll-mt-6 rounded-xl border border-border bg-card p-4">
           <h2 className="text-sm font-semibold">Add a lead manually</h2>
           <ActionForm action={createLead} className="mt-4 grid gap-3 md:grid-cols-2">
-            <Field label="First name"><input className={controlClass} name="first_name" required /></Field>
+            <Field label="First name"><input className={controlClass} name="first_name" required autoFocus={false} /></Field>
             <Field label="Last name"><input className={controlClass} name="last_name" /></Field>
             <Field label="Company"><input className={controlClass} name="company" required /></Field>
             <Field label="Email"><input className={controlClass} name="email" type="email" /></Field>
