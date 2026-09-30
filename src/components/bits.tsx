@@ -44,14 +44,32 @@ export function PageHeader({
   );
 }
 
-export function KpiCard({ label, value, detail }: { label: string; value: string; detail?: string }) {
-  return (
-    <div className="rounded-xl border border-border bg-card px-4 py-3">
+export function KpiCard({
+  label,
+  value,
+  detail,
+  href,
+}: {
+  label: string;
+  value: string;
+  detail?: string;
+  href?: string;
+}) {
+  const inner = (
+    <>
       <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{label}</p>
       <p className="mt-2 font-mono text-2xl font-medium tracking-tight">{value}</p>
       {detail ? <p className="mt-1 text-xs text-muted-foreground">{detail}</p> : null}
-    </div>
+    </>
   );
+  if (href) {
+    return (
+      <Link href={href} className="rounded-xl border border-border bg-card px-4 py-3 hover:border-primary">
+        {inner}
+      </Link>
+    );
+  }
+  return <div className="rounded-xl border border-border bg-card px-4 py-3">{inner}</div>;
 }
 
 export function Notice({ message }: { message?: string }) {

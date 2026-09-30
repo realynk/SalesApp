@@ -5,7 +5,6 @@ import { formatPercent } from "@/lib/format";
 
 export default async function ReportingPage() {
   const data = await getReporting();
-  const noFlag = Math.max(0, data.totalLeads - data.flags.reduce((sum, row) => sum + row.count, 0));
 
   return (
     <div className="space-y-6">
@@ -15,13 +14,25 @@ export default async function ReportingPage() {
         description="SendPilot tags, where accounts sit on the journey, and whether tasks are getting done. No revenue."
       />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <KpiCard label="Leads" value={String(data.totalLeads)} />
-        <KpiCard label="Open tasks" value={String(data.openTasks)} detail={`${data.dueToday} due today`} />
-        <KpiCard label="Overdue tasks" value={String(data.overdueTasks)} />
         <KpiCard
-          label="Interested on the board"
-          value={String(data.journey.find((row) => row.label === "Interested")?.count ?? 0)}
-          detail="Tagged Interested and not moved further"
+          label="Total leads in the system"
+          value={String(data.totalLeads)}
+          href="/leads"
+        />
+        <KpiCard
+          label="Total tagged as Interested"
+          value={String(data.taggedInterested)}
+          href="/opportunities"
+        />
+        <KpiCard
+          label="Total tagged as Not Interested"
+          value={String(data.taggedNotInterested)}
+          href="/opportunities?interest=not-interested"
+        />
+        <KpiCard
+          label="Total booked call"
+          value={String(data.bookedCalls)}
+          href="/leads?status=Meeting%20Booked"
         />
       </div>
       <div className="grid gap-4 xl:grid-cols-2">
@@ -33,9 +44,6 @@ export default async function ReportingPage() {
         </SectionCard>
         <SectionCard title="Not Interested" description="How those leads have been sorted.">
           <CountList rows={data.outcomes} />
-        </SectionCard>
-        <SectionCard title="Flags" description="Accounts you marked on the board.">
-          <CountList rows={[...data.flags, { label: "No flag", count: noFlag }]} />
         </SectionCard>
       </div>
       <SectionCard title="Conversion" description="How often accounts that entered a stage later reached the next one.">
