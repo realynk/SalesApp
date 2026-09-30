@@ -498,6 +498,24 @@ function missingAccountFlagColumn(error: { message?: string; code?: string } | n
   return Boolean(error && (error.code === "PGRST204" || /account_flag/i.test(error.message ?? "")));
 }
 
+async function countLeads(
+  supabase: Awaited<ReturnType<typeof requireUser>>["supabase"],
+  status?: string,
+) {
+  let query = supabase.from("leads").select("id", { count: "exact", head: true }).is("archived_at", null);
+  if (status) query = query.eq("sendpilot_status", status);
+  const first = await query;
+  if (missingArchivedColumn(first.error)) {
+    let fallback = supabase.from("leads").select("id", { count: "exact", head: true });
+    if (status) fallback = fallback.eq("sendpilot_status", status);
+    const second = await fallback;
+    raiseIf(second.error);
+    return second.count ?? 0;
+  }
+  raiseIf(first.error);
+  return first.count ?? 0;
+}
+
 export async function getLead(id: string) {
   if (!isUuid(id)) return null;
   const { supabase } = await requireUser();
@@ -772,7 +790,7 @@ export async function getReconciliation() {
 
 export async function getAnalytics() {
   const { supabase } = await requireUser();
-  const [leads, history, recruitment, batches, interviews, contracts, clients, opportunities] = await Promise.all([
+  const [leads, history, recruitment, batches, interviews, contracts, clients, opportunities, totalLeads, interested, notInterested, meetingsBooked] = await Promise.all([
     supabase.from("leads").select("sendpilot_status").is("archived_at", null).limit(5000),
     supabase.from("pipeline_stage_history").select("opportunity_id, new_stage, changed_at").limit(8000),
     supabase.from("recruitment_requests").select("id", { count: "exact", head: true }),
@@ -781,6 +799,10 @@ export async function getAnalytics() {
     supabase.from("contracts").select("status"),
     supabase.from("clients").select("id", { count: "exact", head: true }),
     supabase.from("opportunities").select("stage, status").limit(1000),
+    countLeads(supabase),
+    countLeads(supabase, "Interested"),
+    countLeads(supabase, "Not Interested"),
+    countLeads(supabase, "Meeting Booked"),
   ]);
   let leadRowsResult = leads;
   if (missingArchivedColumn(leads.error)) {
@@ -797,10 +819,10 @@ export async function getAnalytics() {
   }));
   const contractRows = rows(contracts.data);
   return {
-    totalLeads: leadRows.length,
-    interested: countStatus("Interested"),
-    notInterested: countStatus("Not Interested"),
-    meetingsBooked: countStatus("Meeting Booked"),
+    totalLeads,
+    interested,
+    notInterested,
+    meetingsBooked,
     meetingsCompleted: countStatus("Meeting Complete"),
     recruitmentRequests: recruitment.count ?? 0,
     profilesSent: batches.count ?? 0,

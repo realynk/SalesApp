@@ -14,7 +14,11 @@ export default async function ReportingPage() {
         description="SendPilot tags, where accounts sit on the journey, and whether tasks are getting done. No revenue."
       />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <KpiCard label="Leads" value={String(data.totalLeads)} href="/leads" />
+        <KpiCard
+          label="Total leads in the system"
+          value={String(data.totalLeads)}
+          href="/leads"
+        />
         <KpiCard
           label="Total tagged as Interested"
           value={String(data.taggedInterested)}
