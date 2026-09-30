@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { Notice, PageHeader } from "@/components/bits";
 import { ReviewRecordCard } from "@/components/reconciliation-review";
+import { SubmitButton } from "@/components/forms";
 import { Button } from "@/components/ui/button";
 import { getReconciliation } from "@/lib/data";
 import { firstParam } from "@/lib/format";
+import { archiveLeadFromList } from "@/server/actions";
 
 export default async function ReconciliationPage({ searchParams }: { searchParams: Promise<{ notice?: string }> }) {
   const query = await searchParams;
@@ -46,7 +48,14 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
                 <p className="font-medium">{lead.contactName} — {lead.companyName}</p>
                 <p className="text-muted-foreground">SendPilot status: {lead.sendpilotStatus}. Sales opportunity: not found.</p>
               </div>
-              <Button asChild><Link href={`/leads/${lead.id}`}>Create opportunity</Link></Button>
+              <div className="flex flex-wrap items-center gap-2">
+                <form action={archiveLeadFromList}>
+                  <input type="hidden" name="lead_id" value={lead.id} />
+                  <input type="hidden" name="next" value="/reconciliation" />
+                  <SubmitButton variant="outline">Remove</SubmitButton>
+                </form>
+                <Button asChild><Link href={`/leads/${lead.id}`}>Create opportunity</Link></Button>
+              </div>
             </li>
           ))}
           {data.missingOpportunities.length === 0 ? <li className="py-4 text-sm text-muted-foreground">Every interested SendPilot lead has an opportunity.</li> : null}

@@ -183,7 +183,38 @@ async function insertLead(
 }
 
 export async function archiveLead(_state: ActionState, formData: FormData): Promise<ActionState> {
-  return archiveLeadIds([text(formData, "lead_id")], `/leads/${text(formData, "lead_id")}`);
+  const leadId = text(formData, "lead_id");
+  const next = optionalText(formData, "next") ?? `/leads/${leadId}`;
+  return archiveLeadIds([leadId], next);
+}
+
+export async function archiveLeadFromList(formData: FormData): Promise<void> {
+  await archiveLead(null, formData);
+}
+
+export async function dismissReviewedRecord(formData: FormData): Promise<void> {
+  const { supabase } = await requireUser();
+  const id = text(formData, "record_id");
+  if (!isUuid(id)) {
+    redirect(`/reconciliation?notice=${encodeURIComponent("That import row could not be found.")}`);
+  }
+  const { data, error } = await supabase.from("sendpilot_records").select("id, applied").eq("id", id).maybeSingle();
+  if (error || !data) {
+    redirect(`/reconciliation?notice=${encodeURIComponent("That import row could not be found.")}`);
+  }
+  if ((data as { applied: boolean }).applied) {
+    redirect(`/reconciliation?notice=${encodeURIComponent("This row was already applied.")}`);
+  }
+  const { error: updateError } = await supabase
+    .from("sendpilot_records")
+    .update({ review_required: false })
+    .eq("id", id)
+    .eq("applied", false);
+  if (updateError) {
+    redirect(`/reconciliation?notice=${encodeURIComponent(actionError(updateError))}`);
+  }
+  refresh("/reconciliation");
+  redirect(`/reconciliation?notice=${encodeURIComponent("Row dismissed.")}`);
 }
 
 export async function restoreLead(_state: ActionState, formData: FormData): Promise<ActionState> {
@@ -224,10 +255,9 @@ async function archiveLeadIds(ids: string[], fallbackPath: string): Promise<Acti
     actor_id: userId,
   })));
   refresh("/leads", "/opportunities", "/dashboard", "/reconciliation", "/reporting");
-  if (unique.length === 1 && fallbackPath.startsWith("/leads/")) {
-    redirect(`${fallbackPath}?notice=${encodeURIComponent("Lead archived.")}`);
-  }
-  redirect(`/leads?notice=${encodeURIComponent(`${unique.length} lead${unique.length === 1 ? "" : "s"} archived.`)}`);
+  const notice = unique.length === 1 ? "Lead archived." : `${unique.length} leads archived.`;
+  const separator = fallbackPath.includes("?") ? "&" : "?";
+  redirect(`${fallbackPath}${separator}notice=${encodeURIComponent(notice)}`);
 }
 
 export async function deleteLeadPermanently(_state: ActionState, formData: FormData): Promise<ActionState> {

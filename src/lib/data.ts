@@ -1,6 +1,5 @@
 import { cache } from "react";
 import {
-  ACCOUNT_FLAGS,
   BOARD_STAGES,
   NOT_INTERESTED_INTAKE,
   NOT_INTERESTED_OUTCOMES,
@@ -499,6 +498,24 @@ function missingAccountFlagColumn(error: { message?: string; code?: string } | n
   return Boolean(error && (error.code === "PGRST204" || /account_flag/i.test(error.message ?? "")));
 }
 
+export async function countLeads(filters: { archived?: boolean; status?: string } = {}) {
+  const { supabase } = await requireUser();
+  let query = supabase.from("leads").select("id", { count: "exact", head: true });
+  if (filters.archived) query = query.not("archived_at", "is", null);
+  else query = query.is("archived_at", null);
+  if (filters.status) query = query.eq("sendpilot_status", filters.status);
+  const first = await query;
+  if (missingArchivedColumn(first.error)) {
+    let fallback = supabase.from("leads").select("id", { count: "exact", head: true });
+    if (filters.status) fallback = fallback.eq("sendpilot_status", filters.status);
+    const second = await fallback;
+    raiseIf(second.error);
+    return second.count ?? 0;
+  }
+  raiseIf(first.error);
+  return first.count ?? 0;
+}
+
 export async function getLead(id: string) {
   if (!isUuid(id)) return null;
   const { supabase } = await requireUser();
@@ -867,7 +884,7 @@ export async function getReconciliation() {
 
 export async function getAnalytics() {
   const { supabase } = await requireUser();
-  const [leads, history, recruitment, batches, interviews, contracts, clients, opportunities] = await Promise.all([
+  const [leads, history, recruitment, batches, interviews, contracts, clients, opportunities, totalLeads, interested, notInterested, meetingsBooked] = await Promise.all([
     supabase.from("leads").select("sendpilot_status").is("archived_at", null).limit(5000),
     supabase.from("pipeline_stage_history").select("opportunity_id, new_stage, changed_at").limit(8000),
     supabase.from("recruitment_requests").select("id", { count: "exact", head: true }),
@@ -876,6 +893,10 @@ export async function getAnalytics() {
     supabase.from("contracts").select("status"),
     supabase.from("clients").select("id", { count: "exact", head: true }),
     supabase.from("opportunities").select("stage, status").limit(1000),
+    countLeads(),
+    countLeads({ status: "Interested" }),
+    countLeads({ status: "Not Interested" }),
+    countLeads({ status: "Meeting Booked" }),
   ]);
   let leadRowsResult = leads;
   if (missingArchivedColumn(leads.error)) {
@@ -892,9 +913,10 @@ export async function getAnalytics() {
   }));
   const contractRows = rows(contracts.data);
   return {
-    totalLeads: leadRows.length,
-    interested: countStatus("Interested"),
-    meetingsBooked: countStatus("Meeting Booked"),
+    totalLeads,
+    interested,
+    notInterested,
+    meetingsBooked,
     meetingsCompleted: countStatus("Meeting Complete"),
     recruitmentRequests: recruitment.count ?? 0,
     profilesSent: batches.count ?? 0,
@@ -941,20 +963,18 @@ export async function getReporting() {
     count: leads.filter((lead) => lead.sendpilotStatus === "Not Interested" && notInterestedColumn(lead.notInterestedOutcome) === column).length,
     href: "/opportunities?interest=not-interested",
   }));
-  const flags = ACCOUNT_FLAGS.map((flag) => ({
-    label: flag,
-    count: leads.filter((lead) => lead.accountFlag === flag).length,
-  }));
   return {
     today: center.today,
-    totalLeads: leads.length,
+    totalLeads: analytics.totalLeads,
+    taggedInterested: analytics.interested,
+    taggedNotInterested: analytics.notInterested,
+    bookedCalls: analytics.meetingsBooked,
     openTasks: openTasks.length,
     overdueTasks: openTasks.filter((item) => item.dueOn < center.today).length,
     dueToday: openTasks.filter((item) => item.dueOn === center.today).length,
     sendpilot,
     journey,
     outcomes,
-    flags,
     conversions: analytics.conversions,
     durations: analytics.durations,
   };
