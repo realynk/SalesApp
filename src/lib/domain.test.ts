@@ -317,7 +317,9 @@ test("places the week's calls, follow-ups, and SOW check-backs on their dates", 
   assert.equal(harbor?.kind, "strategy_call");
   assert.equal(harbor?.title, "Hold the strategy call and capture requirements");
   assert.equal(tasks.filter((task) => task.id.startsWith("next-opp-north")).length, 0);
-  assert.equal(tasks.find((task) => task.company === "Northstar Legal Group")?.kind, "follow_up");
+  const northstar = tasks.find((task) => task.company === "Northstar Legal Group");
+  assert.equal(northstar?.kind, "follow_up");
+  assert.equal(northstar?.followUpId, "fu-1");
   assert.equal(tasks.find((task) => task.company === "BrightPath Mortgage" && task.date === "2026-09-25")?.kind, "sow");
   assert.equal(tasks.find((task) => task.kind === "interview")?.title, "Nora Feldman");
   assert.equal(tasks.find((task) => task.kind === "start")?.date, "2026-10-14");
