@@ -6,6 +6,7 @@ import { controlClass, Field, Notice, PageHeader, SectionCard, StageBadge, texta
 import { ActionForm, SubmitButton } from "@/components/forms";
 import { Button } from "@/components/ui/button";
 import { NOT_INTERESTED_OUTCOMES, SENDPILOT_STATUSES, storedLinkedInHref } from "@/lib/domain";
+import { SENDPILOT_UNIBOX_LINK } from "@/lib/sendpilot/app-links";
 import { getLead } from "@/lib/data";
 import { firstParam, formatDate } from "@/lib/format";
 import { addNote, completeFollowUp, createFollowUp, updateLeadStatus } from "@/server/actions";
@@ -35,6 +36,9 @@ export default async function LeadDetailPage({
         description={`${lead.contact.email ?? "No email"} · SendPilot ${lead.sendpilotStatus ?? lead.rawStatus ?? "unknown"}`}
         actions={
           <div className="flex flex-wrap items-center gap-3">
+            <Button variant="outline" asChild>
+              <a href={SENDPILOT_UNIBOX_LINK.href} target={SENDPILOT_UNIBOX_LINK.target} rel={SENDPILOT_UNIBOX_LINK.rel}>Open SendPilot</a>
+            </Button>
             {linkedInHref ? (
               <Button variant="outline" asChild>
                 <a href={linkedInHref} target="_blank" rel="noopener noreferrer">View LinkedIn</a>
