@@ -4,7 +4,8 @@ import { AccountFlagControl, FlagBadge } from "@/components/account-flag-field";
 import { LeadActionsMenu } from "@/components/lead-actions-menu";
 import { controlClass, Field, Notice, PageHeader, SectionCard, StageBadge, textareaClass } from "@/components/bits";
 import { ActionForm, SubmitButton } from "@/components/forms";
-import { NOT_INTERESTED_OUTCOMES, SENDPILOT_STATUSES } from "@/lib/domain";
+import { Button } from "@/components/ui/button";
+import { NOT_INTERESTED_OUTCOMES, SENDPILOT_STATUSES, storedLinkedInHref } from "@/lib/domain";
 import { getLead } from "@/lib/data";
 import { firstParam, formatDate } from "@/lib/format";
 import { addNote, completeFollowUp, createFollowUp, updateLeadStatus } from "@/server/actions";
@@ -23,6 +24,7 @@ export default async function LeadDetailPage({
   const openOpportunity = lead.opportunities.find((item) => item.status === "active" || item.status === "nurture" || item.status === "on_hold");
   const openTasks = lead.followUps.filter((item) => item.status === "open");
   const archived = Boolean(lead.archivedAt);
+  const linkedInHref = storedLinkedInHref(lead.contact.linkedinUrl);
 
   return (
     <div className="space-y-6">
@@ -33,6 +35,11 @@ export default async function LeadDetailPage({
         description={`${lead.contact.email ?? "No email"} · SendPilot ${lead.sendpilotStatus ?? lead.rawStatus ?? "unknown"}`}
         actions={
           <div className="flex flex-wrap items-center gap-3">
+            {linkedInHref ? (
+              <Button variant="outline" asChild>
+                <a href={linkedInHref} target="_blank" rel="noopener noreferrer">View LinkedIn</a>
+              </Button>
+            ) : null}
             <LeadActionsMenu leadId={lead.id} name={lead.contact.name} archived={archived} />
             <FlagBadge flag={lead.accountFlag} />
             {openOpportunity ? (

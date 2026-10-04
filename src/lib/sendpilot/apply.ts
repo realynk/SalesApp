@@ -15,6 +15,7 @@ import {
   resolveSendPilotSourceStatus,
   type SendPilotWebhookIdentifiers,
 } from "@/lib/sendpilot/events";
+import { classifyWebhookIdentityMatch, webhookLeadUpdate, webhookStatusActivity } from "@/lib/sendpilot/webhook";
 import { identitiesOverlap } from "./suppress";
 import { createAdminClient, supabaseServiceRoleKey } from "@/lib/supabase/admin";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -30,8 +31,32 @@ type MatchedLead = {
   companyId: string;
   sendpilotStatus: string | null;
   sendpilotStatusRaw: string | null;
+  sendpilotLeadId: string | null;
   archived: boolean;
 };
+
+const LEAD_MATCH_SELECT =
+  "id, contact_id, company_id, sendpilot_status, sendpilot_status_raw, sendpilot_lead_id, archived_at";
+
+function matchedFromRow(data: {
+  id: unknown;
+  contact_id: unknown;
+  company_id: unknown;
+  sendpilot_status: unknown;
+  sendpilot_status_raw: unknown;
+  sendpilot_lead_id?: unknown;
+  archived_at: unknown;
+}): MatchedLead {
+  return {
+    leadId: String(data.id),
+    contactId: String(data.contact_id),
+    companyId: String(data.company_id),
+    sendpilotStatus: data.sendpilot_status ? String(data.sendpilot_status) : null,
+    sendpilotStatusRaw: data.sendpilot_status_raw ? String(data.sendpilot_status_raw) : null,
+    sendpilotLeadId: data.sendpilot_lead_id ? String(data.sendpilot_lead_id) : null,
+    archived: Boolean(data.archived_at),
+  };
+}
 
 function asErrorMessage(error: unknown) {
   if (error && typeof error === "object" && "message" in error && typeof error.message === "string") {
@@ -93,19 +118,12 @@ async function finishEvent(
 async function leadBySendPilotId(supabase: SupabaseClient, sendpilotLeadId: string): Promise<MatchedLead | null> {
   const { data, error } = await supabase
     .from("leads")
-    .select("id, contact_id, company_id, sendpilot_status, sendpilot_status_raw, archived_at")
+    .select(LEAD_MATCH_SELECT)
     .eq("sendpilot_lead_id", sendpilotLeadId)
     .maybeSingle();
   if (error) throw error;
   if (!data) return null;
-  return {
-    leadId: String(data.id),
-    contactId: String(data.contact_id),
-    companyId: String(data.company_id),
-    sendpilotStatus: data.sendpilot_status ? String(data.sendpilot_status) : null,
-    sendpilotStatusRaw: data.sendpilot_status_raw ? String(data.sendpilot_status_raw) : null,
-    archived: Boolean(data.archived_at),
-  };
+  return matchedFromRow(data);
 }
 
 async function leadByExternalRecord(supabase: SupabaseClient, sendpilotLeadId: string): Promise<MatchedLead | null> {
@@ -121,19 +139,12 @@ async function leadByExternalRecord(supabase: SupabaseClient, sendpilotLeadId: s
   if (!data?.matched_lead_id) return null;
   const { data: lead, error: leadError } = await supabase
     .from("leads")
-    .select("id, contact_id, company_id, sendpilot_status, sendpilot_status_raw, archived_at")
+    .select(LEAD_MATCH_SELECT)
     .eq("id", data.matched_lead_id)
     .maybeSingle();
   if (leadError) throw leadError;
   if (!lead) return null;
-  return {
-    leadId: String(lead.id),
-    contactId: String(lead.contact_id),
-    companyId: String(lead.company_id),
-    sendpilotStatus: lead.sendpilot_status ? String(lead.sendpilot_status) : null,
-    sendpilotStatusRaw: lead.sendpilot_status_raw ? String(lead.sendpilot_status_raw) : null,
-    archived: Boolean(lead.archived_at),
-  };
+  return matchedFromRow(lead);
 }
 
 async function contactsByKey(
@@ -153,19 +164,12 @@ async function contactsByKey(
 async function leadForContact(supabase: SupabaseClient, contactId: string): Promise<MatchedLead | null> {
   const { data, error } = await supabase
     .from("leads")
-    .select("id, contact_id, company_id, sendpilot_status, sendpilot_status_raw, archived_at")
+    .select(LEAD_MATCH_SELECT)
     .eq("contact_id", contactId)
     .maybeSingle();
   if (error) throw error;
   if (!data) return null;
-  return {
-    leadId: String(data.id),
-    contactId: String(data.contact_id),
-    companyId: String(data.company_id),
-    sendpilotStatus: data.sendpilot_status ? String(data.sendpilot_status) : null,
-    sendpilotStatusRaw: data.sendpilot_status_raw ? String(data.sendpilot_status_raw) : null,
-    archived: Boolean(data.archived_at),
-  };
+  return matchedFromRow(data);
 }
 
 async function matchLead(
@@ -181,34 +185,30 @@ async function matchLead(
   const emailKey = normalizeEmail(ids.email);
   const linkedinContacts = linkedinKey ? await contactsByKey(supabase, "linkedin_key", linkedinKey) : [];
   const emailContacts = emailKey ? await contactsByKey(supabase, "email_key", emailKey) : [];
-
-  if (linkedinContacts.length > 1 || emailContacts.length > 1) {
-    return { match: null, classification: "possible_duplicate", reviewReason: "Multiple contacts share this SendPilot LinkedIn URL or email." };
+  const identity = classifyWebhookIdentityMatch(linkedinContacts, emailContacts);
+  if (identity.classification === "possible_duplicate") {
+    return { match: null, classification: "possible_duplicate", reviewReason: identity.reviewReason };
+  }
+  if (identity.classification === "unmatched") {
+    return { match: null, classification: "unmatched", reviewReason: null };
   }
 
-  if (linkedinContacts.length === 1 && emailContacts.length === 1 && linkedinContacts[0].id !== emailContacts[0].id) {
-    return { match: null, classification: "possible_duplicate", reviewReason: "LinkedIn URL and email match different contacts." };
-  }
-
-  const contact = linkedinContacts[0] ?? emailContacts[0];
-  if (contact) {
-    const lead = await leadForContact(supabase, String(contact.id));
-    if (lead) return { match: lead, classification: "existing", reviewReason: null };
-    return {
-      match: {
-        leadId: "",
-        contactId: String(contact.id),
-        companyId: String(contact.company_id),
-        sendpilotStatus: null,
-        sendpilotStatusRaw: null,
-        archived: false,
-      },
-      classification: "existing_contact",
-      reviewReason: null,
-    };
-  }
-
-  return { match: null, classification: "unmatched", reviewReason: null };
+  const contact = identity.contact;
+  const lead = await leadForContact(supabase, String(contact.id));
+  if (lead) return { match: lead, classification: "existing", reviewReason: null };
+  return {
+    match: {
+      leadId: "",
+      contactId: String(contact.id),
+      companyId: String(contact.company_id),
+      sendpilotStatus: null,
+      sendpilotStatusRaw: null,
+      sendpilotLeadId: null,
+      archived: false,
+    },
+    classification: "existing_contact",
+    reviewReason: null,
+  };
 }
 
 async function findActiveSuppression(supabase: SupabaseClient, ids: SendPilotWebhookIdentifiers) {
@@ -279,7 +279,7 @@ async function createLeadFromWebhook(
       sendpilot_status_raw: input.sendpilotStatusRaw,
       last_synced_at: new Date().toISOString(),
     })
-    .select("id, contact_id, company_id, sendpilot_status, sendpilot_status_raw, archived_at")
+    .select(LEAD_MATCH_SELECT)
     .single();
   if (leadInsert.error || !leadInsert.data) throw leadInsert.error ?? new Error("Could not create lead.");
   await supabase.from("activities").insert({
@@ -300,14 +300,7 @@ async function createLeadFromWebhook(
       metadata: { source: "webhook" },
     });
   }
-  return {
-    leadId: String(leadInsert.data.id),
-    contactId,
-    companyId,
-    sendpilotStatus: leadInsert.data.sendpilot_status ? String(leadInsert.data.sendpilot_status) : null,
-    sendpilotStatusRaw: leadInsert.data.sendpilot_status_raw ? String(leadInsert.data.sendpilot_status_raw) : null,
-    archived: false,
-  };
+  return matchedFromRow(leadInsert.data);
 }
 
 async function ensureLeadForContact(
@@ -329,17 +322,10 @@ async function ensureLeadForContact(
       sendpilot_status_raw: sendpilotStatusRaw,
       last_synced_at: new Date().toISOString(),
     })
-    .select("id, contact_id, company_id, sendpilot_status, sendpilot_status_raw, archived_at")
+    .select(LEAD_MATCH_SELECT)
     .single();
   if (leadInsert.error || !leadInsert.data) throw leadInsert.error ?? new Error("Could not create lead for existing contact.");
-  return {
-    leadId: String(leadInsert.data.id),
-    contactId: String(leadInsert.data.contact_id),
-    companyId: String(leadInsert.data.company_id),
-    sendpilotStatus: leadInsert.data.sendpilot_status ? String(leadInsert.data.sendpilot_status) : null,
-    sendpilotStatusRaw: leadInsert.data.sendpilot_status_raw ? String(leadInsert.data.sendpilot_status_raw) : null,
-    archived: Boolean(leadInsert.data.archived_at),
-  };
+  return matchedFromRow(leadInsert.data);
 }
 
 async function recordActivity(
@@ -493,6 +479,8 @@ export async function applySendPilotWebhook(rawBody: string): Promise<ApplyResul
       company: payloadIds.company || apiLead?.company || null,
       title: payloadIds.title || apiLead?.title || null,
       customLeadStatus: payloadIds.customLeadStatus || apiLead?.customLeadStatus || null,
+      newTag: payloadIds.newTag,
+      previousTag: payloadIds.previousTag,
       newStatus: payloadIds.newStatus,
       previousStatus: payloadIds.previousStatus,
       reply: payloadIds.reply,
@@ -513,6 +501,8 @@ export async function applySendPilotWebhook(rawBody: string): Promise<ApplyResul
       eventType,
       customLeadStatus: payloadIds.customLeadStatus,
       tags: ids.tags,
+      newTag: payloadIds.newTag,
+      previousTag: payloadIds.previousTag,
       newStatus: ids.newStatus,
       apiCustomLeadStatus: apiLead?.customLeadStatus,
       apiStatus: apiLead?.status,
@@ -606,12 +596,12 @@ export async function applySendPilotWebhook(rawBody: string): Promise<ApplyResul
     }
 
     const previousStatus = lead.sendpilotStatus;
-    const leadUpdate: Record<string, unknown> = {
-      last_synced_at: new Date().toISOString(),
-      sendpilot_lead_id: ids.leadId || undefined,
-    };
-    if (status.raw) leadUpdate.sendpilot_status_raw = status.raw;
-    if (status.applyNormalized) leadUpdate.sendpilot_status = status.normalized;
+    const leadUpdate = webhookLeadUpdate({
+      existingSendpilotLeadId: lead.sendpilotLeadId,
+      incomingLeadId: ids.leadId,
+      status,
+      nowIso: new Date().toISOString(),
+    });
     // Archived leads stay archived. Webhooks never clear archived_at.
 
     const { error: updateError } = await supabase.from("leads").update(leadUpdate).eq("id", lead.leadId);
@@ -651,18 +641,24 @@ export async function applySendPilotWebhook(rawBody: string): Promise<ApplyResul
         body: ids.reply,
         metadata: { campaignId: ids.campaignId, sendpilotLeadId: ids.leadId },
       });
-    } else if (status.applyNormalized && status.normalized !== previousStatus && !lead.archived) {
-      activityType = status.normalized === "Interested" && previousStatus !== "Interested"
-        ? "lead_became_interested"
-        : "sendpilot_status_changed";
-      await recordActivity(supabase, {
-        eventId,
-        lead,
-        type: activityType,
-        title: activityType === "lead_became_interested" ? ACTIVITY_LABELS.lead_became_interested : "SendPilot status changed",
-        body: [previousStatus, status.normalized || status.raw].filter(Boolean).join(" → "),
-        metadata: { sendpilotLeadId: ids.leadId, previousStatus, newStatus: status.normalized || status.raw },
+    } else {
+      activityType = webhookStatusActivity({
+        duplicateEvent: false,
+        archived: lead.archived,
+        applyNormalized: status.applyNormalized,
+        previousStatus,
+        nextStatus: status.applyNormalized ? status.normalized : null,
       });
+      if (activityType) {
+        await recordActivity(supabase, {
+          eventId,
+          lead,
+          type: activityType,
+          title: activityType === "lead_became_interested" ? ACTIVITY_LABELS.lead_became_interested : "SendPilot status changed",
+          body: [previousStatus, status.normalized || status.raw].filter(Boolean).join(" → "),
+          metadata: { sendpilotLeadId: ids.leadId, previousStatus, newStatus: status.normalized || status.raw },
+        });
+      }
     }
 
     await writeSyncAndRecord(supabase, {

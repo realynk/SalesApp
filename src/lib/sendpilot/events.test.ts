@@ -56,6 +56,22 @@ test("maps documented custom statuses without treating campaign replies as journ
     }).applyNormalized,
     false,
   );
+  assert.deepEqual(
+    resolveSendPilotSourceStatus({
+      eventType: "lead.tag.updated",
+      customLeadStatus: "Interested",
+      newTag: "Not Interested",
+      tags: ["Not Interested"],
+    }),
+    { normalized: "Interested", raw: "Interested", applyNormalized: true },
+  );
+  assert.deepEqual(
+    resolveSendPilotSourceStatus({
+      eventType: "lead.tag.updated",
+      tags: ["Interested"],
+    }),
+    { normalized: "Interested", raw: "Interested", applyNormalized: true },
+  );
 });
 
 test("reads documented webhook envelope fields", () => {

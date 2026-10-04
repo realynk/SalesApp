@@ -468,6 +468,21 @@ export function normalizeLinkedIn(value: string | null | undefined) {
   return cleaned || null;
 }
 
+export function storedLinkedInHref(value: string | null | undefined) {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) return null;
+  const candidate = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    const parsed = new URL(candidate);
+    const host = parsed.hostname.replace(/^www\./i, "").toLowerCase();
+    if (host !== "linkedin.com" && !host.endsWith(".linkedin.com")) return null;
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
 export function normalizeName(value: string | null | undefined) {
   const cleaned = value?.trim().toLowerCase().replace(/\s+/g, " ") ?? "";
   return cleaned || null;
@@ -624,6 +639,13 @@ export type AttentionInput = {
     status: string;
   }>;
   unmatchedInterested: Array<{ leadId: string; name: string; companyName: string }>;
+  recentNotInterested?: Array<{
+    activityId: string;
+    leadId: string;
+    name: string;
+    companyName: string;
+    occurredOn: string;
+  }>;
 };
 
 const CLOSED_RECRUITMENT = new Set(["Candidate Selected", "No Suitable Candidate"]);
@@ -1072,11 +1094,29 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
       id: `lead-${lead.leadId}`,
       kind: "unmatched_interested",
       severity: "risk",
-      title: `${lead.name} — ${lead.companyName}`,
-      detail: "SendPilot says Interested. No sales opportunity yet.",
+      title: "New Interested Lead",
+      detail: `${lead.name} — ${lead.companyName} · Tagged Interested in SendPilot`,
       href: `/leads/${lead.leadId}`,
       dueOn: null,
       sections: ["needs", "at_risk"],
+    });
+  }
+
+  const seenNotInterested = new Set<string>();
+  for (const lead of input.recentNotInterested ?? []) {
+    const age = daysBetween(lead.occurredOn, input.today);
+    if (age < 0 || age > input.staleAfterDays) continue;
+    if (seenNotInterested.has(lead.leadId)) continue;
+    seenNotInterested.add(lead.leadId);
+    items.push({
+      id: `not-interested-${lead.leadId}`,
+      kind: "recent_not_interested",
+      severity: "risk",
+      title: "Lead marked Not Interested",
+      detail: `${lead.name} — ${lead.companyName} · Tagged Not Interested in SendPilot`,
+      href: `/leads/${lead.leadId}`,
+      dueOn: lead.occurredOn,
+      sections: ["needs"],
     });
   }
 

@@ -59,6 +59,8 @@ export type SendPilotWebhookIdentifiers = {
   company: string | null;
   title: string | null;
   customLeadStatus: string | null;
+  newTag: string | null;
+  previousTag: string | null;
   newStatus: string | null;
   previousStatus: string | null;
   reply: string | null;
@@ -76,6 +78,8 @@ export function extractSendPilotIdentifiers(data: Record<string, unknown>): Send
     company: stringField(data, "company"),
     title: stringField(data, "title"),
     customLeadStatus: stringField(data, "customLeadStatus"),
+    newTag: stringField(data, "newTag"),
+    previousTag: stringField(data, "previousTag"),
     newStatus: stringField(data, "newStatus"),
     previousStatus: stringField(data, "previousStatus"),
     reply: stringField(data, "reply"),
@@ -109,16 +113,19 @@ export function resolveSendPilotSourceStatus(input: {
   eventType: string;
   customLeadStatus?: string | null;
   tags?: string[];
+  newTag?: string | null;
+  previousTag?: string | null;
   newStatus?: string | null;
   apiCustomLeadStatus?: string | null;
   apiStatus?: string | null;
 }): { normalized: SendPilotStatus | null; raw: string | null; applyNormalized: boolean } {
   const tagStatus = [...(input.tags ?? [])].reverse().find((tag) => normalizeSendPilotStatus(tag)) ?? null;
   const tagRaw = input.tags?.length ? input.tags.join(", ") : null;
-  const preferred = input.customLeadStatus || input.apiCustomLeadStatus || tagStatus || null;
+  const preferred =
+    input.customLeadStatus || input.apiCustomLeadStatus || input.newTag || tagStatus || null;
 
   if (input.eventType === "lead.tag.updated") {
-    const raw = preferred || tagRaw;
+    const raw = preferred || tagRaw || input.newTag || null;
     return {
       normalized: normalizeSendPilotStatus(preferred),
       raw,

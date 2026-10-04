@@ -18,6 +18,7 @@ import {
   profileSendCheckBacks,
   salesCallCompleteTasks,
   stageLabel,
+  storedLinkedInHref,
   potentialArr,
   potentialMrr,
   timeMetrics,
@@ -191,6 +192,10 @@ test("surfaces overdue follow-ups, stale opportunities, and interested leads wit
   assert.ok(items.some((item) => item.kind === "recruitment_overdue"));
   assert.ok(items.some((item) => item.kind === "sow_awaiting"));
   assert.ok(items.some((item) => item.kind === "unmatched_interested"));
+  const interested = items.find((item) => item.kind === "unmatched_interested");
+  assert.equal(interested?.title, "New Interested Lead");
+  assert.equal(interested?.detail, "Leah Okonkwo — Westline Architects · Tagged Interested in SendPilot");
+  assert.equal(interested?.href, "/leads/lead-leah");
   assert.equal(items[0]?.severity, "overdue");
 });
 
@@ -343,4 +348,66 @@ test("calculates conversion and duration from stage history", () => {
   const duration = timeMetrics(events).find((row) => row.label === "Interested → Strategy Call");
   assert.equal(duration?.samples, 2);
   assert.equal(duration?.medianDays, median([9, 15]));
+});
+
+function attentionBase(overrides: Partial<Parameters<typeof buildAttention>[0]> = {}) {
+  return buildAttention({
+    today: "2026-09-23",
+    staleAfterDays: 10,
+    profilesWaitingDays: 5,
+    approachingWindowDays: 3,
+    opportunities: [],
+    followUps: [],
+    profileBatches: [],
+    recruitment: [],
+    interviews: [],
+    contracts: [],
+    strategyCalls: [],
+    unmatchedInterested: [],
+    ...overrides,
+  });
+}
+
+test("recent Not Interested transitions appear in Attention and historical ones do not flood it", () => {
+  const items = attentionBase({
+    recentNotInterested: [
+      {
+        activityId: "act-new",
+        leadId: "lead-marcus",
+        name: "Marcus Dardin",
+        companyName: "Amistad Freight Inc.",
+        occurredOn: "2026-09-20",
+      },
+      {
+        activityId: "act-dup",
+        leadId: "lead-marcus",
+        name: "Marcus Dardin",
+        companyName: "Amistad Freight Inc.",
+        occurredOn: "2026-09-21",
+      },
+      {
+        activityId: "act-old",
+        leadId: "lead-old",
+        name: "Old Lead",
+        companyName: "Historic Co",
+        occurredOn: "2026-08-01",
+      },
+    ],
+  });
+  const notInterested = items.filter((item) => item.kind === "recent_not_interested");
+  assert.equal(notInterested.length, 1);
+  assert.equal(notInterested[0]?.title, "Lead marked Not Interested");
+  assert.equal(notInterested[0]?.detail, "Marcus Dardin — Amistad Freight Inc. · Tagged Not Interested in SendPilot");
+  assert.equal(notInterested[0]?.href, "/leads/lead-marcus");
+});
+
+test("View LinkedIn uses only the stored LinkedIn URL and does not invent one", () => {
+  assert.equal(
+    storedLinkedInHref("https://www.linkedin.com/in/marcus-dardin"),
+    "https://www.linkedin.com/in/marcus-dardin",
+  );
+  assert.equal(storedLinkedInHref(null), null);
+  assert.equal(storedLinkedInHref(""), null);
+  assert.equal(storedLinkedInHref("Marcus Dardin"), null);
+  assert.equal(storedLinkedInHref("https://example.com/marcus"), null);
 });
