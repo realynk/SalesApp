@@ -1,9 +1,16 @@
 import Link from "next/link";
 import { KpiCard, PageHeader, SectionCard } from "@/components/bits";
+import { parseReportingDuration, ReportingDurationPicker } from "@/components/reporting-duration-picker";
 import { getReporting } from "@/lib/data";
-import { formatPercent } from "@/lib/format";
+import { firstParam, formatPercent } from "@/lib/format";
 
-export default async function ReportingPage() {
+export default async function ReportingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ range?: string }>;
+}) {
+  const query = await searchParams;
+  const range = parseReportingDuration(firstParam(query.range));
   const data = await getReporting();
 
   return (
@@ -36,12 +43,28 @@ export default async function ReportingPage() {
         />
       </div>
       <div className="grid gap-4 xl:grid-cols-2">
-        <SectionCard title="SendPilot" description="Current source tags. This is not the client journey.">
-          <CountList rows={data.sendpilot} />
-        </SectionCard>
-        <SectionCard title="Client journey" description="Where accounts sit on the board.">
-          <CountList rows={data.journey} />
-        </SectionCard>
+        <section className="overflow-hidden rounded-xl border border-border bg-card xl:col-span-2">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
+            <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Duration</p>
+            <ReportingDurationPicker value={range} />
+          </div>
+          <div className="grid xl:grid-cols-2">
+            <div className="border-b border-border px-4 py-3 xl:border-r xl:border-b-0">
+              <h2 className="text-sm font-semibold">SendPilot</h2>
+              <p className="mt-1 text-xs text-muted-foreground">Current source tags. This is not the client journey.</p>
+              <div className="mt-3">
+                <CountList rows={data.sendpilot} />
+              </div>
+            </div>
+            <div className="px-4 py-3">
+              <h2 className="text-sm font-semibold">Client journey</h2>
+              <p className="mt-1 text-xs text-muted-foreground">Where accounts sit on the board.</p>
+              <div className="mt-3">
+                <CountList rows={data.journey} />
+              </div>
+            </div>
+          </div>
+        </section>
         <SectionCard title="Not Interested" description="How those leads have been sorted.">
           <CountList rows={data.outcomes} />
         </SectionCard>

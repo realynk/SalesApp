@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, ChartColumn, FolderSync, Handshake, LayoutDashboard, Menu, Search, Settings, Users } from "lucide-react";
+import { ChartColumn, FolderSync, Handshake, LayoutDashboard, Menu, Search, Settings, Users } from "lucide-react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -20,18 +20,15 @@ const NAV = [
 
 export function Shell({
   children,
-  name,
-  attentionCount,
 }: {
   children: ReactNode;
-  name: string;
-  attentionCount: number;
 }) {
   return (
     <div className="min-h-screen bg-background">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 border-r border-sidebar-border bg-sidebar lg:block">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-sidebar-border bg-sidebar lg:flex">
         <Brand />
         <Nav />
+        <SignOut className="mt-auto p-3" />
       </aside>
       <div className="lg:pl-64">
         <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-border bg-background/90 px-4 backdrop-blur md:px-6">
@@ -46,6 +43,7 @@ export function Shell({
                 <SheetTitle>Realynk</SheetTitle>
               </SheetHeader>
               <Nav />
+              <SignOut className="mt-4 px-3" />
             </SheetContent>
           </Sheet>
           <form action="/search" className="relative min-w-0 flex-1">
@@ -56,17 +54,6 @@ export function Shell({
               className="h-9 w-full rounded-lg border border-input bg-card pr-3 pl-9 text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
             />
           </form>
-          <Link href="/notifications" className="relative inline-flex h-9 items-center gap-2 rounded-lg border border-border px-3 text-sm">
-            <Bell className="size-4" />
-            <span className="hidden sm:inline">Attention</span>
-            {attentionCount > 0 ? <span className="rounded-full bg-primary px-1.5 text-xs text-primary-foreground">{attentionCount}</span> : null}
-          </Link>
-          <div className="hidden items-center gap-3 md:flex">
-            <span className="text-sm text-muted-foreground">{name}</span>
-            <form action={signOut}>
-              <Button type="submit" variant="ghost" size="sm">Sign out</Button>
-            </form>
-          </div>
         </header>
         <main className="px-4 py-6 md:px-6">{children}</main>
       </div>
@@ -105,5 +92,13 @@ function Nav() {
         );
       })}
     </nav>
+  );
+}
+
+function SignOut({ className }: { className?: string }) {
+  return (
+    <form action={signOut} className={className}>
+      <Button type="submit" variant="ghost" size="sm">Sign out</Button>
+    </form>
   );
 }

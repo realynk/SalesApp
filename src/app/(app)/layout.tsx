@@ -22,17 +22,15 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     );
   }
 
-  let center;
   try {
-    center = await getCommandCenter();
+    await getCommandCenter();
   } catch (error) {
     if (error instanceof AppDataError) return <DataError message={error.message} />;
     throw error;
   }
 
-  const attentionCount = center.attention.filter((item) => item.sections.includes("needs") || item.sections.includes("today")).length;
   return (
-    <Shell name={session.profile.full_name} attentionCount={attentionCount}>
+    <Shell>
       {children}
     </Shell>
   );
