@@ -26,6 +26,7 @@ import { AccountFlagSelect, FlagBadge } from "@/components/account-flag-field";
 import { BookedCallDialog } from "@/components/booked-call-dialog";
 import { ProfileSendDialog, type ProfileSendDraft } from "@/components/profile-send-dialog";
 import { SalesCallCompleteDialog } from "@/components/sales-call-complete-dialog";
+import { BoardScroller } from "@/components/board-scroller";
 
 const COLUMN_TONE = [
   "border-t-[#f97066]",
@@ -267,21 +268,19 @@ export function PipelineBoard({
         onDragCancel={() => setActiveId(null)}
         onDragEnd={handleDragEnd}
       >
-        <div className="overflow-x-auto pb-2">
-          <div className="flex min-w-max items-start gap-3">
-            {columns.map((column) => (
-              <BoardColumn
-                key={column.stage}
-                stage={column.stage}
-                tone={column.tone}
-                items={column.items}
-                acceptsDrop={column.acceptsDrop}
-                disabledId={pendingId}
-                onFlagChange={persistFlag}
-              />
-            ))}
-          </div>
-        </div>
+        <BoardScroller>
+          {columns.map((column) => (
+            <BoardColumn
+              key={column.stage}
+              stage={column.stage}
+              tone={column.tone}
+              items={column.items}
+              acceptsDrop={column.acceptsDrop}
+              disabledId={pendingId}
+              onFlagChange={persistFlag}
+            />
+          ))}
+        </BoardScroller>
         <DragOverlay dropAnimation={null}>
           {activeItem ? <ItemCard item={activeItem} overlay /> : null}
         </DragOverlay>
@@ -370,11 +369,11 @@ function BoardColumn({
   return (
     <section
       ref={setNodeRef}
-      className={`w-72 shrink-0 rounded-xl border border-t-4 bg-muted/40 ${tone} ${
+      className={`flex h-full w-72 shrink-0 flex-col overflow-hidden rounded-xl border border-t-4 bg-muted/40 ${tone} ${
         isOver ? "border-primary bg-accent/80" : "border-border"
       }`}
     >
-      <header className="px-3 py-3">
+      <header className={`sticky top-0 z-10 shrink-0 px-3 py-3 ${isOver ? "bg-accent/80" : "bg-muted/40"}`}>
         <h2 className="text-sm font-bold leading-5">{stageLabel(stage)}</h2>
         <p className="mt-1 text-xs text-muted-foreground">
           {sendpilotIntake ? "From SendPilot" : null}
@@ -382,7 +381,7 @@ function BoardColumn({
           {items.length} {sendpilotIntake ? (items.length === 1 ? "lead" : "leads") : items.length === 1 ? "opportunity" : "opportunities"}
         </p>
       </header>
-      <ul className="flex min-h-32 flex-col gap-2 px-2 pb-3">
+      <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-3">
         {items.map((item) => (
           <li key={item.id}>
             <DraggableCard item={item} disabled={disabledId === item.id} onFlagChange={onFlagChange} />

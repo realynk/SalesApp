@@ -25,7 +25,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     unmatchedInterested: [],
   });
   const needs = center.attention.filter((item) => item.sections.includes("needs")).slice(0, 10);
-  const hero = center.attention[0];
   const empty = center.opportunities.length === 0 && !center.settings.sampleLoadedAt;
 
   return (
@@ -57,20 +56,19 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           }
         />
       ) : null}
-      {hero ? (
-        <Link href={hero.href} className="block rounded-xl border border-primary/30 bg-accent px-5 py-4">
-          <p className="text-xs font-medium tracking-[0.14em] text-primary uppercase">Do this next</p>
-          <p className="mt-1 text-lg font-semibold">{hero.title}</p>
-          <p className="mt-1 text-sm text-muted-foreground">{hero.detail}</p>
-        </Link>
-      ) : null}
       {empty ? null : <WeekCalendar today={center.today} week={firstParam(query.week)} tasks={weekTasks} notice={firstParam(query.notice)} />}
       <div className="grid gap-3 sm:grid-cols-3">
         <KpiCard label="Tagged Interested" value={String(center.kpis.interestedLeads)} detail={`${center.kpis.interestedWithoutOpportunity} still on Interested`} />
         <KpiCard label="Sent profiles" value={String(center.kpis.profilesInReview)} />
         <KpiCard label="Meetings this week" value={String(center.kpis.meetingsThisWeek)} />
       </div>
-      <SectionCard title="Needs attention" description="Overdue tasks and Interested leads that have not moved yet.">
+      <SectionCard
+        collapsible
+        defaultOpen={false}
+        title="Needs attention"
+        description="Overdue tasks and Interested leads that have not moved yet."
+        action={needs.length > 0 ? <span className="text-xs tabular-nums text-muted-foreground">{needs.length}</span> : undefined}
+      >
         <AttentionList items={needs} empty="Nothing overdue right now." />
       </SectionCard>
     </div>

@@ -51,18 +51,6 @@ export function WeekCalendar({
           </Button>
         </div>
       </div>
-      {carried.length > 0 ? (
-        <div className="border-b border-border px-4 py-3">
-          <p className="text-xs font-medium tracking-wide text-destructive uppercase">Still open from earlier</p>
-          <ul className="mt-2 flex flex-wrap gap-2">
-            {carried.slice(0, 8).map((task) => (
-              <li key={task.id}>
-                <TaskChip task={task} overdue />
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
       <div className="overflow-x-auto">
         <div className="grid min-w-[980px] grid-cols-7 divide-x divide-border">
           {days.map((day) => {
@@ -87,6 +75,30 @@ export function WeekCalendar({
           })}
         </div>
       </div>
+      {carried.length > 0 ? (
+        <div className="border-t border-border px-4 py-3">
+          <p className="text-xs font-medium tracking-wide text-destructive uppercase">Still open from earlier</p>
+          <ul className="mt-2 divide-y divide-border">
+            {carried.map((task) => (
+              <li key={task.id} className="flex flex-wrap items-start justify-between gap-3 py-3">
+                <Link href={task.href} className="min-w-0">
+                  <p className="text-[11px] font-medium tracking-wide text-destructive uppercase">{task.label} · overdue</p>
+                  <p className="mt-0.5 text-sm font-medium">{task.title}</p>
+                  <p className="text-xs text-muted-foreground">{task.company}</p>
+                </Link>
+                {task.followUpId ? (
+                  <form action={completeFollowUp}>
+                    <input type="hidden" name="follow_up_id" value={task.followUpId} />
+                    {task.opportunityId ? <input type="hidden" name="opportunity_id" value={task.opportunityId} /> : null}
+                    {task.leadId ? <input type="hidden" name="lead_id" value={task.leadId} /> : null}
+                    <Button type="submit" variant="outline" size="xs">Done</Button>
+                  </form>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       {viewingCurrent ? null : (
         <p className="border-t border-border px-4 py-2 text-xs text-muted-foreground">Showing {format(parseISO(start), "MMM d")}–{format(parseISO(end), "MMM d")}. Today is {format(parseISO(today), "MMM d")}.</p>
       )}

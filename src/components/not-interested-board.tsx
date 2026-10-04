@@ -30,6 +30,7 @@ import {
 import { formatDate } from "@/lib/format";
 import { AccountFlagSelect, FlagBadge } from "@/components/account-flag-field";
 import { dropLeadOnOutcome, setAccountFlagFromBoard } from "@/server/actions";
+import { BoardScroller } from "@/components/board-scroller";
 
 const COLUMN_TONE = [
   "border-t-[#f97066]",
@@ -144,13 +145,11 @@ export function NotInterestedBoard({ leads }: { leads: NotInterestedCard[] }) {
         onDragCancel={() => setActiveId(null)}
         onDragEnd={handleDragEnd}
       >
-        <div className="overflow-x-auto pb-2">
-          <div className="flex min-w-max items-start gap-3">
-            {columns.map((column) => (
-              <OutcomeColumn key={column.column} column={column.column} tone={column.tone} items={column.items} disabledId={pendingId} onFlagChange={persistFlag} />
-            ))}
-          </div>
-        </div>
+        <BoardScroller>
+          {columns.map((column) => (
+            <OutcomeColumn key={column.column} column={column.column} tone={column.tone} items={column.items} disabledId={pendingId} onFlagChange={persistFlag} />
+          ))}
+        </BoardScroller>
         <DragOverlay dropAnimation={null}>
           {activeItem ? <LeadCard lead={activeItem} overlay /> : null}
         </DragOverlay>
@@ -177,9 +176,9 @@ function OutcomeColumn({
   return (
     <section
       ref={setNodeRef}
-      className={`w-72 shrink-0 rounded-xl border border-t-4 bg-muted/40 ${tone} ${isOver ? "border-primary bg-accent/80" : "border-border"}`}
+      className={`flex h-full w-72 shrink-0 flex-col overflow-hidden rounded-xl border border-t-4 bg-muted/40 ${tone} ${isOver ? "border-primary bg-accent/80" : "border-border"}`}
     >
-      <header className="px-3 py-3">
+      <header className={`sticky top-0 z-10 shrink-0 px-3 py-3 ${isOver ? "bg-accent/80" : "bg-muted/40"}`}>
         <h2 className="text-sm font-bold leading-5">{column}</h2>
         <p className="mt-1 text-xs text-muted-foreground">
           {sendpilotIntake ? "From SendPilot" : null}
@@ -187,7 +186,7 @@ function OutcomeColumn({
           {items.length} {items.length === 1 ? "lead" : "leads"}
         </p>
       </header>
-      <ul className="flex min-h-32 flex-col gap-2 px-2 pb-3">
+      <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-3">
         {items.map((lead) => (
           <li key={lead.id}>
             <DraggableLead lead={lead} disabled={disabledId === lead.id} onFlagChange={onFlagChange} />
