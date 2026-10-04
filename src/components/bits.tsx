@@ -128,14 +128,12 @@ export function SectionCard({
   children,
   action,
   collapsible = false,
-  defaultOpen = true,
 }: {
   title: string;
   description?: string;
   children: ReactNode;
   action?: ReactNode;
   collapsible?: boolean;
-  defaultOpen?: boolean;
 }) {
   const heading = (
     <div className="min-w-0">
@@ -158,7 +156,7 @@ export function SectionCard({
   }
 
   return (
-    <details className="group rounded-xl border border-border bg-card" defaultOpen={defaultOpen}>
+    <details className="group rounded-xl border border-border bg-card">
       <summary className="flex cursor-pointer list-none items-start justify-between gap-3 px-4 py-3 marker:hidden [&::-webkit-details-marker]:hidden">
         {heading}
         <span className="flex shrink-0 items-center gap-2">

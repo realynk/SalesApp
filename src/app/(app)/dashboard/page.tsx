@@ -64,7 +64,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       </div>
       <SectionCard
         collapsible
-        defaultOpen={false}
         title="Needs attention"
         description="Overdue tasks and Interested leads that have not moved yet."
         action={needs.length > 0 ? <span className="text-xs tabular-nums text-muted-foreground">{needs.length}</span> : undefined}
