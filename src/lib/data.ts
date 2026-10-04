@@ -10,6 +10,8 @@ import {
   conversionRates,
   dateInTimeZone,
   daysBetween,
+  addDays,
+  normalizeSendPilotStatus,
   notInterestedColumn,
   notInterestedOutcome,
   stageLabel,
@@ -173,7 +175,7 @@ export const getCommandCenter = cache(async () => {
   const { supabase, profile } = await requireUser();
   const settings = await getSettings();
   const today = todayInTimeZone(settings.businessTimezone);
-  const [opportunityResult, followResult, batchResult, recruitmentResult, interviewResult, contractResult, callResult, leadResult, clientResult] =
+  const [opportunityResult, followResult, batchResult, recruitmentResult, interviewResult, contractResult, callResult, leadResult, clientResult, notInterestedResult] =
     await Promise.all([
       supabase.from("opportunities").select(OPPORTUNITY_SELECT).limit(500),
       supabase.from("follow_ups").select("id, opportunity_id, lead_id, title, due_on, status, reason, notes").eq("status", "open").limit(300),
@@ -184,6 +186,13 @@ export const getCommandCenter = cache(async () => {
       supabase.from("strategy_calls").select("opportunity_id, call_on, status, company_name").limit(300),
       supabase.from("leads").select("id, sendpilot_status, archived_at, contacts(first_name, last_name), companies(name)").eq("sendpilot_status", "Interested").is("archived_at", null).limit(500),
       supabase.from("clients").select("id, start_date").limit(300),
+      supabase
+        .from("activities")
+        .select("id, lead_id, occurred_at, metadata, contacts(first_name, last_name), companies(name)")
+        .eq("type", "sendpilot_status_changed")
+        .gte("occurred_at", `${addDays(today, -settings.staleAfterDays)}T00:00:00.000Z`)
+        .order("occurred_at", { ascending: false })
+        .limit(200),
     ]);
 
   const loadedOpportunities = missingAccountFlagColumn(opportunityResult.error)
@@ -304,6 +313,26 @@ export const getCommandCenter = cache(async () => {
       };
     });
 
+  const recentNotInterested = notInterestedResult.error
+    ? []
+    : rows(notInterestedResult.data).flatMap((item) => {
+        const leadId = str(item.lead_id);
+        if (!leadId || archivedIds.has(leadId)) return [];
+        const metadata = item.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata)
+          ? (item.metadata as Row)
+          : {};
+        if (normalizeSendPilotStatus(str(metadata.newStatus)) !== "Not Interested") return [];
+        const contact = row(item.contacts);
+        const company = row(item.companies);
+        return [{
+          activityId: String(item.id),
+          leadId,
+          name: fullName(str(contact?.first_name), str(contact?.last_name)),
+          companyName: str(company?.name) ?? companyByLead.get(leadId) ?? "Unknown company",
+          occurredOn: dateInTimeZone(str(item.occurred_at), settings.businessTimezone) ?? today,
+        }];
+      });
+
   const attention = buildAttention({
     today,
     staleAfterDays: settings.staleAfterDays,
@@ -328,6 +357,7 @@ export const getCommandCenter = cache(async () => {
     contracts,
     strategyCalls,
     unmatchedInterested,
+    recentNotInterested,
   });
 
   const weekStart = startOfWeek(today);
