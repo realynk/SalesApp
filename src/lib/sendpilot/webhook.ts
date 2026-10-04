@@ -64,3 +64,27 @@ export function webhookStatusActivity(input: {
   if (input.nextStatus === "Interested" && input.previousStatus !== "Interested") return "lead_became_interested";
   return "sendpilot_status_changed";
 }
+
+export function shouldCreateUnmatchedWebhookLead(input: {
+  hasExistingLead: boolean;
+  possibleDuplicate: boolean;
+  suppressed: boolean;
+  applyNormalized: boolean;
+  normalized: SendPilotStatus | null;
+  sendpilotLeadId: string | null;
+  email: string | null;
+  linkedinUrl: string | null;
+}): boolean {
+  if (input.hasExistingLead || input.possibleDuplicate || input.suppressed) return false;
+  if (!input.applyNormalized) return false;
+  if (input.normalized !== "Interested" && input.normalized !== "Not Interested") return false;
+  return Boolean(input.sendpilotLeadId?.trim() || input.email?.trim() || input.linkedinUrl?.trim());
+}
+
+export function createdWebhookStatusActivity(
+  normalized: SendPilotStatus | null,
+): Extract<ActivityType, "lead_became_interested" | "sendpilot_status_changed"> | null {
+  if (normalized === "Interested") return "lead_became_interested";
+  if (normalized === "Not Interested") return "sendpilot_status_changed";
+  return null;
+}

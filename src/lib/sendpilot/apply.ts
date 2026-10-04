@@ -15,7 +15,13 @@ import {
   resolveSendPilotSourceStatus,
   type SendPilotWebhookIdentifiers,
 } from "@/lib/sendpilot/events";
-import { classifyWebhookIdentityMatch, webhookLeadUpdate, webhookStatusActivity } from "@/lib/sendpilot/webhook";
+import {
+  classifyWebhookIdentityMatch,
+  createdWebhookStatusActivity,
+  shouldCreateUnmatchedWebhookLead,
+  webhookLeadUpdate,
+  webhookStatusActivity,
+} from "@/lib/sendpilot/webhook";
 import { identitiesOverlap } from "./suppress";
 import { createAdminClient, supabaseServiceRoleKey } from "@/lib/supabase/admin";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -251,7 +257,7 @@ async function createLeadFromWebhook(
     sendpilotStatusRaw: string | null;
   },
 ): Promise<MatchedLead> {
-  const firstName = input.ids.firstName || input.apiLead?.firstName || "Unknown";
+  const firstName = input.ids.firstName || input.apiLead?.firstName || "";
   const lastName = input.ids.lastName || input.apiLead?.lastName || "";
   const companyId = await findOrCreateCompany(supabase, input.ids.company || input.apiLead?.company || "Unknown company");
   const contactInsert = await supabase
@@ -290,16 +296,6 @@ async function createLeadFromWebhook(
     title: "Lead imported from SendPilot webhook",
     metadata: { source: "webhook" },
   });
-  if (input.sendpilotStatus === "Interested") {
-    await supabase.from("activities").insert({
-      lead_id: leadInsert.data.id,
-      contact_id: contactId,
-      company_id: companyId,
-      type: "lead_became_interested",
-      title: ACTIVITY_LABELS.lead_became_interested,
-      metadata: { source: "webhook" },
-    });
-  }
   return matchedFromRow(leadInsert.data);
 }
 
@@ -326,6 +322,36 @@ async function ensureLeadForContact(
     .single();
   if (leadInsert.error || !leadInsert.data) throw leadInsert.error ?? new Error("Could not create lead for existing contact.");
   return matchedFromRow(leadInsert.data);
+}
+
+async function ignoreAsUnmatched(
+  supabase: SupabaseClient,
+  input: {
+    eventType: string;
+    eventId: string;
+    ids: SendPilotWebhookIdentifiers;
+    contactId: string | null;
+    raw: unknown;
+  },
+) {
+  await writeSyncAndRecord(supabase, {
+    eventType: input.eventType,
+    eventId: input.eventId,
+    ids: input.ids,
+    classification: "unmatched",
+    reviewRequired: true,
+    reviewReason: "No matching SalesApp lead was found.",
+    leadId: null,
+    contactId: input.contactId,
+    raw: input.raw,
+    counts: { newRecords: 0, updatedRecords: 0, unmatchedRecords: 1, possibleDuplicates: 0 },
+  });
+  await finishEvent(supabase, {
+    eventId: input.eventId,
+    status: "ignored",
+    result: { reason: "unmatched" },
+  });
+  console.info("[sendpilot.webhook]", { eventId: input.eventId, eventType: input.eventType, outcome: "unmatched" });
 }
 
 async function recordActivity(
@@ -555,47 +581,47 @@ export async function applySendPilotWebhook(rawBody: string): Promise<ApplyResul
       console.info("[sendpilot.webhook]", { eventId, eventType, outcome: "suppressed" });
       return { httpStatus: 200, body: { ok: true, suppressed: true, eventId, eventType } };
     }
-    if (!lead) {
-      if (!ids.linkedinUrl && !ids.email) {
-        await writeSyncAndRecord(supabase, {
+    if (!lead?.leadId) {
+      const canCreate = shouldCreateUnmatchedWebhookLead({
+        hasExistingLead: false,
+        possibleDuplicate: false,
+        suppressed: false,
+        applyNormalized: status.applyNormalized,
+        normalized: status.normalized,
+        sendpilotLeadId: ids.leadId,
+        email: ids.email,
+        linkedinUrl: ids.linkedinUrl,
+      });
+      if (!canCreate) {
+        await ignoreAsUnmatched(supabase, {
           eventType,
           eventId,
           ids,
-          classification: "unmatched",
-          reviewRequired: true,
-          reviewReason: "No matching SalesApp lead was found.",
-          leadId: null,
-          contactId: null,
+          contactId: lead?.contactId ?? null,
           raw: envelope.data,
-          counts: { newRecords: 0, updatedRecords: 0, unmatchedRecords: 1, possibleDuplicates: 0 },
         });
-        await finishEvent(supabase, {
-          eventId,
-          status: "ignored",
-          result: { reason: "unmatched" },
-        });
-        console.info("[sendpilot.webhook]", { eventId, eventType, outcome: "unmatched" });
         return { httpStatus: 200, body: { ok: true, unmatched: true, eventId, eventType } };
       }
-      lead = await createLeadFromWebhook(supabase, {
-        ids,
-        apiLead,
-        sendpilotStatus: status.applyNormalized ? status.normalized : null,
-        sendpilotStatusRaw: status.raw,
-      });
-      created = true;
-    } else if (!lead.leadId) {
-      lead = await ensureLeadForContact(
-        supabase,
-        lead,
-        ids,
-        status.applyNormalized ? status.normalized : null,
-        status.raw,
-      );
+      if (!lead) {
+        lead = await createLeadFromWebhook(supabase, {
+          ids,
+          apiLead,
+          sendpilotStatus: status.applyNormalized ? status.normalized : null,
+          sendpilotStatusRaw: status.raw,
+        });
+      } else {
+        lead = await ensureLeadForContact(
+          supabase,
+          lead,
+          ids,
+          status.applyNormalized ? status.normalized : null,
+          status.raw,
+        );
+      }
       created = true;
     }
 
-    const previousStatus = lead.sendpilotStatus;
+    const previousStatus = created ? null : lead.sendpilotStatus;
     const leadUpdate = webhookLeadUpdate({
       existingSendpilotLeadId: lead.sendpilotLeadId,
       incomingLeadId: ids.leadId,
@@ -641,6 +667,19 @@ export async function applySendPilotWebhook(rawBody: string): Promise<ApplyResul
         body: ids.reply,
         metadata: { campaignId: ids.campaignId, sendpilotLeadId: ids.leadId },
       });
+    } else if (created) {
+      const createdStatus = status.applyNormalized ? status.normalized : null;
+      activityType = createdWebhookStatusActivity(createdStatus);
+      if (activityType && (createdStatus === "Interested" || createdStatus === "Not Interested")) {
+        await recordActivity(supabase, {
+          eventId,
+          lead,
+          type: activityType,
+          title: activityType === "lead_became_interested" ? ACTIVITY_LABELS.lead_became_interested : "SendPilot status changed",
+          body: [createdStatus].filter(Boolean).join(" → "),
+          metadata: { sendpilotLeadId: ids.leadId, previousStatus: null, newStatus: createdStatus },
+        });
+      }
     } else {
       activityType = webhookStatusActivity({
         duplicateEvent: false,
