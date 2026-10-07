@@ -16,6 +16,7 @@ import {
   authorizeSendPilotMutation,
   campaignSyncStatus,
   credentialFlagsFromCiphertext,
+  parseManagedIntegrationId,
   parseTrackingMode,
   planActivation,
   planCampaignTrackingRows,
@@ -60,12 +61,14 @@ async function loadIntegrationRow(
   supabase: Awaited<ReturnType<typeof requireUser>>["supabase"],
   id: string,
 ) {
+  const parsed = parseManagedIntegrationId(id);
+  if ("error" in parsed) return { error: parsed.error } as const;
   const { data, error } = await supabase
     .from("sendpilot_integrations")
     .select(
       "id, name, status, tracking_mode, legacy_env, api_key_configured, webhook_secret_configured, credentials_present",
     )
-    .eq("id", id)
+    .eq("id", parsed.id)
     .maybeSingle();
   if (error) return { error: actionError(error) } as const;
   if (!data) return { error: INTEGRATION_NOT_FOUND } as const;

@@ -16,7 +16,9 @@ import {
   credentialStatusLabel,
   DEFAULT_NEW_STATUS,
   fieldCredentialLabel,
+  INTEGRATION_NOT_FOUND,
   LEGACY_MUTATION_DENIED,
+  parseManagedIntegrationId,
   planActivation,
   planCampaignTrackingRows,
   planCreateAudits,
@@ -442,6 +444,32 @@ test("Phase 5.1 migration is additive and does not expose secrets", () => {
   assert.match(eventsSource, /lead\.updated/);
   assert.match(eventsSource, /reply\.received/);
   assert.match(manageUi, /SUPPORTED_SENDPILOT_EVENTS/);
+});
+
+test("webhook secret form submits integration_id to saveSendPilotWebhookSecret", () => {
+  const start = manageUi.indexOf("ActionForm action={saveSendPilotWebhookSecret}");
+  const webhookForm = manageUi.slice(start, start + 900);
+  assert.ok(start >= 0);
+  assert.match(webhookForm, /name="integration_id"/);
+  assert.match(webhookForm, /value=\{detail.id\}/);
+  assert.match(actionsSource, /export async function saveSendPilotWebhookSecret/);
+  assert.match(actionsSource, /text\(formData, "integration_id"\)/);
+  assert.match(actionsSource, /parseManagedIntegrationId/);
+});
+
+test("missing or invalid integration_id fails before any UUID database filter", () => {
+  assert.deepEqual(parseManagedIntegrationId(""), { error: INTEGRATION_NOT_FOUND });
+  assert.deepEqual(parseManagedIntegrationId("   "), { error: INTEGRATION_NOT_FOUND });
+  assert.deepEqual(parseManagedIntegrationId("not-a-uuid"), { error: INTEGRATION_NOT_FOUND });
+  assert.deepEqual(parseManagedIntegrationId(DRAFT_ID), { id: DRAFT_ID });
+  const loader = actionsSource.slice(
+    actionsSource.indexOf("async function loadIntegrationRow"),
+    actionsSource.indexOf("async function writeAudits"),
+  );
+  const parseAt = loader.indexOf("parseManagedIntegrationId");
+  const queryAt = loader.indexOf('.eq("id"');
+  assert.ok(parseAt >= 0 && queryAt > parseAt);
+  assert.match(loader, /if \("error" in parsed\) return \{ error: parsed.error \}/);
 });
 
 test("credential flags follow ciphertext presence", () => {
