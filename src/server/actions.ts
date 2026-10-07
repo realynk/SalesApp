@@ -33,6 +33,7 @@ import {
   normalizeLinkedIn,
 } from "@/lib/domain";
 import { importedSendPilotStatus, parseDuplicateTagging, taggingPatch } from "@/lib/sendpilot/review";
+import { bulkReviewEligible } from "@/lib/review-origin";
 import { actionError } from "@/lib/errors";
 import { getSettings } from "@/lib/data";
 import { createClient } from "@/lib/supabase/server";
@@ -1358,8 +1359,11 @@ export async function uploadDocument(_state: ActionState, formData: FormData): P
   return { success: "Document uploaded." };
 }
 
-export async function createFromReviewedRecord(_state: ActionState, formData: FormData): Promise<ActionState> {
-  const { supabase, userId } = await requireUser();
+async function createLeadFromReviewRecord(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  formData: FormData,
+) {
   const id = text(formData, "record_id");
   if (!isUuid(id)) return { error: "That import row could not be found." };
   const { data, error } = await supabase.from("sendpilot_records").select("*").eq("id", id).maybeSingle();
@@ -1425,40 +1429,134 @@ export async function createFromReviewedRecord(_state: ActionState, formData: Fo
   if (text(formData, "create_opportunity") === "yes") {
     const created = await startOpportunityForLead(supabase, userId, leadId);
     if (created && "error" in created && created.error) return created;
-    refresh("/reconciliation", "/leads", "/opportunities", "/dashboard");
-    if (created && "id" in created) redirect(`/opportunities/${created.id}`);
+    return { leadId, opportunityId: created && "id" in created ? created.id : null };
   }
-  refresh("/reconciliation", "/leads");
-  redirect(`/leads/${leadId}?notice=${encodeURIComponent("Lead added from import review.")}`);
+  return { leadId, opportunityId: null };
 }
 
-export async function skipReviewedRecord(formData: FormData): Promise<void> {
-  const { supabase } = await requireUser();
-  const id = text(formData, "record_id");
-  if (!isUuid(id)) {
-    redirect(`/reconciliation?notice=${encodeURIComponent("That import row could not be found.")}`);
+export async function createFromReviewedRecord(_state: ActionState, formData: FormData): Promise<ActionState> {
+  const { supabase, userId } = await requireUser();
+  const created = await createLeadFromReviewRecord(supabase, userId, formData);
+  if ("error" in created && created.error) return created;
+  if ("opportunityId" in created && created.opportunityId) {
+    refresh("/reconciliation", "/leads", "/opportunities", "/dashboard");
+    redirect(`/opportunities/${created.opportunityId}`);
   }
-  const { data, error } = await supabase.from("sendpilot_records").select("id, applied").eq("id", id).maybeSingle();
-  if (error || !data) {
-    redirect(`/reconciliation?notice=${encodeURIComponent("That import row could not be found.")}`);
+  if ("leadId" in created && created.leadId) {
+    refresh("/reconciliation", "/leads");
+    redirect(`/leads/${created.leadId}?notice=${encodeURIComponent("Lead added from import review.")}`);
   }
-  if ((data as { applied: boolean }).applied) {
-    redirect(`/reconciliation?notice=${encodeURIComponent("This row was already applied.")}`);
+  return { error: "That import row could not be created." };
+}
+
+async function skipReviewRecord(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  id: string,
+) {
+  if (!isUuid(id)) return { error: "That import row could not be found." };
+  const { data, error } = await supabase.from("sendpilot_records").select("id, applied, classification").eq("id", id).maybeSingle();
+  if (error || !data) return { error: "That import row could not be found." };
+  if ((data as { applied: boolean }).applied) return { error: "This row was already applied." };
+  if (!bulkReviewEligible({ classification: String((data as { classification?: string | null }).classification ?? "") }, "skip")) {
+    return { error: "This row cannot be bulk-skipped." };
   }
   const { error: updateError } = await supabase
     .from("sendpilot_records")
     .update({ review_required: false })
     .eq("id", id)
     .eq("applied", false);
-  if (updateError) {
-    redirect(`/reconciliation?notice=${encodeURIComponent(actionError(updateError))}`);
+  if (updateError) return { error: actionError(updateError) };
+  return { ok: true as const };
+}
+
+export async function skipReviewedRecord(formData: FormData): Promise<void> {
+  const { supabase } = await requireUser();
+  const skipped = await skipReviewRecord(supabase, text(formData, "record_id"));
+  if ("error" in skipped && skipped.error) {
+    redirect(`/reconciliation?notice=${encodeURIComponent(skipped.error)}`);
   }
   refresh("/reconciliation");
   redirect(`/reconciliation?notice=${encodeURIComponent("Import row skipped. It was not added to leads.")}`);
 }
 
-export async function applyReviewedDuplicate(_state: ActionState, formData: FormData): Promise<ActionState> {
+function selectedReviewIds(formData: FormData) {
+  return [...new Set(formData.getAll("record_id").map((value) => String(value)).filter((id) => isUuid(id)))].slice(0, 100);
+}
+
+export async function bulkCreateReviewedRecords(formData: FormData): Promise<void> {
   const { supabase, userId } = await requireUser();
+  const ids = selectedReviewIds(formData);
+  if (ids.length === 0) {
+    redirect(`/reconciliation?notice=${encodeURIComponent("Select at least one review row.")}`);
+  }
+  const createOpportunity = text(formData, "create_opportunity") === "yes";
+  let created = 0;
+  let skipped = 0;
+  let failed = 0;
+  for (const id of ids) {
+    const row = await supabase.from("sendpilot_records").select("classification").eq("id", id).maybeSingle();
+    if (!bulkReviewEligible({ classification: String(row.data?.classification ?? "") }, "create")) {
+      skipped += 1;
+      continue;
+    }
+    const payload = new FormData();
+    payload.set("record_id", id);
+    if (createOpportunity) payload.set("create_opportunity", "yes");
+    const result = await createLeadFromReviewRecord(supabase, userId, payload);
+    if ("error" in result && result.error) failed += 1;
+    else created += 1;
+  }
+  refresh("/reconciliation", "/leads", "/opportunities", "/dashboard");
+  redirect(`/reconciliation?notice=${encodeURIComponent(`${created} lead${created === 1 ? "" : "s"} created. ${skipped} skipped. ${failed} failed.`)}`);
+}
+
+export async function bulkSkipReviewedRecords(formData: FormData): Promise<void> {
+  const { supabase } = await requireUser();
+  const ids = selectedReviewIds(formData);
+  if (ids.length === 0) {
+    redirect(`/reconciliation?notice=${encodeURIComponent("Select at least one review row.")}`);
+  }
+  let skipped = 0;
+  let failed = 0;
+  for (const id of ids) {
+    const result = await skipReviewRecord(supabase, id);
+    if ("error" in result && result.error) failed += 1;
+    else skipped += 1;
+  }
+  refresh("/reconciliation");
+  redirect(`/reconciliation?notice=${encodeURIComponent(`${skipped} row${skipped === 1 ? "" : "s"} skipped. ${failed} failed.`)}`);
+}
+
+export async function bulkApplyReviewedDuplicates(formData: FormData): Promise<void> {
+  const { supabase, userId } = await requireUser();
+  const ids = selectedReviewIds(formData);
+  if (ids.length === 0) {
+    redirect(`/reconciliation?notice=${encodeURIComponent("Select at least one review row.")}`);
+  }
+  let applied = 0;
+  let skipped = 0;
+  let failed = 0;
+  for (const id of ids) {
+    const payload = new FormData();
+    payload.set("record_id", id);
+    payload.set("tagging", "keep");
+    const result = await applyDuplicateReviewRecord(supabase, userId, payload);
+    if ("error" in result && result.error) {
+      if (result.error.includes("not tied") || result.error.includes("could not be found")) skipped += 1;
+      else failed += 1;
+    } else {
+      applied += 1;
+    }
+  }
+  refresh("/reconciliation", "/leads");
+  redirect(`/reconciliation?notice=${encodeURIComponent(`${applied} duplicate${applied === 1 ? "" : "s"} kept on the current lead. ${skipped} skipped. ${failed} failed.`)}`);
+}
+
+async function applyDuplicateReviewRecord(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  formData: FormData,
+) {
   const id = text(formData, "record_id");
   const tagging = parseDuplicateTagging(text(formData, "tagging"));
   if (!isUuid(id)) return { error: "That import row could not be found." };
@@ -1508,15 +1606,29 @@ export async function applyReviewedDuplicate(_state: ActionState, formData: Form
   }).eq("id", id);
   if (text(formData, "create_opportunity") === "yes") {
     const open = await supabase.from("opportunities").select("id").eq("lead_id", leadId).in("status", ["active", "nurture", "on_hold"]).maybeSingle();
-    if (open.data) {
-      refresh("/reconciliation", "/leads", `/leads/${leadId}`);
-      redirect(`/opportunities/${(open.data as { id: string }).id}?notice=${encodeURIComponent("This lead already has an opportunity.")}`);
-    }
+    if (open.data) return { leadId, opportunityId: String((open.data as { id: string }).id), alreadyOpen: true };
     const created = await startOpportunityForLead(supabase, userId, leadId);
     if (created && "error" in created && created.error) return created;
-    refresh("/reconciliation", "/leads", "/opportunities", "/dashboard");
-    if (created && "id" in created) redirect(`/opportunities/${created.id}`);
+    return { leadId, opportunityId: created && "id" in created ? created.id : null };
   }
-  refresh("/reconciliation", "/leads", `/leads/${leadId}`);
-  redirect(`/reconciliation?notice=${encodeURIComponent("Existing lead kept. Import row closed.")}`);
+  return { leadId, opportunityId: null };
+}
+
+export async function applyReviewedDuplicate(_state: ActionState, formData: FormData): Promise<ActionState> {
+  const { supabase, userId } = await requireUser();
+  const applied = await applyDuplicateReviewRecord(supabase, userId, formData);
+  if ("error" in applied && applied.error) return applied;
+  if ("alreadyOpen" in applied && applied.alreadyOpen && applied.opportunityId) {
+    refresh("/reconciliation", "/leads", `/leads/${applied.leadId}`);
+    redirect(`/opportunities/${applied.opportunityId}?notice=${encodeURIComponent("This lead already has an opportunity.")}`);
+  }
+  if ("opportunityId" in applied && applied.opportunityId) {
+    refresh("/reconciliation", "/leads", "/opportunities", "/dashboard");
+    redirect(`/opportunities/${applied.opportunityId}`);
+  }
+  if ("leadId" in applied && applied.leadId) {
+    refresh("/reconciliation", "/leads", `/leads/${applied.leadId}`);
+    redirect(`/reconciliation?notice=${encodeURIComponent("Existing lead kept. Import row closed.")}`);
+  }
+  return { error: "That import row could not be applied." };
 }

@@ -19,10 +19,13 @@ export function ReviewRecordCard({ record }: { record: ReviewRecord }) {
     classification === "possible_same_person" || classification === "identity_conflict";
 
   return (
-    <li className="space-y-3 rounded-lg border border-border p-3 text-sm">
+    <div className="space-y-3 rounded-lg border border-border p-3 text-sm">
       <div>
         <p className="font-medium">{textValue(record.full_name, "Unnamed")} — {textValue(record.company_name, "No company")}</p>
         <p className="text-muted-foreground">{classification} · {textValue(record.review_reason, "Needs a person to decide")}</p>
+        <p className="text-xs text-muted-foreground" title={record.origin.title}>
+          From {record.origin.label}
+        </p>
         <p className="text-xs text-muted-foreground">{textValue(record.email, "No email")} · imported tag: {importedTag} · {formatDateTime(textValue(record.created_at, ""))}</p>
       </div>
 
@@ -96,6 +99,6 @@ export function ReviewRecordCard({ record }: { record: ReviewRecord }) {
         <p className="mb-2 text-xs text-muted-foreground">Do not add this import row to the system.</p>
         <SubmitButton variant="outline">Skip this row</SubmitButton>
       </form>
-    </li>
+    </div>
   );
 }

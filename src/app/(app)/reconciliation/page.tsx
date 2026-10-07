@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Notice, PageHeader } from "@/components/bits";
-import { ReviewRecordCard } from "@/components/reconciliation-review";
+import { ReviewBulkList } from "@/components/review-bulk-list";
 import { SubmitButton } from "@/components/forms";
 import { Button } from "@/components/ui/button";
 import { getReconciliation } from "@/lib/data";
@@ -63,12 +63,8 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
       </section>
       <section className="rounded-xl border border-border bg-card p-4">
         <h2 className="text-sm font-semibold">Rows held for review</h2>
-        <ul className="mt-3 space-y-4">
-          {data.records.map((record) => (
-            <ReviewRecordCard key={record.id} record={record} />
-          ))}
-          {data.records.length === 0 ? <li className="text-sm text-muted-foreground">No unmatched or duplicate rows are waiting.</li> : null}
-        </ul>
+        <p className="mt-1 text-xs text-muted-foreground">Each row shows the SendPilot account, file or webhook, and campaign when we have it.</p>
+        <ReviewBulkList records={data.records} />
       </section>
     </div>
   );
