@@ -18,11 +18,12 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { GripVertical } from "lucide-react";
-import { RISK_LEVELS, STAGE_PLAYBOOK, PROFILE_SEND_STAGE, BOOKED_CALL_STAGE, SALES_CALL_COMPLETE_STAGE, WAITING_ON, boardStage, isHiddenBoardStage, stageLabel, type AccountFlag, type OpportunityStage } from "@/lib/domain";
+import { Flag, GripVertical } from "lucide-react";
+import { RISK_LEVELS, STAGE_PLAYBOOK, PROFILE_SEND_STAGE, BOOKED_CALL_STAGE, SALES_CALL_COMPLETE_STAGE, WAITING_ON, accountFlagIconClass, accountFlagLabel, boardStage, isHiddenBoardStage, stageLabel, type AccountFlag, type OpportunityStage } from "@/lib/domain";
 import { formatDate } from "@/lib/format";
 import { dropLeadOnStage, dropOpportunityOnStage, setAccountFlagFromBoard } from "@/server/actions";
-import { AccountFlagSelect, FlagBadge } from "@/components/account-flag-field";
+import { AccountFlagButton } from "@/components/account-flag-field";
+import { sendPilotSourceIndicator, type SendPilotLeadSource } from "@/lib/sendpilot/lead-sources";
 import { BookedCallDialog } from "@/components/booked-call-dialog";
 import { ProfileSendDialog, type ProfileSendDraft } from "@/components/profile-send-dialog";
 import { SalesCallCompleteDialog } from "@/components/sales-call-complete-dialog";
@@ -52,6 +53,7 @@ export type BoardOpportunity = {
   riskLevel: string;
   email: string | null;
   accountFlag: AccountFlag | null;
+  sendpilotSources?: SendPilotLeadSource[];
 };
 
 export type BoardLead = {
@@ -61,6 +63,7 @@ export type BoardLead = {
   email: string | null;
   nextFollowUp: { title: string; dueOn: string } | null;
   accountFlag: AccountFlag | null;
+  sendpilotSources?: SendPilotLeadSource[];
 };
 
 type BoardItem = {
@@ -78,6 +81,7 @@ type BoardItem = {
   riskLevel: string;
   email: string | null;
   accountFlag: AccountFlag | null;
+  sendpilotSources: SendPilotLeadSource[];
   href: string;
 };
 
@@ -102,6 +106,7 @@ function fromOpportunity(opportunity: BoardOpportunity): BoardItem {
     riskLevel: opportunity.riskLevel,
     email: opportunity.email,
     accountFlag: opportunity.accountFlag,
+    sendpilotSources: opportunity.sendpilotSources ?? [],
     href: `/opportunities/${opportunity.id}`,
   };
 }
@@ -123,6 +128,7 @@ function fromLead(lead: BoardLead, opportunity?: BoardOpportunity): BoardItem {
     riskLevel: "low",
     email: lead.email,
     accountFlag: lead.accountFlag,
+    sendpilotSources: lead.sendpilotSources ?? [],
     href: `/leads/${lead.id}`,
   };
 }
@@ -433,17 +439,33 @@ function ItemCard({
       <div className="flex items-start gap-2">
         <GripVertical className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
         <div className="min-w-0 flex-1">
+          <div className="flex items-start gap-1">
+            {overlay ? (
+              <div className="min-w-0 flex-1">
+                <CardHeading item={item} />
+              </div>
+            ) : (
+              <Link href={item.href} className="min-w-0 flex-1">
+                <CardHeading item={item} />
+              </Link>
+            )}
+            <div className="flex shrink-0 items-center gap-0.5">
+              <SendPilotSourceBadge sources={item.sendpilotSources} />
+              {overlay || !onFlagChange ? (
+                <span className="inline-flex size-6 items-center justify-center" title={accountFlagLabel(item.accountFlag)}>
+                  <Flag className={`size-3.5 ${accountFlagIconClass(item.accountFlag)}`} aria-hidden />
+                </span>
+              ) : (
+                <AccountFlagButton value={item.accountFlag} onChange={(flag) => onFlagChange(item, flag)} />
+              )}
+            </div>
+          </div>
           {overlay ? (
-            <CardBody item={item} />
+            <CardMeta item={item} />
           ) : (
             <Link href={item.href} className="block">
-              <CardBody item={item} />
+              <CardMeta item={item} />
             </Link>
-          )}
-          {overlay || !onFlagChange ? null : (
-            <div className="mt-2">
-              <AccountFlagSelect compact value={item.accountFlag} onChange={(flag) => onFlagChange(item, flag)} />
-            </div>
           )}
         </div>
       </div>
@@ -451,20 +473,35 @@ function ItemCard({
   );
 }
 
-function CardBody({ item }: { item: BoardItem }) {
+function CardHeading({ item }: { item: BoardItem }) {
   return (
     <>
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-sm font-semibold">{item.companyName}</p>
-        <FlagBadge flag={item.accountFlag} />
-      </div>
+      <p className="text-sm font-semibold">{item.companyName}</p>
       <p className="mt-0.5 text-xs text-muted-foreground">{item.contactName}</p>
-      <dl className="mt-2 space-y-1 text-xs">
-        <CardField label={item.kind === "lead" ? "Follow-up" : "Next action"} value={item.nextAction ?? "Set the next action"} />
-        <CardField label="Due" value={formatDate(item.nextActionDate)} />
-        {item.kind === "opportunity" ? <CardField label="Owner" value={item.ownerName ?? "Unassigned"} /> : <CardField label="Source" value="SendPilot Interested" />}
-      </dl>
     </>
+  );
+}
+
+function CardMeta({ item }: { item: BoardItem }) {
+  return (
+    <dl className="mt-2 space-y-1 text-xs">
+      <CardField label={item.kind === "lead" ? "Follow-up" : "Next action"} value={item.nextAction ?? "Set the next action"} />
+      <CardField label="Due" value={formatDate(item.nextActionDate)} />
+    </dl>
+  );
+}
+
+function SendPilotSourceBadge({ sources }: { sources: SendPilotLeadSource[] }) {
+  const indicator = sendPilotSourceIndicator(sources);
+  if (!indicator.show) return null;
+  return (
+    <span
+      title={indicator.title}
+      aria-label={indicator.title}
+      className="inline-flex h-5 shrink-0 items-center rounded border border-border px-1 text-[10px] font-medium leading-none text-muted-foreground"
+    >
+      {indicator.label}
+    </span>
   );
 }
 
