@@ -90,7 +90,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
                   <Link href="#add-lead">Add lead</Link>
                 </Button>
               )}
-              <Button asChild><Link href="/leads/import">Import file</Link></Button>
+              <Button asChild><Link href="/leads/import">Import leads</Link></Button>
             </div>
           </div>
         }
