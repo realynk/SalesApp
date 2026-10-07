@@ -327,6 +327,26 @@ test("T. webhook event idempotency is integration-aware", () => {
   assert.match(applySource, /\.eq\("integration_id", input.integrationId\)/);
 });
 
+test("Phase 5 webhook PK migration fails closed instead of guessing a legacy row", () => {
+  assert.equal(/where legacy_env limit 1/.test(migration), false);
+  assert.match(migration, /where legacy_env = true/);
+  assert.match(migration, /if legacy_count = 0 then/);
+  assert.match(migration, /if legacy_count > 1 then/);
+  assert.match(migration, /raise exception/);
+  assert.match(migration, /where integration_id is null/);
+  assert.match(migration, /remaining_nulls > 0/);
+  assert.match(migration, /having count\(\*\) > 1/);
+  assert.match(migration, /duplicate \(integration_id, event_id\)/);
+  assert.equal(/delete from public\.sendpilot_webhook_events/i.test(migration), false);
+  const notNullAt = migration.indexOf("alter column integration_id set not null");
+  const remainingAt = migration.indexOf("remaining_nulls > 0");
+  const duplicateAt = migration.indexOf("having count(*) > 1");
+  const dropPkAt = migration.indexOf("drop constraint if exists sendpilot_webhook_events_pkey");
+  assert.ok(remainingAt > 0 && remainingAt < notNullAt);
+  assert.ok(duplicateAt > 0 && duplicateAt < notNullAt);
+  assert.ok(notNullAt > 0 && notNullAt < dropPkAt);
+});
+
 test("U/V. non-legacy CRM apply is blocked unless every safety gate passes", () => {
   const fail = crmApplySafetyGate({
     integrationPresent: true,
