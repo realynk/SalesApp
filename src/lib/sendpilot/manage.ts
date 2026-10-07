@@ -144,7 +144,8 @@ export function planNewIntegrationRow(input: {
   } as const;
 }
 
-export function planActivation(_input: { legacyEnv: boolean; status: string }) {
+export function planActivation(input: { legacyEnv: boolean; status: string }) {
+  void input;
   return { error: ACTIVATION_BLOCKED } as const;
 }
 

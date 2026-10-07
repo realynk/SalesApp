@@ -205,7 +205,7 @@ export async function createSendPilotIntegration(_state: ActionState, formData: 
       onConflict: "integration_id,sendpilot_campaign_id",
     });
     if (trackingError) return { error: actionError(trackingError) };
-    const { error: campaignTrackAudit } = await writeAudits(session.supabase, session.userId, integrationId, [
+    const campaignTrackAudit = await writeAudits(session.supabase, session.userId, integrationId, [
       { action: "campaign_tracking_changed", metadata: { selected_count: selected.length, tracking_mode: trackingMode } },
     ]);
     if (campaignTrackAudit) return { error: actionError(campaignTrackAudit) };
