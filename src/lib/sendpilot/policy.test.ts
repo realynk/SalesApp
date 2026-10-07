@@ -3,6 +3,7 @@ import test from "node:test";
 import { resolveSendPilotApiAuth } from "./client.ts";
 import {
   campaignGate,
+  crmApplySafetyGate,
   genericWebhookUnauthorizedBody,
   integrationStatusIgnoreReason,
   isUuid,
@@ -48,9 +49,32 @@ test("non-legacy missing campaign is ignored", () => {
   );
 });
 
-test("CRM apply is enabled only for the legacy integration", () => {
-  assert.equal(shouldApplyCrm({ legacyEnv: true }), true);
-  assert.equal(shouldApplyCrm({ legacyEnv: false }), false);
+test("CRM apply is allowed for active integrations after safety gates pass", () => {
+  assert.equal(shouldApplyCrm({ legacyEnv: true, status: "active" }), true);
+  assert.equal(shouldApplyCrm({ legacyEnv: false, status: "active" }), true);
+  assert.equal(shouldApplyCrm({ legacyEnv: false, status: "draft" }), false);
+  const allowed = crmApplySafetyGate({
+    integrationPresent: true,
+    loadedIntegrationId: "int-b",
+    requestedIntegrationId: "int-b",
+    status: "active",
+    workspaceOk: true,
+    campaignAllowed: true,
+    scopedMatchingEnabled: true,
+    usedLegacyEnvApiKeyForNonLegacy: false,
+  });
+  assert.deepEqual(allowed, { allow: true });
+  const blocked = crmApplySafetyGate({
+    integrationPresent: true,
+    loadedIntegrationId: "int-b",
+    requestedIntegrationId: "int-b",
+    status: "active",
+    workspaceOk: true,
+    campaignAllowed: false,
+    scopedMatchingEnabled: true,
+    usedLegacyEnvApiKeyForNonLegacy: false,
+  });
+  assert.deepEqual(blocked, { allow: false, reason: "crm_apply_not_enabled" });
 });
 
 test("campaign API fallback never uses the legacy env key for non-legacy integrations", () => {

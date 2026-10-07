@@ -18,8 +18,30 @@ export function integrationStatusIgnoreReason(status: string | null | undefined)
   return "integration_disabled";
 }
 
-export function shouldApplyCrm(integration: Pick<LegacySendPilotIntegration, "legacyEnv">) {
-  return Boolean(integration.legacyEnv);
+export function shouldApplyCrm(integration: Pick<LegacySendPilotIntegration, "legacyEnv"> & { status?: string }) {
+  if (integrationStatusIgnoreReason(integration.status ?? "active")) return false;
+  return true;
+}
+
+export function crmApplySafetyGate(input: {
+  integrationPresent: boolean;
+  loadedIntegrationId: string;
+  requestedIntegrationId?: string | null;
+  status: string;
+  workspaceOk: boolean;
+  campaignAllowed: boolean;
+  scopedMatchingEnabled: boolean;
+  usedLegacyEnvApiKeyForNonLegacy: boolean;
+}): { allow: true } | { allow: false; reason: Extract<IntegrationIgnoreReason, "crm_apply_not_enabled"> } {
+  if (!input.integrationPresent) return { allow: false, reason: "crm_apply_not_enabled" };
+  if (input.requestedIntegrationId && input.requestedIntegrationId !== input.loadedIntegrationId) {
+    return { allow: false, reason: "crm_apply_not_enabled" };
+  }
+  if (integrationStatusIgnoreReason(input.status)) return { allow: false, reason: "crm_apply_not_enabled" };
+  if (!input.workspaceOk || !input.campaignAllowed) return { allow: false, reason: "crm_apply_not_enabled" };
+  if (!input.scopedMatchingEnabled) return { allow: false, reason: "crm_apply_not_enabled" };
+  if (input.usedLegacyEnvApiKeyForNonLegacy) return { allow: false, reason: "crm_apply_not_enabled" };
+  return { allow: true };
 }
 
 export function campaignGate(input: {

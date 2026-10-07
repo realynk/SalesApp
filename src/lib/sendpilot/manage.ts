@@ -309,7 +309,7 @@ export function toSafeIntegrationView(input: {
     createdAt: input.createdAt,
     campaignCount: input.campaignCount,
     trackedCount: input.trackedCount,
-    crmSyncEnabled: shouldApplyCrm({ legacyEnv: input.legacyEnv }),
+    crmSyncEnabled: shouldApplyCrm({ legacyEnv: input.legacyEnv, status: input.status }),
   };
 }
 
