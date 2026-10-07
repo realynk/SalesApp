@@ -1,17 +1,18 @@
 import Link from "next/link";
 import { KpiCard, PageHeader, SectionCard } from "@/components/bits";
-import { parseReportingDuration, ReportingDurationPicker } from "@/components/reporting-duration-picker";
+import { ReportingDurationPicker } from "@/components/reporting-duration-picker";
 import { getReporting } from "@/lib/data";
 import { firstParam, formatPercent } from "@/lib/format";
+import { parseReportingDuration } from "@/lib/reporting-duration";
 
 export default async function ReportingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ range?: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const query = await searchParams;
   const range = parseReportingDuration(firstParam(query.range));
-  const data = await getReporting();
+  const data = await getReporting(range);
 
   return (
     <div className="space-y-6">
