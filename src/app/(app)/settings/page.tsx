@@ -29,7 +29,6 @@ export default async function SettingsPage() {
       </section>
       <ActionForm action={updateProfile} className="grid max-w-xl gap-3 rounded-xl border border-border bg-card p-4">
         <h2 className="text-sm font-semibold">Your profile</h2>
-        <p className="text-sm text-muted-foreground">Role: {session.profile?.role ?? "unknown"}. Additional users can be added later in Supabase Auth. This screen is not a second portal.</p>
         <Field label="Name"><input className={controlClass} name="full_name" defaultValue={session.profile?.full_name ?? ""} /></Field>
         <SubmitButton>Save profile</SubmitButton>
       </ActionForm>
