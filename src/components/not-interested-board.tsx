@@ -258,7 +258,9 @@ function CardBody({ lead }: { lead: NotInterestedCard }) {
       </div>
       <p className="mt-0.5 text-xs text-muted-foreground">{lead.companyName}</p>
       <p className="mt-2 text-xs">{lead.nextFollowUp ? lead.nextFollowUp.title : "No follow-up scheduled"}</p>
-      <p className="mt-1 text-xs text-muted-foreground">{lead.nextFollowUp ? `Due ${formatDate(lead.nextFollowUp.dueOn)}` : "Open the lead to set a reminder"}</p>
+      {lead.nextFollowUp ? (
+        <p className="mt-1 text-xs text-muted-foreground">Due {formatDate(lead.nextFollowUp.dueOn)}</p>
+      ) : null}
     </>
   );
 }

@@ -486,7 +486,7 @@ function CardMeta({ item }: { item: BoardItem }) {
   return (
     <dl className="mt-2 space-y-1 text-xs">
       <CardField label={item.kind === "lead" ? "Follow-up" : "Next action"} value={item.nextAction ?? "Set the next action"} />
-      <CardField label="Due" value={formatDate(item.nextActionDate)} />
+      {item.nextActionDate ? <CardField label="Due" value={formatDate(item.nextActionDate)} /> : null}
     </dl>
   );
 }
