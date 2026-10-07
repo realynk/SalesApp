@@ -14,7 +14,7 @@ const NAV = [
   { href: "/opportunities", label: "Client journey", icon: Handshake },
   { href: "/reporting", label: "Reporting", icon: ChartColumn },
   { href: "/leads", label: "Leads", icon: Users },
-  { href: "/reconciliation", label: "SendPilot import", icon: FolderSync },
+  { href: "/reconciliation", label: "Lead review", icon: FolderSync },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

@@ -116,7 +116,7 @@ export async function createLead(_state: ActionState, formData: FormData): Promi
     const { data: existing } = await supabase.from("contacts").select("id").eq("email_key", email).maybeSingle();
     if (existing) return { error: "A contact with that email already exists. Open the existing lead instead of creating a duplicate." };
     const { data: suppressed } = await supabase.from("sendpilot_suppressions").select("id").is("released_at", null).eq("email_key", email).maybeSingle();
-    if (suppressed) return { error: "That email belongs to a permanently deleted SendPilot lead. Recreate it from SendPilot import review, not from this form." };
+    if (suppressed) return { error: "That email belongs to a permanently deleted SendPilot lead. Recreate it from Lead review, not from this form." };
   }
   const { data: company, error: companyError } = await supabase.from("companies").insert({ name: companyName }).select("id").single();
   if (companyError) {
