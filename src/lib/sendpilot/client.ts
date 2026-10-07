@@ -119,6 +119,27 @@ async function sendpilotFetch(path: string, auth: SendPilotApiAuth): Promise<unk
   return body;
 }
 
+export const SENDPILOT_CREDENTIAL_PROBE_LEAD_ID = "00000000-0000-4000-8000-000000000001";
+
+export type SendPilotApiProbeResult = {
+  accepted: boolean;
+  status: number;
+};
+
+export async function probeSendPilotApiCredentials(auth: SendPilotApiAuth): Promise<SendPilotApiProbeResult> {
+  try {
+    await sendpilotFetch(`/leads/${encodeURIComponent(SENDPILOT_CREDENTIAL_PROBE_LEAD_ID)}`, auth);
+    return { accepted: true, status: 200 };
+  } catch (error) {
+    if (error instanceof SendPilotApiError) {
+      if (error.status === 401 || error.status === 403) return { accepted: false, status: error.status };
+      if (error.status >= 500) return { accepted: false, status: error.status };
+      return { accepted: true, status: error.status };
+    }
+    return { accepted: false, status: 503 };
+  }
+}
+
 export async function getSendPilotLeadById(leadId: string, auth: SendPilotApiAuth): Promise<SendPilotLead | null> {
   const body = await sendpilotFetch(`/leads/${encodeURIComponent(leadId)}`, auth);
   return parseSendPilotLead(body);
