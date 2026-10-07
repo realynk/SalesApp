@@ -15,6 +15,8 @@ export function ReviewRecordCard({ record }: { record: ReviewRecord }) {
   const existing = record.existing ?? null;
   const isDuplicate = classification === "possible_duplicate";
   const isSuppressed = classification === "suppressed";
+  const isCrossWorkspaceReview =
+    classification === "possible_same_person" || classification === "identity_conflict";
 
   return (
     <li className="space-y-3 rounded-lg border border-border p-3 text-sm">
@@ -38,7 +40,13 @@ export function ReviewRecordCard({ record }: { record: ReviewRecord }) {
         </div>
       ) : null}
 
-      {isDuplicate && existing ? (
+      {isCrossWorkspaceReview ? (
+        <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          Cross-integration identity linking is held for a later explicit decision. This event did not update CRM status.
+        </p>
+      ) : null}
+
+      {isDuplicate && existing && !isCrossWorkspaceReview ? (
         <ActionForm action={applyReviewedDuplicate} className="space-y-2 rounded-lg border border-border p-3">
           <input type="hidden" name="record_id" value={id} />
           <p className="font-medium">Use the current lead</p>
@@ -65,7 +73,7 @@ export function ReviewRecordCard({ record }: { record: ReviewRecord }) {
         </ActionForm>
       ) : null}
 
-      <ActionForm action={createFromReviewedRecord} className="space-y-2 rounded-lg border border-border p-3">
+      {isCrossWorkspaceReview ? null : <ActionForm action={createFromReviewedRecord} className="space-y-2 rounded-lg border border-border p-3">
         <input type="hidden" name="record_id" value={id} />
         <p className="font-medium">{isDuplicate ? "Create a new lead (duplicate)" : "Create a new lead"}</p>
         <p className="text-xs text-muted-foreground">
@@ -81,7 +89,7 @@ export function ReviewRecordCard({ record }: { record: ReviewRecord }) {
           Also create an opportunity
         </label>
         <SubmitButton variant="outline">{isDuplicate ? "Create new lead" : "Create contact from this row"}</SubmitButton>
-      </ActionForm>
+      </ActionForm>}
 
       <form action={skipReviewedRecord}>
         <input type="hidden" name="record_id" value={id} />

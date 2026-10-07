@@ -247,9 +247,9 @@ test("R. audit rows contain no secrets", () => {
   assert.equal(audits.some((row) => row.action === "credentials_saved"), true);
 });
 
-test("T/U/V. Phase 1–3 webhook behavior files remain and CRM apply stays legacy-only", () => {
+test("T/U/V. Phase 1–3 webhook behavior files remain and CRM apply is safety-gated", () => {
   assert.match(applySource, /crm_apply_not_enabled/);
-  assert.match(applySource, /shouldApplyCrm/);
+  assert.match(applySource, /crmApplySafetyGate/);
   assert.equal(/drop table/i.test(phase4Migration), false);
   assert.equal(phase1Migration.includes("create table public.sendpilot_integrations"), true);
   assert.equal(phase3Migration.includes("sendpilot_upsert_integration_credentials"), true);

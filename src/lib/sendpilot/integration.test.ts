@@ -195,12 +195,13 @@ test("identity dual-write skips when the webhook did not resolve both ids", () =
   );
 });
 
-test("suppression matching is still global and not integration-scoped", () => {
+test("suppression matching is scoped by integration_id", () => {
   const start = applySource.indexOf("async function findActiveSuppression");
   const end = applySource.indexOf("async function findOrCreateCompany");
   const suppression = applySource.slice(start, end);
   assert.ok(suppression.includes("sendpilot_suppressions"));
-  assert.equal(suppression.includes("integration_id"), false);
+  assert.ok(suppression.includes("integration_id"));
+  assert.ok(suppression.includes("suppressionAppliesToIntegration"));
 });
 
 test("workspace mismatch is recorded on the webhook event and returns before matching or reconciliation", () => {
@@ -210,24 +211,26 @@ test("workspace mismatch is recorded on the webhook event and returns before mat
   assert.match(applySource, /ignored: true, reason: "workspace_mismatch"/);
 });
 
-test("claiming a webhook event still uses event_id uniqueness and stamps integration_id", () => {
+test("claiming a webhook event is unique per integration and event_id", () => {
   assert.match(applySource, /integration_id: input.integrationId/);
   assert.match(applySource, /campaign_id: input.campaignId/);
   assert.match(applySource, /inserted.error.code !== "23505"/);
+  assert.match(applySource, /\.eq\("integration_id", input.integrationId\)/);
   assert.match(applySource, /loadLegacySendPilotIntegration/);
   assert.match(applySource, /legacy_integration_missing/);
   assert.match(applySource, /api_lookup_failed/);
   assert.match(applySource, /unsupported_event/);
 });
 
-test("matchLead does not use sendpilot_lead_identities and still prefers sendpilot_lead_id then external_id", () => {
+test("matchLead prefers scoped identity then legacy global id then scoped external_id", () => {
   const start = applySource.indexOf("async function matchLead");
   const end = applySource.indexOf("async function findActiveSuppression");
   const matchLead = applySource.slice(start, end);
+  assert.ok(matchLead.includes("leadByScopedIdentity"));
   assert.ok(matchLead.includes("leadBySendPilotId"));
   assert.ok(matchLead.includes("leadByExternalRecord"));
-  assert.ok(matchLead.includes("classifyWebhookIdentityMatch"));
-  assert.equal(matchLead.includes("sendpilot_lead_identities"), false);
+  assert.ok(matchLead.includes("planWebhookMatch"));
+  assert.match(applySource, /sendpilot_lead_identities/);
 });
 
 test("Phase 2 keeps the legacy webhook URL, Svix-first verify, env secrets, and matching order", () => {
@@ -239,9 +242,9 @@ test("Phase 2 keeps the legacy webhook URL, Svix-first verify, env secrets, and 
   assert.match(applySource, /leadBySendPilotId/);
   assert.match(applySource, /leadByExternalRecord/);
   assert.match(applySource, /\.eq\("sendpilot_lead_id", sendpilotLeadId\)/);
-  assert.match(applySource, /classifyWebhookIdentityMatch/);
+  assert.match(applySource, /planWebhookMatch/);
   assert.match(applySource, /shouldCreateUnmatchedWebhookLead/);
-  assert.match(applySource, /shouldApplyCrm\(integration\)/);
+  assert.match(applySource, /crmApplySafetyGate/);
   assert.match(applySource, /allowLegacyEnvFallback: integration.legacyEnv/);
   assert.match(envExample, /^SENDPILOT_WEBHOOK_SECRET=/m);
   assert.match(envExample, /^SENDPILOT_API_KEY=/m);

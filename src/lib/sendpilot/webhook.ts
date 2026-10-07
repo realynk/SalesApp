@@ -42,9 +42,13 @@ export function webhookLeadUpdate(input: {
   incomingLeadId: string | null;
   status: { normalized: SendPilotStatus | null; raw: string | null; applyNormalized: boolean };
   nowIso: string;
+  writeGlobalSendpilotLeadId?: boolean;
 }): Record<string, unknown> {
   const patch: Record<string, unknown> = { last_synced_at: input.nowIso };
-  const nextId = sendPilotLeadIdForUpdate(input.existingSendpilotLeadId, input.incomingLeadId);
+  const nextId =
+    input.writeGlobalSendpilotLeadId === false
+      ? null
+      : sendPilotLeadIdForUpdate(input.existingSendpilotLeadId, input.incomingLeadId);
   if (nextId) patch.sendpilot_lead_id = nextId;
   if (input.status.raw) patch.sendpilot_status_raw = input.status.raw;
   if (input.status.applyNormalized) patch.sendpilot_status = input.status.normalized;
