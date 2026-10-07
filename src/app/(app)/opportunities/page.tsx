@@ -4,8 +4,9 @@ import { NotInterestedBoard } from "@/components/not-interested-board";
 import { PipelineBoard } from "@/components/pipeline-board";
 import { Button } from "@/components/ui/button";
 import { BOARD_STAGES } from "@/lib/domain";
-import { listLeads, listOpportunities } from "@/lib/data";
+import { listLeads, listOpportunities, listSendPilotSourcesByLeadIds } from "@/lib/data";
 import { firstParam, formatDate } from "@/lib/format";
+import { sourcesForLead } from "@/lib/sendpilot/lead-sources";
 
 export default async function OpportunitiesPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const query = await searchParams;
@@ -16,6 +17,10 @@ export default async function OpportunitiesPage({ searchParams }: { searchParams
     interest === "interested" ? listOpportunities({ q }) : Promise.resolve([]),
     interest === "interested" ? listLeads({ q, status: "Interested" }) : Promise.resolve([]),
     listLeads({ q, status: "Not Interested" }),
+  ]);
+  const sendpilotSources = await listSendPilotSourcesByLeadIds([
+    ...interestedLeads.map((lead) => lead.id),
+    ...opportunities.map((opportunity) => opportunity.leadId),
   ]);
 
   const href = (next: { view?: "board" | "list"; interest?: "interested" | "not-interested" }) => {
@@ -88,8 +93,14 @@ export default async function OpportunitiesPage({ searchParams }: { searchParams
         <PipelineBoard
           key={[...interestedLeads.map((lead) => `${lead.id}:${lead.accountFlag}`), ...opportunities.map((item) => `${item.id}:${item.stage}:${item.accountFlag}`)].join("|")}
           stages={BOARD_STAGES}
-          opportunities={opportunities}
-          interestedLeads={interestedLeads}
+          opportunities={opportunities.map((opportunity) => ({
+            ...opportunity,
+            sendpilotSources: sourcesForLead(sendpilotSources, opportunity.leadId),
+          }))}
+          interestedLeads={interestedLeads.map((lead) => ({
+            ...lead,
+            sendpilotSources: sourcesForLead(sendpilotSources, lead.id),
+          }))}
         />
       ) : (
         <SimpleTable

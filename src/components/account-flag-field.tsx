@@ -1,8 +1,21 @@
 "use client";
 
 import { useState } from "react";
+import { Flag } from "lucide-react";
 import { controlClass } from "@/components/bits";
-import { ACCOUNT_FLAGS, ACCOUNT_FLAG_TONE, type AccountFlag } from "@/lib/domain";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  ACCOUNT_FLAGS,
+  ACCOUNT_FLAG_TONE,
+  accountFlagIconClass,
+  accountFlagLabel,
+  type AccountFlag,
+} from "@/lib/domain";
 import { setAccountFlagFromBoard } from "@/server/actions";
 
 export function FlagBadge({ flag }: { flag: AccountFlag | null }) {
@@ -11,6 +24,45 @@ export function FlagBadge({ flag }: { flag: AccountFlag | null }) {
     <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium ${ACCOUNT_FLAG_TONE[flag]}`}>
       {flag}
     </span>
+  );
+}
+
+export function AccountFlagButton({
+  value,
+  onChange,
+}: {
+  value: AccountFlag | null;
+  onChange: (flag: AccountFlag | null) => void;
+}) {
+  const label = accountFlagLabel(value);
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          title={label}
+          aria-label={label}
+          className="inline-flex size-6 shrink-0 items-center justify-center rounded-md hover:bg-muted"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <Flag className={`size-3.5 ${accountFlagIconClass(value)}`} aria-hidden />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="end"
+        className="min-w-48 w-auto"
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <DropdownMenuItem onSelect={() => onChange(null)}>No flag</DropdownMenuItem>
+        {ACCOUNT_FLAGS.map((flag) => (
+          <DropdownMenuItem key={flag} onSelect={() => onChange(flag)}>
+            {flag}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

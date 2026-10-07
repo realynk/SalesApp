@@ -26,6 +26,7 @@ import {
 } from "@/lib/domain";
 import { raiseIf } from "@/lib/errors";
 import { fullName } from "@/lib/format";
+import { mapSendPilotLeadSources, type SendPilotLeadSource } from "@/lib/sendpilot/lead-sources";
 import { requireUser } from "@/server/session";
 
 type Row = Record<string, unknown>;
@@ -526,6 +527,31 @@ function missingArchivedColumn(error: { message?: string; code?: string } | null
 
 function missingAccountFlagColumn(error: { message?: string; code?: string } | null) {
   return Boolean(error && (error.code === "PGRST204" || /account_flag/i.test(error.message ?? "")));
+}
+
+export async function listSendPilotSourcesByLeadIds(leadIds: string[]): Promise<Map<string, SendPilotLeadSource[]>> {
+  const ids = [...new Set(leadIds.filter((id) => isUuid(id)))];
+  if (ids.length === 0) return new Map();
+  const { supabase } = await requireUser();
+  const { data: identities, error: identityError } = await supabase
+    .from("sendpilot_lead_identities")
+    .select("lead_id, integration_id")
+    .in("lead_id", ids);
+  raiseIf(identityError);
+  const identityRows = rows(identities);
+  const integrationIds = [
+    ...new Set(identityRows.map((item) => str(item.integration_id)).filter((id): id is string => Boolean(id))),
+  ];
+  if (integrationIds.length === 0) return new Map();
+  const { data: integrations, error: integrationError } = await supabase
+    .from("sendpilot_integrations")
+    .select("id, name")
+    .in("id", integrationIds);
+  raiseIf(integrationError);
+  return mapSendPilotLeadSources({
+    identities: identityRows,
+    integrations: rows(integrations),
+  });
 }
 
 export async function countLeads(filters: { archived?: boolean; status?: string } = {}) {

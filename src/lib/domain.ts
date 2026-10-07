@@ -140,6 +140,22 @@ export const ACCOUNT_FLAG_TONE: Record<AccountFlag, string> = {
   "At risk": "border-[#f97066] bg-[#fef3f2] text-[#912018]",
 };
 
+export const ACCOUNT_FLAG_ICON_CLASS: Record<AccountFlag, string> = {
+  Urgent: "text-[#b42318] fill-[#b42318]",
+  "Follow up": "text-[#175cd3] fill-[#175cd3]",
+  "Waiting on client": "text-[#b54708] fill-[#b54708]",
+  "Waiting on recruitment": "text-[#5925dc] fill-[#5925dc]",
+  "At risk": "text-[#912018] fill-[#912018]",
+};
+
+export function accountFlagLabel(flag: AccountFlag | null) {
+  return flag ? `Flag: ${flag}` : "Flag: None";
+}
+
+export function accountFlagIconClass(flag: AccountFlag | null) {
+  return flag ? ACCOUNT_FLAG_ICON_CLASS[flag] : "text-muted-foreground fill-none";
+}
+
 export const ACTIVITY_TYPES = [
   "lead_imported",
   "sendpilot_status_changed",
