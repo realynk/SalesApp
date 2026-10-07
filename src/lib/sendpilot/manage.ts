@@ -111,6 +111,12 @@ export function webhookUrlForIntegration(input: { id: string; legacyEnv: boolean
   return base ? `${base}${path}` : path;
 }
 
+export function parseManagedIntegrationId(value: string | null | undefined) {
+  const id = value?.trim() ?? "";
+  if (!isUuid(id)) return { error: INTEGRATION_NOT_FOUND } as const;
+  return { id };
+}
+
 export function looksLikeSecretValue(value: string) {
   const trimmed = value.trim();
   if (!trimmed) return false;

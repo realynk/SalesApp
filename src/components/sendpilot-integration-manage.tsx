@@ -118,6 +118,7 @@ export function SendPilotIntegrationManage({
         </ActionForm>
 
         <ActionForm action={saveSendPilotWebhookSecret} className="grid gap-3">
+          <input type="hidden" name="integration_id" value={detail.id} />
           <h3 className="text-sm font-medium">Webhook Signing Secret</h3>
           {detail.webhookSecretConfigured ? (
             <p className="text-sm">Webhook secret: Configured</p>
