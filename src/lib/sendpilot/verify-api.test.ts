@@ -1,17 +1,25 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { probeSendPilotApiCredentials } from "./client.ts";
-import { UNABLE_TO_VERIFY_ACCOUNT, mapSendPilotApiProbe, WORKSPACE_VERIFY_UNSUPPORTED } from "./verify-api.ts";
+import {
+  API_KEY_REJECTED,
+  apiKeySaveBlockedByProbe,
+  mapSendPilotApiProbe,
+  WORKSPACE_VERIFY_UNSUPPORTED,
+} from "./verify-api.ts";
 
 test("bad API credentials map to a safe UI error", () => {
   assert.deepEqual(mapSendPilotApiProbe({ accepted: false, status: 401 }), {
     ok: false,
-    error: UNABLE_TO_VERIFY_ACCOUNT,
+    error: API_KEY_REJECTED,
   });
   assert.deepEqual(mapSendPilotApiProbe({ accepted: false, status: 403 }), {
     ok: false,
-    error: UNABLE_TO_VERIFY_ACCOUNT,
+    error: API_KEY_REJECTED,
   });
+  assert.equal(apiKeySaveBlockedByProbe({ accepted: false, status: 401 }), API_KEY_REJECTED);
+  assert.equal(apiKeySaveBlockedByProbe({ accepted: true, status: 404 }), null);
+  assert.equal(apiKeySaveBlockedByProbe({ accepted: false, status: 503 }), null);
 });
 
 test("accepted probe does not claim a verified workspace id", () => {

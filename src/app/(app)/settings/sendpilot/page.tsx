@@ -2,7 +2,7 @@ import Link from "next/link";
 import { EmptyState, PageHeader } from "@/components/bits";
 import { Button } from "@/components/ui/button";
 import { formatDateTime } from "@/lib/format";
-import { credentialStatusLabel, statusHeadline } from "@/lib/sendpilot/manage";
+import { fieldCredentialLabel, statusHeadline } from "@/lib/sendpilot/manage";
 import { CRM_NOT_ENABLED_MESSAGE, LEGACY_PROTECTED_MESSAGE } from "@/lib/sendpilot/manage-copy";
 import { loadSendPilotIntegrationList } from "@/lib/sendpilot/settings-data";
 import { requireUser } from "@/server/session";
@@ -17,7 +17,7 @@ export default async function SendPilotIntegrationsPage() {
         back={{ href: "/settings", label: "Back to settings" }}
         eyebrow="Integrations"
         title="SendPilot Integrations"
-        description="Manage SendPilot accounts used by this workspace. CRM synchronization stays limited to the legacy Realynk Main webhook until a later phase."
+        description="Manage SendPilot accounts used by this workspace. New accounts stay draft until you finish webhook setup and activate them."
         actions={
           canManage ? (
             <Button asChild>
@@ -66,8 +66,19 @@ export default async function SendPilotIntegrationsPage() {
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-xs tracking-wide text-muted-foreground uppercase">Credentials</dt>
-                  <dd className="mt-1">{credentialStatusLabel(integration.credentialStatus)}</dd>
+                  <dt className="text-xs tracking-wide text-muted-foreground uppercase">API key</dt>
+                  <dd className="mt-1">
+                    {fieldCredentialLabel({ legacyEnv: integration.legacyEnv, configured: integration.apiKeyConfigured })}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs tracking-wide text-muted-foreground uppercase">Webhook secret</dt>
+                  <dd className="mt-1">
+                    {fieldCredentialLabel({
+                      legacyEnv: integration.legacyEnv,
+                      configured: integration.webhookSecretConfigured,
+                    })}
+                  </dd>
                 </div>
                 <div>
                   <dt className="text-xs tracking-wide text-muted-foreground uppercase">Workspace ID</dt>

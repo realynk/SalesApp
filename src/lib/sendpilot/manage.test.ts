@@ -6,18 +6,23 @@ import { fileURLToPath } from "node:url";
 import { buildCredentialCiphertextRow } from "./credentials.ts";
 import { encryptSecret } from "./secrets.ts";
 import {
-  ACTIVATION_BLOCKED,
+  ACTIVATION_API_KEY_MISSING,
+  ACTIVATION_TRACKING_INVALID,
+  ACTIVATION_WEBHOOK_SECRET_MISSING,
   apiAuthForCampaignSync,
   authorizeSendPilotMutation,
+  credentialFlagsFromCiphertext,
   credentialStatus,
   credentialStatusLabel,
   DEFAULT_NEW_STATUS,
+  fieldCredentialLabel,
   LEGACY_MUTATION_DENIED,
   planActivation,
   planCampaignTrackingRows,
   planCreateAudits,
   planDisable,
   planNewIntegrationRow,
+  planPartialCredentialUpdate,
   planRemove,
   planRotateCredentials,
   planSafeSaveResult,
@@ -36,9 +41,27 @@ const phase3Migration = readFileSync(join(root, "supabase/migrations/20261007180
 const actionsSource = readFileSync(join(root, "src/server/sendpilot-integrations.ts"), "utf8");
 const clientSource = readFileSync(join(root, "src/lib/sendpilot/client.ts"), "utf8");
 const applySource = readFileSync(join(root, "src/lib/sendpilot/apply.ts"), "utf8");
+const eventsSource = readFileSync(join(root, "src/lib/sendpilot/events.ts"), "utf8");
 const settingsPage = readFileSync(join(root, "src/app/(app)/settings/sendpilot/page.tsx"), "utf8");
 const detailPage = readFileSync(join(root, "src/app/(app)/settings/sendpilot/[id]/page.tsx"), "utf8");
+const wizardSource = readFileSync(join(root, "src/components/sendpilot-account-wizard.tsx"), "utf8");
+const manageUi = readFileSync(join(root, "src/components/sendpilot-integration-manage.tsx"), "utf8");
+const phase51Migration = readFileSync(join(root, "supabase/migrations/20261007230000_sendpilot_credential_status.sql"), "utf8");
 const KEY = "e".repeat(64);
+const DRAFT_ID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+
+function readyActivation(overrides: Partial<Parameters<typeof planActivation>[0]> = {}) {
+  return planActivation({
+    legacyEnv: false,
+    status: "draft",
+    apiKeyConfigured: true,
+    webhookSecretConfigured: true,
+    trackingMode: "all",
+    selectedCampaignIds: [],
+    integrationId: DRAFT_ID,
+    ...overrides,
+  });
+}
 
 test("A. sales_lead can access integration management", () => {
   assert.deepEqual(authorizeSendPilotMutation("sales_lead"), { ok: true });
@@ -122,8 +145,12 @@ test("F. new integration defaults to draft and is not activated", () => {
     assert.equal(planned.row.status, "draft");
     assert.equal(planned.row.legacy_env, false);
     assert.equal(planned.row.workspace_id, null);
+    assert.equal(planned.row.credentials_present, false);
+    assert.equal(planned.row.webhook_secret_configured, false);
   }
-  assert.equal(planActivation({ legacyEnv: false, status: "draft" }).error, ACTIVATION_BLOCKED);
+  const afterCredentials = readyActivation({ status: "draft" });
+  assert.equal("error" in afterCredentials, false);
+  if (!("error" in afterCredentials)) assert.equal(afterCredentials.patch.status, "active");
 });
 
 test("G/H. plaintext API key and webhook secret are encrypted before storage", () => {
@@ -152,11 +179,15 @@ test("I/Q. credentials never returned from save/read responses or rotation", () 
     name: "Future",
     trackingMode: "all",
     webhookUrl: "/api/sendpilot/webhook/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+    apiKeyConfigured: true,
+    webhookSecretConfigured: false,
   });
   const json = JSON.stringify(result);
   assert.equal(json.includes("api_key"), false);
   assert.equal(json.includes("ciphertext"), false);
   assert.equal(json.includes("whsec_"), false);
+  assert.match(json, /"webhookSecretStatus":"Missing"/);
+  assert.match(json, /"status":"draft"/);
   assert.equal(planRotateCredentials({ legacyEnv: true }).error, LEGACY_MUTATION_DENIED);
   assert.deepEqual(planRotateCredentials({ legacyEnv: false }), { ok: true });
 });
@@ -280,6 +311,148 @@ test("credential status mapping", () => {
   assert.equal(credentialStatus({ legacyEnv: true, credentialsPresent: true }), "legacy_environment");
   assert.equal(credentialStatus({ legacyEnv: false, credentialsPresent: true }), "configured");
   assert.equal(credentialStatus({ legacyEnv: false, credentialsPresent: false }), "not_configured");
+  assert.equal(fieldCredentialLabel({ legacyEnv: true, configured: false }), "Legacy environment");
+  assert.equal(fieldCredentialLabel({ legacyEnv: false, configured: true }), "Configured");
+  assert.equal(fieldCredentialLabel({ legacyEnv: false, configured: false }), "Missing");
+});
+
+test("A. new integration can be created as draft without webhook secret", () => {
+  const planned = planNewIntegrationRow({ name: "Draft account", actorId: "user-1", trackingMode: "all" });
+  assert.equal("error" in planned, false);
+  if (!("error" in planned)) {
+    assert.equal(planned.row.webhook_secret_configured, false);
+    assert.equal(planned.row.status, "draft");
+  }
+  assert.equal(wizardSource.includes("webhook_secret"), false);
+  assert.equal(wizardSource.includes("SendPilot webhook signing secret"), false);
+  assert.match(actionsSource, /if \(!apiKey\.trim\(\)\) return \{ error: "Enter a SendPilot API key\." \}/);
+  assert.equal(actionsSource.includes("Enter the API key and webhook signing secret."), false);
+});
+
+test("B/C. draft UUID exists before webhook setup and dynamic URL uses it", () => {
+  assert.equal(
+    webhookUrlForIntegration({ id: DRAFT_ID, legacyEnv: false, baseUrl: "https://sales.example.test" }),
+    `https://sales.example.test/api/sendpilot/webhook/${DRAFT_ID}`,
+  );
+  assert.match(actionsSource, /redirect\(`\/settings\/sendpilot\/\$\{integrationId\}`\)/);
+  assert.match(detailPage, /CopyWebhookUrl/);
+});
+
+test("D/E. API key is stored encrypted and webhook secret can be added later", () => {
+  assert.match(actionsSource, /upsertEncryptedCredentials\(integrationId, \{ apiKey: apiKey\.trim\(\) \}\)/);
+  assert.match(actionsSource, /export async function saveSendPilotWebhookSecret/);
+  assert.match(manageUi, /Webhook Signing Secret/);
+});
+
+test("F/G. partial credential updates preserve the other ciphertext", () => {
+  const existing = {
+    api_key_ciphertext: "v1.keep-api",
+    webhook_secret_ciphertext: "v1.keep-webhook",
+  };
+  const webhookOnly = planPartialCredentialUpdate({
+    existing,
+    webhookSecret: "whsec_new",
+  });
+  assert.equal(webhookOnly.preservesApiKey, true);
+  assert.equal(webhookOnly.nextApi, "existing");
+  assert.equal(webhookOnly.nextWebhook, "incoming");
+  const apiOnly = planPartialCredentialUpdate({
+    existing,
+    apiKey: "sp_new",
+  });
+  assert.equal(apiOnly.preservesWebhookSecret, true);
+  assert.equal(apiOnly.nextWebhook, "existing");
+  assert.equal(apiOnly.nextApi, "incoming");
+});
+
+test("H. credential values and ciphertext never return to browser UI", () => {
+  assert.equal(manageUi.includes("ciphertext"), false);
+  assert.equal(detailPage.includes("whsec_"), false);
+  assert.equal(wizardSource.includes("ciphertext"), false);
+  assert.match(manageUi, /Webhook secret: Configured/);
+});
+
+test("I. new integration remains draft after credentials are configured", () => {
+  const view = toSafeIntegrationView({
+    id: DRAFT_ID,
+    name: "Draft",
+    workspaceId: null,
+    status: "draft",
+    trackingMode: "all",
+    legacyEnv: false,
+    credentialsPresent: true,
+    apiKeyConfigured: true,
+    webhookSecretConfigured: true,
+    lastWebhookAt: null,
+    lastCampaignSyncAt: null,
+    createdAt: null,
+    campaignCount: 0,
+    trackedCount: 0,
+  });
+  assert.equal(view.status, "draft");
+  assert.equal(view.crmSyncEnabled, false);
+});
+
+test("J/K/L. activation is denied when readiness is incomplete", () => {
+  const missingKey = readyActivation({ apiKeyConfigured: false });
+  const missingSecret = readyActivation({ webhookSecretConfigured: false });
+  const badTracking = readyActivation({ trackingMode: "selected", selectedCampaignIds: [] });
+  assert.equal("error" in missingKey && missingKey.error, ACTIVATION_API_KEY_MISSING);
+  assert.equal("error" in missingSecret && missingSecret.error, ACTIVATION_WEBHOOK_SECRET_MISSING);
+  assert.equal("error" in badTracking && badTracking.error, ACTIVATION_TRACKING_INVALID);
+});
+
+test("M. activation succeeds only when readiness requirements pass", () => {
+  const planned = readyActivation();
+  assert.equal("error" in planned, false);
+  if (!("error" in planned)) assert.equal(planned.patch.status, "active");
+  assert.match(actionsSource, /action: "integration_activated"/);
+  assert.match(manageUi, /Activate Integration/);
+});
+
+test("N. sales_lead authorization required for mutations", () => {
+  assert.equal(authorizeSendPilotMutation("sales_lead").ok, true);
+  assert.equal(authorizeSendPilotMutation("recruiter").ok, false);
+  assert.match(actionsSource, /saveSendPilotWebhookSecret/);
+  assert.match(actionsSource, /if \(!auth\.ok\) return \{ error: auth\.error \}/);
+});
+
+test("O/P. Realynk Main cannot be mutated through non-legacy controls", () => {
+  const legacyActivate = readyActivation({ legacyEnv: true, status: "active" });
+  assert.equal("error" in legacyActivate && legacyActivate.error, LEGACY_MUTATION_DENIED);
+  assert.equal("error" in planDisable({ legacyEnv: true, status: "active", nowIso: "2026-10-07T00:00:00.000Z" }), true);
+  assert.equal("error" in planRemove({ legacyEnv: true, nowIso: "2026-10-07T00:00:00.000Z" }), true);
+  assert.equal(planRotateCredentials({ legacyEnv: true }).error, LEGACY_MUTATION_DENIED);
+  assert.equal(webhookPathForIntegration({ id: DRAFT_ID, legacyEnv: true }), "/api/sendpilot/webhook");
+  assert.match(detailPage, /existing Realynk Main webhook/);
+});
+
+test("Q. no campaign-list endpoint is invented", () => {
+  assert.equal(clientSource.includes("/campaigns"), false);
+  assert.match(manageUi, /CAMPAIGN_SYNC_UNAVAILABLE_MESSAGE/);
+});
+
+test("Phase 5.1 migration is additive and does not expose secrets", () => {
+  assert.match(phase51Migration, /api_key_configured/);
+  assert.match(phase51Migration, /webhook_secret_configured/);
+  assert.equal(/drop table/i.test(phase51Migration), false);
+  assert.equal(/delete from/i.test(phase51Migration), false);
+  assert.match(phase51Migration, /legacy_env = false/);
+  assert.match(eventsSource, /lead\.tag\.updated/);
+  assert.match(eventsSource, /lead\.updated/);
+  assert.match(eventsSource, /reply\.received/);
+  assert.match(manageUi, /SUPPORTED_SENDPILOT_EVENTS/);
+});
+
+test("credential flags follow ciphertext presence", () => {
+  assert.deepEqual(
+    credentialFlagsFromCiphertext({ api_key_ciphertext: "v1.a", webhook_secret_ciphertext: null }),
+    { api_key_configured: true, webhook_secret_configured: false, credentials_present: false },
+  );
+  assert.deepEqual(
+    credentialFlagsFromCiphertext({ api_key_ciphertext: "v1.a", webhook_secret_ciphertext: "v1.b" }),
+    { api_key_configured: true, webhook_secret_configured: true, credentials_present: true },
+  );
 });
 
 function encryptable() {

@@ -14,7 +14,7 @@ export default async function NewSendPilotIntegrationPage() {
         back={{ href: "/settings/sendpilot", label: "Back to SendPilot" }}
         eyebrow="Integrations"
         title="Add SendPilot Account"
-        description="Creates a draft integration only. CRM synchronization stays off. Do not connect a live second SendPilot webhook from this screen during review."
+        description="Create a draft account first. The unique webhook URL appears after save so you can create the SendPilot webhook and paste the signing secret afterward."
       />
       {canManage ? (
         <SendPilotAccountWizard />

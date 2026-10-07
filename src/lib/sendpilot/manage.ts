@@ -1,17 +1,28 @@
 import { resolveSendPilotApiAuth } from "./client";
-import { canManageSendPilotCredentials } from "./credentials";
 import { planCampaignSync } from "./campaign-sync";
 import {
-  ACTIVATION_BLOCKED,
+  ACTIVATION_ALREADY_ACTIVE,
+  ACTIVATION_API_KEY_MISSING,
+  ACTIVATION_CRM_PATH_UNAVAILABLE,
+  ACTIVATION_TRACKING_INVALID,
+  ACTIVATION_WEBHOOK_SECRET_MISSING,
+  ACTIVATION_WEBHOOK_URL_UNAVAILABLE,
   INTEGRATION_NOT_FOUND,
   LEGACY_MUTATION_DENIED,
   SELECTED_REQUIRES_CAMPAIGN,
   SENDPILOT_ADMIN_DENIED,
 } from "./manage-copy";
-import { shouldApplyCrm } from "./policy";
+import { isUuid, shouldApplyCrm } from "./policy";
 
 export {
+  ACTIVATION_ALREADY_ACTIVE,
+  ACTIVATION_API_KEY_MISSING,
   ACTIVATION_BLOCKED,
+  ACTIVATION_CRM_PATH_UNAVAILABLE,
+  ACTIVATION_TRACKING_INVALID,
+  ACTIVATION_WEBHOOK_SECRET_MISSING,
+  ACTIVATION_WEBHOOK_URL_UNAVAILABLE,
+  API_KEY_SAVED_MESSAGE,
   CRM_NOT_ENABLED_MESSAGE,
   ENCRYPTION_NOT_CONFIGURED,
   INTEGRATION_NOT_FOUND,
@@ -19,7 +30,12 @@ export {
   LEGACY_PROTECTED_MESSAGE,
   SELECTED_REQUIRES_CAMPAIGN,
   SENDPILOT_ADMIN_DENIED,
+  TRACKING_ONBOARDING_MESSAGE,
+  WEBHOOK_SECRET_SAVED_MESSAGE,
+  WEBHOOK_SETUP_MESSAGE,
 } from "./manage-copy";
+
+export const PHASE_5_SCOPED_MATCHING_AVAILABLE = true;
 
 export const DEFAULT_NEW_STATUS = "draft" as const;
 
@@ -52,6 +68,8 @@ export type SafeIntegrationView = {
   trackingMode: TrackingMode;
   legacyEnv: boolean;
   credentialStatus: CredentialStatus;
+  apiKeyConfigured: boolean;
+  webhookSecretConfigured: boolean;
   lastWebhookAt: string | null;
   lastCampaignSyncAt: string | null;
   createdAt: string | null;
@@ -61,7 +79,7 @@ export type SafeIntegrationView = {
 };
 
 export function authorizeSendPilotMutation(role: string | null | undefined): { ok: true } | { ok: false; error: string } {
-  if (!canManageSendPilotCredentials(role)) return { ok: false, error: SENDPILOT_ADMIN_DENIED };
+  if (role !== "sales_lead") return { ok: false, error: SENDPILOT_ADMIN_DENIED };
   return { ok: true };
 }
 
@@ -75,6 +93,11 @@ export function credentialStatusLabel(status: CredentialStatus) {
   if (status === "legacy_environment") return "Legacy environment";
   if (status === "configured") return "Configured";
   return "Not configured";
+}
+
+export function fieldCredentialLabel(input: { legacyEnv: boolean; configured: boolean }) {
+  if (input.legacyEnv) return "Legacy environment";
+  return input.configured ? "Configured" : "Missing";
 }
 
 export function webhookPathForIntegration(input: { id: string; legacyEnv: boolean }) {
@@ -139,14 +162,45 @@ export function planNewIntegrationRow(input: {
       tracking_mode: input.trackingMode,
       legacy_env: false,
       created_by: input.actorId,
-      credentials_present: true,
+      credentials_present: false,
+      api_key_configured: false,
+      webhook_secret_configured: false,
     },
   } as const;
 }
 
-export function planActivation(input: { legacyEnv: boolean; status: string }) {
-  void input;
-  return { error: ACTIVATION_BLOCKED } as const;
+export type ActivationPlanInput = {
+  legacyEnv: boolean;
+  status: string;
+  apiKeyConfigured: boolean;
+  webhookSecretConfigured: boolean;
+  trackingMode: string;
+  selectedCampaignIds: string[];
+  integrationId: string;
+  scopedMatchingEnabled?: boolean;
+};
+
+export function planActivation(input: ActivationPlanInput) {
+  if (input.legacyEnv) return { error: LEGACY_MUTATION_DENIED } as const;
+  if (input.status === "removed") return { error: INTEGRATION_NOT_FOUND } as const;
+  if (input.status === "active") return { error: ACTIVATION_ALREADY_ACTIVE } as const;
+  if (!input.apiKeyConfigured) return { error: ACTIVATION_API_KEY_MISSING } as const;
+  if (!input.webhookSecretConfigured) return { error: ACTIVATION_WEBHOOK_SECRET_MISSING } as const;
+  if (!isUuid(input.integrationId)) return { error: ACTIVATION_WEBHOOK_URL_UNAVAILABLE } as const;
+  const tracking = planTrackingModeChange({
+    legacyEnv: input.legacyEnv,
+    mode: input.trackingMode,
+    selectedCampaignIds: input.selectedCampaignIds,
+  });
+  if ("error" in tracking) return { error: ACTIVATION_TRACKING_INVALID } as const;
+  if (!(input.scopedMatchingEnabled ?? PHASE_5_SCOPED_MATCHING_AVAILABLE)) {
+    return { error: ACTIVATION_CRM_PATH_UNAVAILABLE } as const;
+  }
+  return {
+    patch: {
+      status: "active" as const,
+    },
+  };
 }
 
 export function planDisable(input: { legacyEnv: boolean; status: string; nowIso: string }) {
@@ -278,6 +332,19 @@ export function apiAuthForCampaignSync(input: {
   return auth;
 }
 
+export function credentialFlagsFromCiphertext(row: {
+  api_key_ciphertext: string | null;
+  webhook_secret_ciphertext: string | null;
+}) {
+  const apiKeyConfigured = Boolean(row.api_key_ciphertext?.trim());
+  const webhookSecretConfigured = Boolean(row.webhook_secret_ciphertext?.trim());
+  return {
+    api_key_configured: apiKeyConfigured,
+    webhook_secret_configured: webhookSecretConfigured,
+    credentials_present: apiKeyConfigured && webhookSecretConfigured,
+  };
+}
+
 export function toSafeIntegrationView(input: {
   id: string;
   name: string;
@@ -286,6 +353,8 @@ export function toSafeIntegrationView(input: {
   trackingMode: string;
   legacyEnv: boolean;
   credentialsPresent: boolean;
+  apiKeyConfigured?: boolean;
+  webhookSecretConfigured?: boolean;
   lastWebhookAt: string | null;
   lastCampaignSyncAt: string | null;
   createdAt: string | null;
@@ -293,6 +362,8 @@ export function toSafeIntegrationView(input: {
   trackedCount: number;
 }): SafeIntegrationView {
   const trackingMode = parseTrackingMode(input.trackingMode) ?? "all";
+  const apiKeyConfigured = input.apiKeyConfigured ?? input.credentialsPresent;
+  const webhookSecretConfigured = input.webhookSecretConfigured ?? input.credentialsPresent;
   return {
     id: input.id,
     name: input.name,
@@ -302,8 +373,10 @@ export function toSafeIntegrationView(input: {
     legacyEnv: input.legacyEnv,
     credentialStatus: credentialStatus({
       legacyEnv: input.legacyEnv,
-      credentialsPresent: input.credentialsPresent,
+      credentialsPresent: apiKeyConfigured && webhookSecretConfigured,
     }),
+    apiKeyConfigured,
+    webhookSecretConfigured,
     lastWebhookAt: input.lastWebhookAt,
     lastCampaignSyncAt: input.lastCampaignSyncAt,
     createdAt: input.createdAt,
@@ -345,7 +418,7 @@ export function planCreateAudits(input: {
     {
       action: "credentials_saved",
       campaign_id: null,
-      metadata: sanitizeAuditMetadata({ source: "settings_wizard" }),
+      metadata: sanitizeAuditMetadata({ source: "settings_create", credential: "api_key" }),
     },
     {
       action: "tracking_mode_changed",
@@ -363,6 +436,8 @@ export function planSafeSaveResult(input: {
   name: string;
   trackingMode: TrackingMode;
   webhookUrl: string;
+  apiKeyConfigured?: boolean;
+  webhookSecretConfigured?: boolean;
 }) {
   return assertSafeClientPayload({
     id: input.id,
@@ -370,8 +445,24 @@ export function planSafeSaveResult(input: {
     status: DEFAULT_NEW_STATUS,
     trackingMode: input.trackingMode,
     webhookUrl: input.webhookUrl,
-    credentialStatus: "configured",
+    apiKeyStatus: input.apiKeyConfigured ? "Configured" : "Missing",
+    webhookSecretStatus: input.webhookSecretConfigured ? "Configured" : "Missing",
+    credentialStatus: input.apiKeyConfigured && input.webhookSecretConfigured ? "configured" : "not_configured",
     crmSyncEnabled: false,
     workspaceVerified: false,
   });
+}
+
+export function planPartialCredentialUpdate(input: {
+  existing: { api_key_ciphertext: string | null; webhook_secret_ciphertext: string | null } | undefined;
+  apiKey?: string | null;
+  webhookSecret?: string | null;
+}) {
+  const nextApi = input.apiKey?.trim() ? "incoming" : input.existing?.api_key_ciphertext?.trim() ? "existing" : "none";
+  const nextWebhook = input.webhookSecret?.trim()
+    ? "incoming"
+    : input.existing?.webhook_secret_ciphertext?.trim()
+      ? "existing"
+      : "none";
+  return { preservesApiKey: nextApi !== "none", preservesWebhookSecret: nextWebhook !== "none", nextApi, nextWebhook };
 }

@@ -102,6 +102,47 @@ test("non-legacy API key does not fall back to the Account 1 env key", () => {
   }
 });
 
+test("adding a webhook secret preserves the existing API key ciphertext", () => {
+  const previous = process.env.SENDPILOT_SECRETS_ENCRYPTION_KEY;
+  process.env.SENDPILOT_SECRETS_ENCRYPTION_KEY = KEY;
+  try {
+    const existingApi = encryptSecret("sp_keep_api");
+    const row = buildCredentialCiphertextRow({
+      integrationId: INTEGRATION.id,
+      webhookSecret: "whsec_added_later",
+      existing: { api_key_ciphertext: existingApi, webhook_secret_ciphertext: null },
+      nowIso: "2026-10-07T00:00:00.000Z",
+    });
+    assert.equal(row.api_key_ciphertext, existingApi);
+    assert.match(row.webhook_secret_ciphertext ?? "", /^v1\./);
+    assert.equal(row.webhook_secret_ciphertext?.includes("whsec_added_later"), false);
+    assert.equal(row.api_key_ciphertext?.includes("sp_keep_api"), false);
+  } finally {
+    if (previous === undefined) delete process.env.SENDPILOT_SECRETS_ENCRYPTION_KEY;
+    else process.env.SENDPILOT_SECRETS_ENCRYPTION_KEY = previous;
+  }
+});
+
+test("rotating the API key preserves the existing webhook secret ciphertext", () => {
+  const previous = process.env.SENDPILOT_SECRETS_ENCRYPTION_KEY;
+  process.env.SENDPILOT_SECRETS_ENCRYPTION_KEY = KEY;
+  try {
+    const existingWebhook = encryptSecret("whsec_keep");
+    const row = buildCredentialCiphertextRow({
+      integrationId: INTEGRATION.id,
+      apiKey: "sp_rotated",
+      existing: { api_key_ciphertext: "v1.old-api", webhook_secret_ciphertext: existingWebhook },
+      nowIso: "2026-10-07T00:00:00.000Z",
+    });
+    assert.equal(row.webhook_secret_ciphertext, existingWebhook);
+    assert.notEqual(row.api_key_ciphertext, "v1.old-api");
+    assert.equal(row.api_key_ciphertext?.includes("sp_rotated"), false);
+  } finally {
+    if (previous === undefined) delete process.env.SENDPILOT_SECRETS_ENCRYPTION_KEY;
+    else process.env.SENDPILOT_SECRETS_ENCRYPTION_KEY = previous;
+  }
+});
+
 test("credential rows store ciphertext and never plaintext", () => {
   const previous = process.env.SENDPILOT_SECRETS_ENCRYPTION_KEY;
   process.env.SENDPILOT_SECRETS_ENCRYPTION_KEY = KEY;
