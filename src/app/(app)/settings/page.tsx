@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { controlClass, Field, PageHeader } from "@/components/bits";
 import { ActionForm, SubmitButton } from "@/components/forms";
 import { getSettings } from "@/lib/data";
@@ -20,11 +21,19 @@ export default async function SettingsPage() {
         <SubmitButton>Save thresholds</SubmitButton>
       </ActionForm>
       <section className="max-w-xl rounded-xl border border-border bg-card p-4">
-        <h2 className="text-sm font-semibold">SendPilot</h2>
+        <h2 className="text-sm font-semibold">Integrations</h2>
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+          SendPilot account configuration lives on its own page so credentials are never shown in this form.
+        </p>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">{integration.message}</p>
         <p className="mt-2 text-sm">
           File import is ready. Server-side API {integration.apiEnabled ? "is enabled" : "is not enabled"}.
-          Webhook signature {integration.webhookConfigured ? "is configured" : "is not configured"}.
+          Legacy webhook signature {integration.webhookConfigured ? "is configured" : "is not configured"}.
+        </p>
+        <p className="mt-3">
+          <Link className="text-sm font-medium text-primary" href="/settings/sendpilot">
+            Open SendPilot Integrations
+          </Link>
         </p>
       </section>
       <ActionForm action={updateProfile} className="grid max-w-xl gap-3 rounded-xl border border-border bg-card p-4">
