@@ -2,13 +2,11 @@ import Link from "next/link";
 import { controlClass, Field, PageHeader } from "@/components/bits";
 import { ActionForm, SubmitButton } from "@/components/forms";
 import { getSettings } from "@/lib/data";
-import { sendPilotIntegrationStatus } from "@/lib/env";
 import { saveSettings, updateProfile } from "@/server/actions";
 import { requireUser } from "@/server/session";
 
 export default async function SettingsPage() {
   const [settings, session] = await Promise.all([getSettings(), requireUser()]);
-  const integration = sendPilotIntegrationStatus();
   return (
     <div className="space-y-6">
       <PageHeader eyebrow="Workspace" title="Settings" description="How soon a reminder is treated as approaching, and when a card is called stale." />
@@ -22,17 +20,10 @@ export default async function SettingsPage() {
       </ActionForm>
       <section className="max-w-xl rounded-xl border border-border bg-card p-4">
         <h2 className="text-sm font-semibold">Integrations</h2>
-        <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          SendPilot account configuration lives on its own page so credentials are never shown in this form.
-        </p>
-        <p className="mt-2 text-sm leading-6 text-muted-foreground">{integration.message}</p>
-        <p className="mt-2 text-sm">
-          File import is ready. Server-side API {integration.apiEnabled ? "is enabled" : "is not enabled"}.
-          Legacy webhook signature {integration.webhookConfigured ? "is configured" : "is not configured"}.
-        </p>
+        <p className="mt-2 text-sm text-muted-foreground">Connect SendPilot accounts here.</p>
         <p className="mt-3">
           <Link className="text-sm font-medium text-primary" href="/settings/sendpilot">
-            Open SendPilot Integrations
+            Open SendPilot
           </Link>
         </p>
       </section>
