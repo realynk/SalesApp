@@ -6,8 +6,12 @@ import {
   normalizeName,
   type ActivityType,
 } from "@/lib/domain";
-import { loadSendPilotLead, type SendPilotLead } from "@/lib/sendpilot/client";
-import { isSendPilotApiConfigured } from "@/lib/sendpilot/config";
+import { loadSendPilotLead, resolveSendPilotApiAuth, type SendPilotLead } from "@/lib/sendpilot/client";
+import {
+  campaignGate,
+  integrationStatusIgnoreReason,
+  shouldApplyCrm,
+} from "@/lib/sendpilot/policy";
 import {
   extractSendPilotIdentifiers,
   isSupportedSendPilotEvent,
@@ -636,7 +640,31 @@ async function writeSyncAndRecord(
   });
 }
 
-export async function applySendPilotWebhook(rawBody: string): Promise<ApplyResult> {
+export type ApplySendPilotWebhookContext = {
+  integration?: LegacySendPilotIntegration;
+  apiKey?: string | null;
+};
+
+async function campaignIsTracked(
+  supabase: SupabaseClient,
+  integrationId: string,
+  campaignId: string | null,
+) {
+  if (!campaignId) return false;
+  const { data, error } = await supabase
+    .from("sendpilot_campaign_tracking")
+    .select("tracked")
+    .eq("integration_id", integrationId)
+    .eq("sendpilot_campaign_id", campaignId)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.tracked === true;
+}
+
+export async function applySendPilotWebhook(
+  rawBody: string,
+  context: ApplySendPilotWebhookContext = {},
+): Promise<ApplyResult> {
   if (!supabaseServiceRoleKey()) {
     return {
       httpStatus: 503,
@@ -659,27 +687,31 @@ export async function applySendPilotWebhook(rawBody: string): Promise<ApplyResul
   const supabase = createAdminClient();
 
   let integration: LegacySendPilotIntegration;
-  try {
-    const loaded = await loadLegacySendPilotIntegration(supabase);
-    if (!loaded) {
-      console.error("[sendpilot.webhook]", { eventId, eventType, outcome: "legacy_integration_missing" });
+  if (context.integration) {
+    integration = context.integration;
+  } else {
+    try {
+      const loaded = await loadLegacySendPilotIntegration(supabase);
+      if (!loaded) {
+        console.error("[sendpilot.webhook]", { eventId, eventType, outcome: "legacy_integration_missing" });
+        return {
+          httpStatus: 503,
+          body: { error: "SendPilot webhooks need the legacy integration to apply events." },
+        };
+      }
+      integration = loaded;
+    } catch (error) {
+      console.error("[sendpilot.webhook]", {
+        eventId,
+        eventType,
+        outcome: "legacy_integration_lookup_failed",
+        error: asErrorMessage(error),
+      });
       return {
         httpStatus: 503,
-        body: { error: "SendPilot webhooks need the legacy integration to apply events." },
+        body: { error: "SendPilot webhooks could not load the legacy integration." },
       };
     }
-    integration = loaded;
-  } catch (error) {
-    console.error("[sendpilot.webhook]", {
-      eventId,
-      eventType,
-      outcome: "legacy_integration_lookup_failed",
-      error: asErrorMessage(error),
-    });
-    return {
-      httpStatus: 503,
-      body: { error: "SendPilot webhooks could not load the legacy integration." },
-    };
   }
 
   const payloadCampaignId = extractSendPilotIdentifiers(envelope.data).campaignId;
@@ -712,6 +744,23 @@ export async function applySendPilotWebhook(rawBody: string): Promise<ApplyResul
       };
     }
 
+    const statusReason = integrationStatusIgnoreReason(integration.status);
+    if (statusReason) {
+      await finishEvent(supabase, {
+        eventId,
+        status: "ignored",
+        result: { reason: statusReason },
+        integrationId: integration.id,
+        eventType,
+        campaignId: payloadCampaignId,
+      });
+      console.info("[sendpilot.webhook]", { eventId, eventType, outcome: statusReason });
+      return {
+        httpStatus: 200,
+        body: { ok: true, ignored: true, reason: statusReason, eventId, eventType },
+      };
+    }
+
     if (!isSupportedSendPilotEvent(eventType)) {
       await finishEvent(supabase, {
         eventId,
@@ -726,10 +775,14 @@ export async function applySendPilotWebhook(rawBody: string): Promise<ApplyResul
     }
 
     const payloadIds = extractSendPilotIdentifiers(envelope.data);
+    const apiAuth = resolveSendPilotApiAuth({
+      integrationApiKey: context.apiKey,
+      allowLegacyEnvFallback: integration.legacyEnv,
+    });
     let apiLead: SendPilotLead | null = null;
-    if (payloadIds.leadId && isSendPilotApiConfigured()) {
+    if (payloadIds.leadId && apiAuth) {
       try {
-        apiLead = await loadSendPilotLead(payloadIds.leadId, payloadIds.campaignId);
+        apiLead = await loadSendPilotLead(payloadIds.leadId, payloadIds.campaignId, apiAuth);
       } catch (error) {
         console.error("[sendpilot.webhook]", {
           eventId,
@@ -738,7 +791,7 @@ export async function applySendPilotWebhook(rawBody: string): Promise<ApplyResul
           error: asErrorMessage(error),
         });
       }
-    } else if (payloadIds.leadId && !isSendPilotApiConfigured()) {
+    } else if (payloadIds.leadId && !apiAuth) {
       console.info("[sendpilot.webhook]", { eventId, eventType, outcome: "api_not_configured" });
     }
 
@@ -766,6 +819,47 @@ export async function applySendPilotWebhook(rawBody: string): Promise<ApplyResul
         .from("sendpilot_webhook_events")
         .update({ campaign_id: ids.campaignId })
         .eq("event_id", eventId);
+    }
+
+    const tracked = integration.legacyEnv
+      ? true
+      : await campaignIsTracked(supabase, integration.id, ids.campaignId);
+    const campaigns = campaignGate({
+      legacyEnv: integration.legacyEnv,
+      trackingMode: integration.trackingMode,
+      campaignId: ids.campaignId,
+      tracked,
+    });
+    if (!campaigns.allow) {
+      await finishEvent(supabase, {
+        eventId,
+        status: "ignored",
+        result: { reason: campaigns.reason },
+        integrationId: integration.id,
+        eventType,
+        campaignId: ids.campaignId,
+      });
+      console.info("[sendpilot.webhook]", { eventId, eventType, outcome: campaigns.reason });
+      return {
+        httpStatus: 200,
+        body: { ok: true, ignored: true, reason: campaigns.reason, eventId, eventType },
+      };
+    }
+
+    if (!shouldApplyCrm(integration)) {
+      await finishEvent(supabase, {
+        eventId,
+        status: "ignored",
+        result: { reason: "crm_apply_not_enabled" },
+        integrationId: integration.id,
+        eventType,
+        campaignId: ids.campaignId,
+      });
+      console.info("[sendpilot.webhook]", { eventId, eventType, outcome: "crm_apply_not_enabled" });
+      return {
+        httpStatus: 200,
+        body: { ok: true, ignored: true, reason: "crm_apply_not_enabled", eventId, eventType },
+      };
     }
 
     if (!ids.leadId && !ids.linkedinUrl && !ids.email) {

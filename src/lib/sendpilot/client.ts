@@ -1,4 +1,4 @@
-import { isSendPilotApiConfigured, sendpilotApiBaseUrl, sendpilotApiKey } from "./config";
+import { sendpilotApiBaseUrl, sendpilotApiKey } from "./config";
 
 export class SendPilotApiError extends Error {
   constructor(
@@ -9,6 +9,10 @@ export class SendPilotApiError extends Error {
     this.name = "SendPilotApiError";
   }
 }
+
+export type SendPilotApiAuth = {
+  apiKey: string;
+};
 
 export type SendPilotLead = {
   id: string;
@@ -29,6 +33,19 @@ function stringValue(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const cleaned = value.trim();
   return cleaned || null;
+}
+
+export function resolveSendPilotApiAuth(input: {
+  integrationApiKey?: string | null;
+  allowLegacyEnvFallback: boolean;
+}): SendPilotApiAuth | null {
+  const fromIntegration = input.integrationApiKey?.trim() || "";
+  if (fromIntegration) return { apiKey: fromIntegration };
+  if (input.allowLegacyEnvFallback) {
+    const fallback = sendpilotApiKey();
+    if (fallback) return { apiKey: fallback };
+  }
+  return null;
 }
 
 export function parseSendPilotLead(value: unknown): SendPilotLead | null {
@@ -70,9 +87,9 @@ function mergeLeads(primary: SendPilotLead, extra: SendPilotLead | null): SendPi
   };
 }
 
-async function sendpilotFetch(path: string): Promise<unknown> {
+async function sendpilotFetch(path: string, auth: SendPilotApiAuth): Promise<unknown> {
   const base = sendpilotApiBaseUrl();
-  const key = sendpilotApiKey();
+  const key = auth.apiKey.trim();
   if (!base || !key) {
     throw new SendPilotApiError("SendPilot API is not configured.", 503);
   }
@@ -102,12 +119,16 @@ async function sendpilotFetch(path: string): Promise<unknown> {
   return body;
 }
 
-export async function getSendPilotLeadById(leadId: string): Promise<SendPilotLead | null> {
-  const body = await sendpilotFetch(`/leads/${encodeURIComponent(leadId)}`);
+export async function getSendPilotLeadById(leadId: string, auth: SendPilotApiAuth): Promise<SendPilotLead | null> {
+  const body = await sendpilotFetch(`/leads/${encodeURIComponent(leadId)}`, auth);
   return parseSendPilotLead(body);
 }
 
-export async function findSendPilotLeadInCampaign(campaignId: string, leadId: string): Promise<SendPilotLead | null> {
+export async function findSendPilotLeadInCampaign(
+  campaignId: string,
+  leadId: string,
+  auth: SendPilotApiAuth,
+): Promise<SendPilotLead | null> {
   for (let page = 1; page <= 5; page += 1) {
     const params = new URLSearchParams({
       campaignId,
@@ -115,7 +136,7 @@ export async function findSendPilotLeadInCampaign(campaignId: string, leadId: st
       page: String(page),
       limit: "100",
     });
-    const body = await sendpilotFetch(`/leads?${params.toString()}`);
+    const body = await sendpilotFetch(`/leads?${params.toString()}`, auth);
     const leads = body && typeof body === "object" && Array.isArray((body as { leads?: unknown }).leads)
       ? (body as { leads: unknown[] }).leads
       : [];
@@ -128,15 +149,19 @@ export async function findSendPilotLeadInCampaign(campaignId: string, leadId: st
   return null;
 }
 
-export async function loadSendPilotLead(leadId: string, campaignId?: string | null): Promise<SendPilotLead | null> {
-  if (!isSendPilotApiConfigured()) return null;
-  const lead = await getSendPilotLeadById(leadId);
+export async function loadSendPilotLead(
+  leadId: string,
+  campaignId: string | null | undefined,
+  auth: SendPilotApiAuth | null,
+): Promise<SendPilotLead | null> {
+  if (!auth?.apiKey.trim() || !sendpilotApiBaseUrl()) return null;
+  const lead = await getSendPilotLeadById(leadId, auth);
   if (!lead) return null;
   if (lead.customLeadStatus && lead.email) return lead;
   const campaign = campaignId || lead.campaignId;
   if (!campaign) return lead;
   try {
-    const detailed = await findSendPilotLeadInCampaign(campaign, leadId);
+    const detailed = await findSendPilotLeadInCampaign(campaign, leadId, auth);
     return mergeLeads(lead, detailed);
   } catch (error) {
     console.error("[sendpilot.api]", {

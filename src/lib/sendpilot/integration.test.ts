@@ -241,10 +241,12 @@ test("Phase 2 keeps the legacy webhook URL, Svix-first verify, env secrets, and 
   assert.match(applySource, /\.eq\("sendpilot_lead_id", sendpilotLeadId\)/);
   assert.match(applySource, /classifyWebhookIdentityMatch/);
   assert.match(applySource, /shouldCreateUnmatchedWebhookLead/);
-  assert.equal(/trackingMode === ["']selected["']/.test(applySource), false);
-  assert.equal(/campaign_not_tracked/.test(applySource), false);
+  assert.match(applySource, /shouldApplyCrm\(integration\)/);
+  assert.match(applySource, /allowLegacyEnvFallback: integration.legacyEnv/);
   assert.match(envExample, /^SENDPILOT_WEBHOOK_SECRET=/m);
   assert.match(envExample, /^SENDPILOT_API_KEY=/m);
   assert.match(envExample, /^SENDPILOT_API_BASE_URL=/m);
-  assert.equal(/SENDPILOT_SECRETS_ENCRYPTION_KEY|SENDPILOT_API_KEY_2|SENDPILOT_WEBHOOK_SECRET_2/.test(envExample), false);
+  assert.match(envExample, /^SENDPILOT_SECRETS_ENCRYPTION_KEY=/m);
+  assert.equal(/SENDPILOT_API_KEY_2|SENDPILOT_WEBHOOK_SECRET_2/.test(envExample), false);
+  assert.equal(/NEXT_PUBLIC_SENDPILOT_SECRETS_ENCRYPTION_KEY/.test(envExample), false);
 });
