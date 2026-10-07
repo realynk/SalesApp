@@ -3,9 +3,11 @@ import { raiseIf } from "@/lib/errors";
 import { requireUser } from "@/server/session";
 import { canManageSendPilotCredentials } from "./credentials";
 import {
+  mapDiscoveredCampaigns,
   sanitizeAuditMetadata,
   toSafeIntegrationView,
   webhookUrlForIntegration,
+  type DiscoveredCampaignRow,
   type SafeIntegrationView,
 } from "./manage";
 
@@ -26,13 +28,7 @@ export type SendPilotAuditRow = {
   metadata: Record<string, unknown>;
 };
 
-export type SendPilotCampaignRow = {
-  sendpilotCampaignId: string;
-  name: string | null;
-  remoteStatus: string | null;
-  lastSeenAt: string | null;
-  tracked: boolean;
-};
+export type SendPilotCampaignRow = DiscoveredCampaignRow;
 
 export type SendPilotIntegrationDetail = SafeIntegrationView & {
   webhookUrl: string;
@@ -124,9 +120,9 @@ export async function loadSendPilotIntegrationDetail(id: string): Promise<SendPi
 
   const { data: campaigns, error: campaignError } = await supabase
     .from("sendpilot_campaigns")
-    .select("sendpilot_campaign_id, name, remote_status, last_seen_at")
+    .select("integration_id, sendpilot_campaign_id, name, remote_status, last_seen_at")
     .eq("integration_id", id)
-    .order("name", { ascending: true });
+    .order("sendpilot_campaign_id", { ascending: true });
   raiseIf(campaignError);
 
   const { data: tracking, error: trackingError } = await supabase
@@ -134,9 +130,12 @@ export async function loadSendPilotIntegrationDetail(id: string): Promise<SendPi
     .select("sendpilot_campaign_id, tracked")
     .eq("integration_id", id);
   raiseIf(trackingError);
-  const tracked = new Map(
-    (tracking ?? []).map((item) => [str((item as Row).sendpilot_campaign_id) ?? "", bool((item as Row).tracked)]),
-  );
+  const mappedCampaigns = mapDiscoveredCampaigns({
+    integrationId: id,
+    campaigns: (campaigns ?? []) as Row[],
+    tracking: (tracking ?? []) as Row[],
+    trackingMode: str(row.tracking_mode) || "all",
+  });
 
   const { data: audits, error: auditError } = await supabase
     .from("sendpilot_integration_audit")
@@ -159,8 +158,8 @@ export async function loadSendPilotIntegrationDetail(id: string): Promise<SendPi
     lastWebhookAt: str(row.last_webhook_at),
     lastCampaignSyncAt: str(row.last_campaign_sync_at),
     createdAt: str(row.created_at),
-    campaignCount: (campaigns ?? []).length,
-    trackedCount: [...tracked.values()].filter(Boolean).length,
+    campaignCount: mappedCampaigns.length,
+    trackedCount: mappedCampaigns.filter((campaign) => campaign.tracked).length,
   });
 
   return {
@@ -171,17 +170,7 @@ export async function loadSendPilotIntegrationDetail(id: string): Promise<SendPi
       baseUrl: publicAppBaseUrl(),
     }),
     lastWebhookEventType: str(row.last_webhook_event_type),
-    campaigns: (campaigns ?? []).map((item) => {
-      const campaign = item as Row;
-      const campaignId = str(campaign.sendpilot_campaign_id) || "";
-      return {
-        sendpilotCampaignId: campaignId,
-        name: str(campaign.name),
-        remoteStatus: str(campaign.remote_status),
-        lastSeenAt: str(campaign.last_seen_at),
-        tracked: tracked.get(campaignId) ?? view.trackingMode === "all",
-      };
-    }),
+    campaigns: mappedCampaigns,
     audits: (audits ?? []).map((item) => {
       const audit = item as Row;
       return {
