@@ -16,6 +16,14 @@ import {
   type SendPilotWebhookIdentifiers,
 } from "@/lib/sendpilot/events";
 import {
+  parseLegacySendPilotIntegration,
+  planIdentityDualWrite,
+  resolveWebhookCampaignId,
+  webhookActivityIntegrationMetadata,
+  workspaceMismatch,
+  type LegacySendPilotIntegration,
+} from "@/lib/sendpilot/integration";
+import {
   classifyWebhookIdentityMatch,
   createdWebhookStatusActivity,
   shouldCreateUnmatchedWebhookLead,
@@ -76,14 +84,32 @@ function eventKey(eventId: string | null, rawBody: string) {
   return `hash_${createHash("sha256").update(rawBody).digest("hex").slice(0, 40)}`;
 }
 
+async function loadLegacySendPilotIntegration(supabase: SupabaseClient): Promise<LegacySendPilotIntegration | null> {
+  const { data, error } = await supabase
+    .from("sendpilot_integrations")
+    .select("id, name, workspace_id, status, tracking_mode, legacy_env")
+    .eq("legacy_env", true)
+    .maybeSingle();
+  if (error) throw error;
+  return parseLegacySendPilotIntegration(data);
+}
+
 async function claimEvent(
   supabase: SupabaseClient,
-  input: { eventId: string; eventType: string; payload: unknown },
+  input: {
+    eventId: string;
+    eventType: string;
+    payload: unknown;
+    integrationId: string;
+    campaignId: string | null;
+  },
 ): Promise<"process" | "duplicate"> {
   const inserted = await supabase.from("sendpilot_webhook_events").insert({
     event_id: input.eventId,
     event_type: input.eventType,
     payload: input.payload ?? {},
+    integration_id: input.integrationId,
+    campaign_id: input.campaignId,
     status: "ignored",
     result: { phase: "received" },
   });
@@ -107,18 +133,176 @@ async function finishEvent(
     leadId?: string | null;
     result: Record<string, unknown>;
     error?: string | null;
+    campaignId?: string | null;
+    integrationId?: string;
+    eventType?: string;
   },
 ) {
-  await supabase
-    .from("sendpilot_webhook_events")
-    .update({
-      status: input.status,
-      lead_id: input.leadId ?? null,
-      result: input.result,
-      error: input.error ?? null,
-      processed_at: new Date().toISOString(),
-    })
-    .eq("event_id", input.eventId);
+  const patch: Record<string, unknown> = {
+    status: input.status,
+    lead_id: input.leadId ?? null,
+    result: input.result,
+    error: input.error ?? null,
+    processed_at: new Date().toISOString(),
+  };
+  if (input.campaignId !== undefined) patch.campaign_id = input.campaignId;
+  await supabase.from("sendpilot_webhook_events").update(patch).eq("event_id", input.eventId);
+  if (input.integrationId) {
+    const touched = await supabase
+      .from("sendpilot_integrations")
+      .update({
+        last_webhook_at: new Date().toISOString(),
+        last_webhook_event_type: input.eventType ?? null,
+      })
+      .eq("id", input.integrationId);
+    if (touched.error) {
+      console.error("[sendpilot.webhook]", {
+        eventId: input.eventId,
+        outcome: "integration_touch_skipped",
+        error: touched.error.message,
+      });
+    }
+  }
+}
+
+async function rememberCampaign(
+  supabase: SupabaseClient,
+  integrationId: string,
+  campaignId: string | null,
+) {
+  if (!campaignId) return;
+  const nowIso = new Date().toISOString();
+  const { error } = await supabase.from("sendpilot_campaigns").upsert(
+    {
+      integration_id: integrationId,
+      sendpilot_campaign_id: campaignId,
+      last_seen_at: nowIso,
+      updated_at: nowIso,
+    },
+    { onConflict: "integration_id,sendpilot_campaign_id" },
+  );
+  if (error) {
+    console.error("[sendpilot.webhook]", {
+      outcome: "campaign_cache_skipped",
+      error: error.message,
+    });
+  }
+}
+
+async function dualWriteLeadIdentity(
+  supabase: SupabaseClient,
+  input: {
+    integration: LegacySendPilotIntegration;
+    sendpilotLeadId: string | null;
+    resolvedLeadId: string | null;
+    campaignId: string | null;
+    eventId: string;
+  },
+) {
+  if (!input.sendpilotLeadId?.trim() || !input.resolvedLeadId?.trim()) return;
+  const { data, error } = await supabase
+    .from("sendpilot_lead_identities")
+    .select("lead_id, sendpilot_campaign_id")
+    .eq("integration_id", input.integration.id)
+    .eq("sendpilot_lead_id", input.sendpilotLeadId.trim())
+    .maybeSingle();
+  if (error) {
+    console.error("[sendpilot.webhook]", {
+      eventId: input.eventId,
+      outcome: "identity_lookup_skipped",
+      error: error.message,
+    });
+    return;
+  }
+  const decision = planIdentityDualWrite({
+    integrationId: input.integration.id,
+    sendpilotLeadId: input.sendpilotLeadId,
+    resolvedLeadId: input.resolvedLeadId,
+    campaignId: input.campaignId,
+    existing: data
+      ? {
+          leadId: data.lead_id ? String(data.lead_id) : null,
+          campaignId: data.sendpilot_campaign_id ? String(data.sendpilot_campaign_id) : null,
+        }
+      : null,
+    nowIso: new Date().toISOString(),
+  });
+  if (decision.action === "skip") return;
+  if (decision.action === "conflict") {
+    console.error("[sendpilot.webhook]", {
+      eventId: input.eventId,
+      outcome: "identity_conflict",
+      existingLeadId: decision.existingLeadId,
+      resolvedLeadId: decision.resolvedLeadId,
+    });
+    return;
+  }
+  if (decision.action === "insert") {
+    const inserted = await supabase.from("sendpilot_lead_identities").insert(decision.row);
+    if (!inserted.error) return;
+    if (inserted.error.code !== "23505") {
+      console.error("[sendpilot.webhook]", {
+        eventId: input.eventId,
+        outcome: "identity_insert_skipped",
+        error: inserted.error.message,
+      });
+      return;
+    }
+    const raced = await supabase
+      .from("sendpilot_lead_identities")
+      .select("lead_id, sendpilot_campaign_id")
+      .eq("integration_id", input.integration.id)
+      .eq("sendpilot_lead_id", input.sendpilotLeadId.trim())
+      .maybeSingle();
+    const retry = planIdentityDualWrite({
+      integrationId: input.integration.id,
+      sendpilotLeadId: input.sendpilotLeadId,
+      resolvedLeadId: input.resolvedLeadId,
+      campaignId: input.campaignId,
+      existing: raced.data
+        ? {
+            leadId: raced.data.lead_id ? String(raced.data.lead_id) : null,
+            campaignId: raced.data.sendpilot_campaign_id ? String(raced.data.sendpilot_campaign_id) : null,
+          }
+        : null,
+      nowIso: new Date().toISOString(),
+    });
+    if (retry.action === "conflict") {
+      console.error("[sendpilot.webhook]", {
+        eventId: input.eventId,
+        outcome: "identity_conflict",
+        existingLeadId: retry.existingLeadId,
+        resolvedLeadId: retry.resolvedLeadId,
+      });
+      return;
+    }
+    if (retry.action !== "update") return;
+    const racedUpdate = await supabase
+      .from("sendpilot_lead_identities")
+      .update(retry.patch)
+      .eq("integration_id", input.integration.id)
+      .eq("sendpilot_lead_id", input.sendpilotLeadId.trim());
+    if (racedUpdate.error) {
+      console.error("[sendpilot.webhook]", {
+        eventId: input.eventId,
+        outcome: "identity_update_skipped",
+        error: racedUpdate.error.message,
+      });
+    }
+    return;
+  }
+  const updated = await supabase
+    .from("sendpilot_lead_identities")
+    .update(decision.patch)
+    .eq("integration_id", input.integration.id)
+    .eq("sendpilot_lead_id", input.sendpilotLeadId.trim());
+  if (updated.error) {
+    console.error("[sendpilot.webhook]", {
+      eventId: input.eventId,
+      outcome: "identity_update_skipped",
+      error: updated.error.message,
+    });
+  }
 }
 
 async function leadBySendPilotId(supabase: SupabaseClient, sendpilotLeadId: string): Promise<MatchedLead | null> {
@@ -332,6 +516,8 @@ async function ignoreAsUnmatched(
     ids: SendPilotWebhookIdentifiers;
     contactId: string | null;
     raw: unknown;
+    integrationId: string;
+    campaignId: string | null;
   },
 ) {
   await writeSyncAndRecord(supabase, {
@@ -344,12 +530,17 @@ async function ignoreAsUnmatched(
     leadId: null,
     contactId: input.contactId,
     raw: input.raw,
+    integrationId: input.integrationId,
+    campaignId: input.campaignId,
     counts: { newRecords: 0, updatedRecords: 0, unmatchedRecords: 1, possibleDuplicates: 0 },
   });
   await finishEvent(supabase, {
     eventId: input.eventId,
     status: "ignored",
     result: { reason: "unmatched" },
+    integrationId: input.integrationId,
+    eventType: input.eventType,
+    campaignId: input.campaignId,
   });
   console.info("[sendpilot.webhook]", { eventId: input.eventId, eventType: input.eventType, outcome: "unmatched" });
 }
@@ -396,6 +587,8 @@ async function writeSyncAndRecord(
     leadId: string | null;
     contactId: string | null;
     raw: unknown;
+    integrationId: string;
+    campaignId: string | null;
     counts: { newRecords: number; updatedRecords: number; unmatchedRecords: number; possibleDuplicates: number };
   },
 ) {
@@ -414,6 +607,8 @@ async function writeSyncAndRecord(
       possible_duplicates: input.counts.possibleDuplicates,
       unmatched_records: input.counts.unmatchedRecords,
       review_records: input.reviewRequired ? 1 : 0,
+      integration_id: input.integrationId,
+      campaign_id: input.campaignId,
     })
     .select("id")
     .single();
@@ -422,6 +617,8 @@ async function writeSyncAndRecord(
     sync_id: sync.data.id,
     external_id: input.ids.leadId,
     raw: input.raw ?? {},
+    integration_id: input.integrationId,
+    campaign_id: input.campaignId,
     full_name: [input.ids.firstName, input.ids.lastName].filter(Boolean).join(" "),
     first_name: input.ids.firstName,
     last_name: input.ids.lastName,
@@ -461,18 +658,68 @@ export async function applySendPilotWebhook(rawBody: string): Promise<ApplyResul
   const eventType = envelope.eventType;
   const supabase = createAdminClient();
 
-  const claim = await claimEvent(supabase, { eventId, eventType: eventType || "unknown", payload });
+  let integration: LegacySendPilotIntegration;
+  try {
+    const loaded = await loadLegacySendPilotIntegration(supabase);
+    if (!loaded) {
+      console.error("[sendpilot.webhook]", { eventId, eventType, outcome: "legacy_integration_missing" });
+      return {
+        httpStatus: 503,
+        body: { error: "SendPilot webhooks need the legacy integration to apply events." },
+      };
+    }
+    integration = loaded;
+  } catch (error) {
+    console.error("[sendpilot.webhook]", {
+      eventId,
+      eventType,
+      outcome: "legacy_integration_lookup_failed",
+      error: asErrorMessage(error),
+    });
+    return {
+      httpStatus: 503,
+      body: { error: "SendPilot webhooks could not load the legacy integration." },
+    };
+  }
+
+  const payloadCampaignId = extractSendPilotIdentifiers(envelope.data).campaignId;
+  const claim = await claimEvent(supabase, {
+    eventId,
+    eventType: eventType || "unknown",
+    payload,
+    integrationId: integration.id,
+    campaignId: payloadCampaignId,
+  });
   if (claim === "duplicate") {
     console.info("[sendpilot.webhook]", { eventId, eventType, outcome: "duplicate" });
     return { httpStatus: 200, body: { ok: true, duplicate: true, eventId, eventType } };
   }
 
   try {
+    if (workspaceMismatch(envelope.workspaceId, integration.workspaceId)) {
+      await finishEvent(supabase, {
+        eventId,
+        status: "ignored",
+        result: { reason: "workspace_mismatch" },
+        integrationId: integration.id,
+        eventType,
+        campaignId: payloadCampaignId,
+      });
+      console.info("[sendpilot.webhook]", { eventId, eventType, outcome: "workspace_mismatch" });
+      return {
+        httpStatus: 200,
+        body: { ok: true, ignored: true, reason: "workspace_mismatch", eventId, eventType },
+      };
+    }
+
     if (!isSupportedSendPilotEvent(eventType)) {
       await finishEvent(supabase, {
         eventId,
         status: "ignored",
         result: { reason: "unsupported_event" },
+        integrationId: integration.id,
+        eventType,
+        campaignId: payloadCampaignId,
       });
       console.info("[sendpilot.webhook]", { eventId, eventType, outcome: "ignored" });
       return { httpStatus: 200, body: { ok: true, ignored: true, eventId, eventType } };
@@ -497,7 +744,7 @@ export async function applySendPilotWebhook(rawBody: string): Promise<ApplyResul
 
     const ids: SendPilotWebhookIdentifiers = {
       leadId: payloadIds.leadId || apiLead?.id || null,
-      campaignId: payloadIds.campaignId || apiLead?.campaignId || null,
+      campaignId: resolveWebhookCampaignId(payloadIds.campaignId, apiLead?.campaignId),
       linkedinUrl: payloadIds.linkedinUrl || apiLead?.linkedinUrl || null,
       email: payloadIds.email || apiLead?.email || null,
       firstName: payloadIds.firstName || apiLead?.firstName || null,
@@ -513,11 +760,22 @@ export async function applySendPilotWebhook(rawBody: string): Promise<ApplyResul
       tags: payloadIds.tags,
     };
 
+    await rememberCampaign(supabase, integration.id, ids.campaignId);
+    if (ids.campaignId && ids.campaignId !== payloadCampaignId) {
+      await supabase
+        .from("sendpilot_webhook_events")
+        .update({ campaign_id: ids.campaignId })
+        .eq("event_id", eventId);
+    }
+
     if (!ids.leadId && !ids.linkedinUrl && !ids.email) {
       await finishEvent(supabase, {
         eventId,
         status: "ignored",
         result: { reason: "missing_identifiers" },
+        integrationId: integration.id,
+        eventType,
+        campaignId: ids.campaignId,
       });
       console.info("[sendpilot.webhook]", { eventId, eventType, outcome: "missing_identifiers" });
       return { httpStatus: 200, body: { ok: true, ignored: true, reason: "missing_identifiers", eventId, eventType } };
@@ -546,12 +804,17 @@ export async function applySendPilotWebhook(rawBody: string): Promise<ApplyResul
         leadId: null,
         contactId: null,
         raw: envelope.data,
+        integrationId: integration.id,
+        campaignId: ids.campaignId,
         counts: { newRecords: 0, updatedRecords: 0, unmatchedRecords: 0, possibleDuplicates: 1 },
       });
       await finishEvent(supabase, {
         eventId,
         status: "ignored",
         result: { reason: "possible_duplicate" },
+        integrationId: integration.id,
+        eventType,
+        campaignId: ids.campaignId,
       });
       console.info("[sendpilot.webhook]", { eventId, eventType, outcome: "possible_duplicate" });
       return { httpStatus: 200, body: { ok: true, review: true, reason: "possible_duplicate", eventId, eventType } };
@@ -571,12 +834,17 @@ export async function applySendPilotWebhook(rawBody: string): Promise<ApplyResul
         leadId: null,
         contactId: lead?.contactId ?? null,
         raw: envelope.data,
+        integrationId: integration.id,
+        campaignId: ids.campaignId,
         counts: { newRecords: 0, updatedRecords: 0, unmatchedRecords: 0, possibleDuplicates: 0 },
       });
       await finishEvent(supabase, {
         eventId,
         status: "ignored",
         result: { reason: "suppressed" },
+        integrationId: integration.id,
+        eventType,
+        campaignId: ids.campaignId,
       });
       console.info("[sendpilot.webhook]", { eventId, eventType, outcome: "suppressed" });
       return { httpStatus: 200, body: { ok: true, suppressed: true, eventId, eventType } };
@@ -599,6 +867,8 @@ export async function applySendPilotWebhook(rawBody: string): Promise<ApplyResul
           ids,
           contactId: lead?.contactId ?? null,
           raw: envelope.data,
+          integrationId: integration.id,
+          campaignId: ids.campaignId,
         });
         return { httpStatus: 200, body: { ok: true, unmatched: true, eventId, eventType } };
       }
@@ -665,7 +935,11 @@ export async function applySendPilotWebhook(rawBody: string): Promise<ApplyResul
         type: "email_received",
         title: "Reply received in SendPilot",
         body: ids.reply,
-        metadata: { campaignId: ids.campaignId, sendpilotLeadId: ids.leadId },
+        metadata: webhookActivityIntegrationMetadata({
+          integrationId: integration.id,
+          campaignId: ids.campaignId,
+          extra: { campaignId: ids.campaignId, sendpilotLeadId: ids.leadId },
+        }),
       });
     } else if (created) {
       const createdStatus = status.applyNormalized ? status.normalized : null;
@@ -677,7 +951,11 @@ export async function applySendPilotWebhook(rawBody: string): Promise<ApplyResul
           type: activityType,
           title: activityType === "lead_became_interested" ? ACTIVITY_LABELS.lead_became_interested : "SendPilot status changed",
           body: [createdStatus].filter(Boolean).join(" → "),
-          metadata: { sendpilotLeadId: ids.leadId, previousStatus: null, newStatus: createdStatus },
+          metadata: webhookActivityIntegrationMetadata({
+            integrationId: integration.id,
+            campaignId: ids.campaignId,
+            extra: { sendpilotLeadId: ids.leadId, previousStatus: null, newStatus: createdStatus },
+          }),
         });
       }
     } else {
@@ -695,10 +973,22 @@ export async function applySendPilotWebhook(rawBody: string): Promise<ApplyResul
           type: activityType,
           title: activityType === "lead_became_interested" ? ACTIVITY_LABELS.lead_became_interested : "SendPilot status changed",
           body: [previousStatus, status.normalized || status.raw].filter(Boolean).join(" → "),
-          metadata: { sendpilotLeadId: ids.leadId, previousStatus, newStatus: status.normalized || status.raw },
+          metadata: webhookActivityIntegrationMetadata({
+            integrationId: integration.id,
+            campaignId: ids.campaignId,
+            extra: { sendpilotLeadId: ids.leadId, previousStatus, newStatus: status.normalized || status.raw },
+          }),
         });
       }
     }
+
+    await dualWriteLeadIdentity(supabase, {
+      integration,
+      sendpilotLeadId: ids.leadId,
+      resolvedLeadId: lead.leadId,
+      campaignId: ids.campaignId,
+      eventId,
+    });
 
     await writeSyncAndRecord(supabase, {
       eventType,
@@ -710,6 +1000,8 @@ export async function applySendPilotWebhook(rawBody: string): Promise<ApplyResul
       leadId: lead.leadId,
       contactId: lead.contactId,
       raw: envelope.data,
+      integrationId: integration.id,
+      campaignId: ids.campaignId,
       counts: {
         newRecords: created ? 1 : 0,
         updatedRecords: created ? 0 : 1,
@@ -730,6 +1022,9 @@ export async function applySendPilotWebhook(rawBody: string): Promise<ApplyResul
         archived: lead.archived,
         activityType,
       },
+      integrationId: integration.id,
+      eventType,
+      campaignId: ids.campaignId,
     });
 
     console.info("[sendpilot.webhook]", {
@@ -757,6 +1052,8 @@ export async function applySendPilotWebhook(rawBody: string): Promise<ApplyResul
       status: "failed",
       result: { reason: "handler_error" },
       error: message,
+      integrationId: integration.id,
+      eventType,
     });
     return { httpStatus: 500, body: { error: "SendPilot webhook could not be applied." } };
   }
