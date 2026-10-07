@@ -60,21 +60,28 @@ export function resolveIntegrationApiKey(input: {
   return { apiKey: null, source: "none" };
 }
 
+export type CredentialCiphertextRow = {
+  api_key_ciphertext: string | null;
+  webhook_secret_ciphertext: string | null;
+};
+
 export function buildCredentialCiphertextRow(input: {
   integrationId: string;
   apiKey?: string | null;
   webhookSecret?: string | null;
-  existing?: { api_key_ciphertext: string | null; webhook_secret_ciphertext: string | null };
+  existing?: CredentialCiphertextRow;
   nowIso: string;
 }) {
   const apiKey = input.apiKey?.trim();
   const webhookSecret = input.webhookSecret?.trim();
+  const api_key_ciphertext = apiKey ? encryptSecret(apiKey) : (input.existing?.api_key_ciphertext ?? null);
+  const webhook_secret_ciphertext = webhookSecret
+    ? encryptSecret(webhookSecret)
+    : (input.existing?.webhook_secret_ciphertext ?? null);
   return {
     integration_id: input.integrationId,
-    api_key_ciphertext: apiKey ? encryptSecret(apiKey) : (input.existing?.api_key_ciphertext ?? null),
-    webhook_secret_ciphertext: webhookSecret
-      ? encryptSecret(webhookSecret)
-      : (input.existing?.webhook_secret_ciphertext ?? null),
+    api_key_ciphertext,
+    webhook_secret_ciphertext,
     key_version: 1,
     rotated_at: input.nowIso,
     updated_at: input.nowIso,

@@ -8,12 +8,14 @@ import { buildCredentialCiphertextRow } from "@/lib/sendpilot/credentials";
 import { probeSendPilotApiCredentials } from "@/lib/sendpilot/client";
 import { planCampaignSync } from "@/lib/sendpilot/campaign-sync";
 import {
-  ACTIVATION_BLOCKED,
+  API_KEY_SAVED_MESSAGE,
   ENCRYPTION_NOT_CONFIGURED,
   INTEGRATION_NOT_FOUND,
   LEGACY_MUTATION_DENIED,
+  WEBHOOK_SECRET_SAVED_MESSAGE,
   authorizeSendPilotMutation,
   campaignSyncStatus,
+  credentialFlagsFromCiphertext,
   parseTrackingMode,
   planActivation,
   planCampaignTrackingRows,
@@ -29,7 +31,7 @@ import {
   webhookUrlForIntegration,
 } from "@/lib/sendpilot/manage";
 import { SecretConfigError } from "@/lib/sendpilot/secrets";
-import { mapSendPilotApiProbe } from "@/lib/sendpilot/verify-api";
+import { apiKeySaveBlockedByProbe, mapSendPilotApiProbe } from "@/lib/sendpilot/verify-api";
 import { createAdminClient, supabaseServiceRoleKey } from "@/lib/supabase/admin";
 import { text, type ActionState } from "@/server/form";
 import { requireUser } from "@/server/session";
@@ -60,7 +62,9 @@ async function loadIntegrationRow(
 ) {
   const { data, error } = await supabase
     .from("sendpilot_integrations")
-    .select("id, name, status, tracking_mode, legacy_env")
+    .select(
+      "id, name, status, tracking_mode, legacy_env, api_key_configured, webhook_secret_configured, credentials_present",
+    )
     .eq("id", id)
     .maybeSingle();
   if (error) return { error: actionError(error) } as const;
@@ -72,6 +76,9 @@ async function loadIntegrationRow(
       status: string;
       tracking_mode: string;
       legacy_env: boolean;
+      api_key_configured: boolean;
+      webhook_secret_configured: boolean;
+      credentials_present: boolean;
     },
   };
 }
@@ -93,7 +100,10 @@ async function writeAudits(
   return error;
 }
 
-async function upsertEncryptedCredentials(integrationId: string, apiKey: string, webhookSecret: string) {
+async function upsertEncryptedCredentials(
+  integrationId: string,
+  input: { apiKey?: string | null; webhookSecret?: string | null },
+) {
   if (!supabaseServiceRoleKey()) return { error: credentialStoreError() } as const;
   try {
     const admin = createAdminClient();
@@ -115,8 +125,8 @@ async function upsertEncryptedCredentials(integrationId: string, apiKey: string,
         : undefined;
     const packed = buildCredentialCiphertextRow({
       integrationId,
-      apiKey,
-      webhookSecret,
+      apiKey: input.apiKey,
+      webhookSecret: input.webhookSecret,
       existing: existingRow,
       nowIso: new Date().toISOString(),
     });
@@ -127,11 +137,19 @@ async function upsertEncryptedCredentials(integrationId: string, apiKey: string,
       p_key_version: packed.key_version,
     });
     if (error) return { error: "Credentials could not be saved." } as const;
-    return { ok: true as const };
+    return { ok: true as const, flags: credentialFlagsFromCiphertext(packed) };
   } catch (error) {
     if (error instanceof SecretConfigError) return { error: ENCRYPTION_NOT_CONFIGURED } as const;
     return { error: "Credentials could not be saved." } as const;
   }
+}
+
+async function persistCredentialFlags(
+  supabase: Awaited<ReturnType<typeof requireUser>>["supabase"],
+  integrationId: string,
+  flags: ReturnType<typeof credentialFlagsFromCiphertext>,
+) {
+  return supabase.from("sendpilot_integrations").update(flags).eq("id", integrationId);
 }
 
 export async function verifySendPilotAccount(_state: ActionState, formData: FormData): Promise<ActionState> {
@@ -143,7 +161,7 @@ export async function verifySendPilotAccount(_state: ActionState, formData: Form
     const probe = await probeSendPilotApiCredentials({ apiKey: apiKey.trim() });
     const mapped = mapSendPilotApiProbe(probe);
     if (!mapped.ok) return { error: mapped.error };
-    return { success: `API key accepted. ${mapped.workspaceMessage}` };
+    return { success: `${API_KEY_SAVED_MESSAGE}. ${mapped.workspaceMessage}` };
   } catch {
     return { error: "SendPilot API unavailable." };
   }
@@ -155,13 +173,12 @@ export async function createSendPilotIntegration(_state: ActionState, formData: 
 
   const name = text(formData, "name");
   const apiKey = String(formData.get("api_key") ?? "");
-  const webhookSecret = String(formData.get("webhook_secret") ?? "");
   const trackingMode = parseTrackingMode(text(formData, "tracking_mode")) ?? "all";
   const selected = selectedCampaignIds(formData);
 
   const plannedRow = planNewIntegrationRow({ name, actorId: session.userId, trackingMode });
   if ("error" in plannedRow) return { error: plannedRow.error };
-  if (!apiKey.trim() || !webhookSecret.trim()) return { error: "Enter the API key and webhook signing secret." };
+  if (!apiKey.trim()) return { error: "Enter a SendPilot API key." };
 
   const trackingPlan = planTrackingModeChange({
     legacyEnv: false,
@@ -172,10 +189,10 @@ export async function createSendPilotIntegration(_state: ActionState, formData: 
 
   try {
     const probe = await probeSendPilotApiCredentials({ apiKey: apiKey.trim() });
-    const mapped = mapSendPilotApiProbe(probe);
-    if (!mapped.ok) return { error: mapped.error };
+    const blocked = apiKeySaveBlockedByProbe(probe);
+    if (blocked) return { error: blocked };
   } catch {
-    return { error: "SendPilot API unavailable." };
+    // Probe failures other than 401/403 are not treated as account verification.
   }
 
   const { data, error } = await session.supabase
@@ -186,11 +203,17 @@ export async function createSendPilotIntegration(_state: ActionState, formData: 
   if (error || !data) return { error: actionError(error) };
   const integrationId = String((data as { id: string }).id);
 
-  const stored = await upsertEncryptedCredentials(integrationId, apiKey.trim(), webhookSecret.trim());
+  const stored = await upsertEncryptedCredentials(integrationId, { apiKey: apiKey.trim() });
   if ("error" in stored) {
-    await session.supabase.from("sendpilot_integrations").update({ credentials_present: false }).eq("id", integrationId);
+    await persistCredentialFlags(session.supabase, integrationId, {
+      api_key_configured: false,
+      webhook_secret_configured: false,
+      credentials_present: false,
+    });
     return { error: stored.error };
   }
+  const flagError = await persistCredentialFlags(session.supabase, integrationId, stored.flags);
+  if (flagError.error) return { error: actionError(flagError.error) };
 
   const trackingRows = planCampaignTrackingRows({
     integrationId,
@@ -224,6 +247,8 @@ export async function createSendPilotIntegration(_state: ActionState, formData: 
     name,
     trackingMode,
     webhookUrl: webhookUrlForIntegration({ id: integrationId, legacyEnv: false, baseUrl: publicAppBaseUrl() }),
+    apiKeyConfigured: stored.flags.api_key_configured,
+    webhookSecretConfigured: stored.flags.webhook_secret_configured,
   });
 
   refreshIntegrations(`/settings/sendpilot/${integrationId}`);
@@ -241,32 +266,55 @@ export async function rotateSendPilotCredentials(_state: ActionState, formData: 
 
   const apiKey = String(formData.get("api_key") ?? "");
   const webhookSecret = String(formData.get("webhook_secret") ?? "");
-  if (!apiKey.trim() || !webhookSecret.trim()) return { error: "Enter the new API key and webhook signing secret." };
-
-  try {
-    const probe = await probeSendPilotApiCredentials({ apiKey: apiKey.trim() });
-    const mapped = mapSendPilotApiProbe(probe);
-    if (!mapped.ok) return { error: mapped.error };
-  } catch {
-    return { error: "SendPilot API unavailable." };
+  if (!apiKey.trim() && !webhookSecret.trim()) {
+    return { error: "Enter a new API key, webhook signing secret, or both." };
   }
 
-  const stored = await upsertEncryptedCredentials(id, apiKey.trim(), webhookSecret.trim());
+  if (apiKey.trim()) {
+    try {
+      const probe = await probeSendPilotApiCredentials({ apiKey: apiKey.trim() });
+      const blocked = apiKeySaveBlockedByProbe(probe);
+      if (blocked) return { error: blocked };
+    } catch {
+      // Inconclusive probe does not claim verification and does not erase the other credential.
+    }
+  }
+
+  const stored = await upsertEncryptedCredentials(id, {
+    apiKey: apiKey.trim() || undefined,
+    webhookSecret: webhookSecret.trim() || undefined,
+  });
   if ("error" in stored) return { error: stored.error };
 
-  const { error: presentError } = await session.supabase
-    .from("sendpilot_integrations")
-    .update({ credentials_present: true })
-    .eq("id", id);
+  const { error: presentError } = await persistCredentialFlags(session.supabase, id, stored.flags);
   if (presentError) return { error: actionError(presentError) };
 
   const auditError = await writeAudits(session.supabase, session.userId, id, [
-    { action: "credentials_rotated", metadata: { source: "settings" } },
+    {
+      action: "credentials_rotated",
+      metadata: {
+        source: "settings",
+        api_key_updated: Boolean(apiKey.trim()),
+        webhook_secret_updated: Boolean(webhookSecret.trim()),
+      },
+    },
   ]);
   if (auditError) return { error: actionError(auditError) };
 
   refreshIntegrations(`/settings/sendpilot/${id}`);
-  return { success: "Credentials were rotated. The previous values are not shown." };
+  if (webhookSecret.trim() && !apiKey.trim()) return { success: WEBHOOK_SECRET_SAVED_MESSAGE };
+  if (apiKey.trim() && !webhookSecret.trim()) return { success: API_KEY_SAVED_MESSAGE };
+  return { success: "Credentials were saved. Previous values are not shown." };
+}
+
+export async function saveSendPilotWebhookSecret(_state: ActionState, formData: FormData): Promise<ActionState> {
+  formData.set("api_key", "");
+  return rotateSendPilotCredentials(_state, formData);
+}
+
+export async function saveSendPilotApiKey(_state: ActionState, formData: FormData): Promise<ActionState> {
+  formData.set("webhook_secret", "");
+  return rotateSendPilotCredentials(_state, formData);
 }
 
 export async function saveSendPilotTracking(_state: ActionState, formData: FormData): Promise<ActionState> {
@@ -374,8 +422,34 @@ export async function activateSendPilotIntegration(_state: ActionState, formData
   const id = text(formData, "integration_id");
   const loaded = await loadIntegrationRow(session.supabase, id);
   if ("error" in loaded) return { error: loaded.error };
-  const planned = planActivation({ legacyEnv: loaded.row.legacy_env, status: loaded.row.status });
-  return { error: planned.error || ACTIVATION_BLOCKED };
+  const { data: tracking, error: trackingError } = await session.supabase
+    .from("sendpilot_campaign_tracking")
+    .select("sendpilot_campaign_id, tracked")
+    .eq("integration_id", id);
+  if (trackingError) return { error: actionError(trackingError) };
+  const selected = (tracking ?? [])
+    .filter((row) => Boolean((row as { tracked: boolean }).tracked))
+    .map((row) => String((row as { sendpilot_campaign_id: string }).sendpilot_campaign_id));
+
+  const planned = planActivation({
+    legacyEnv: loaded.row.legacy_env,
+    status: loaded.row.status,
+    apiKeyConfigured: loaded.row.api_key_configured,
+    webhookSecretConfigured: loaded.row.webhook_secret_configured,
+    trackingMode: loaded.row.tracking_mode,
+    selectedCampaignIds: selected,
+    integrationId: loaded.row.id,
+  });
+  if ("error" in planned) return { error: planned.error };
+
+  const { error } = await session.supabase.from("sendpilot_integrations").update(planned.patch).eq("id", id);
+  if (error) return { error: actionError(error) };
+  const auditError = await writeAudits(session.supabase, session.userId, id, [
+    { action: "integration_activated", metadata: { status: "active", crm_apply_enabled: true } },
+  ]);
+  if (auditError) return { error: actionError(auditError) };
+  refreshIntegrations(`/settings/sendpilot/${id}`);
+  return { success: "Integration activated. Incoming webhooks can apply through the Phase 5 CRM path." };
 }
 
 export async function syncSendPilotCampaigns(_state: ActionState, formData: FormData): Promise<ActionState> {

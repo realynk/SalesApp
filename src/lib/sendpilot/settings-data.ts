@@ -49,7 +49,7 @@ export async function loadSendPilotIntegrationList(): Promise<{
   const { data, error } = await supabase
     .from("sendpilot_integrations")
     .select(
-      "id, name, workspace_id, status, tracking_mode, legacy_env, last_webhook_at, last_campaign_sync_at, created_at, credentials_present",
+      "id, name, workspace_id, status, tracking_mode, legacy_env, last_webhook_at, last_campaign_sync_at, created_at, credentials_present, api_key_configured, webhook_secret_configured",
     )
     .order("legacy_env", { ascending: false })
     .order("created_at", { ascending: true });
@@ -93,6 +93,8 @@ export async function loadSendPilotIntegrationList(): Promise<{
       trackingMode: str(row.tracking_mode) || "all",
       legacyEnv: bool(row.legacy_env),
       credentialsPresent: bool(row.credentials_present),
+      apiKeyConfigured: bool(row.api_key_configured),
+      webhookSecretConfigured: bool(row.webhook_secret_configured),
       lastWebhookAt: str(row.last_webhook_at),
       lastCampaignSyncAt: str(row.last_campaign_sync_at),
       createdAt: str(row.created_at),
@@ -112,7 +114,7 @@ export async function loadSendPilotIntegrationDetail(id: string): Promise<SendPi
   const { data, error } = await supabase
     .from("sendpilot_integrations")
     .select(
-      "id, name, workspace_id, status, tracking_mode, legacy_env, last_webhook_at, last_webhook_event_type, last_campaign_sync_at, created_at, credentials_present",
+      "id, name, workspace_id, status, tracking_mode, legacy_env, last_webhook_at, last_webhook_event_type, last_campaign_sync_at, created_at, credentials_present, api_key_configured, webhook_secret_configured",
     )
     .eq("id", id)
     .maybeSingle();
@@ -152,6 +154,8 @@ export async function loadSendPilotIntegrationDetail(id: string): Promise<SendPi
     trackingMode: str(row.tracking_mode) || "all",
     legacyEnv: bool(row.legacy_env),
     credentialsPresent: bool(row.credentials_present),
+    apiKeyConfigured: bool(row.api_key_configured),
+    webhookSecretConfigured: bool(row.webhook_secret_configured),
     lastWebhookAt: str(row.last_webhook_at),
     lastCampaignSyncAt: str(row.last_campaign_sync_at),
     createdAt: str(row.created_at),

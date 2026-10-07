@@ -4,8 +4,9 @@ import { CopyWebhookUrl } from "@/components/copy-webhook-url";
 import { SendPilotIntegrationManage } from "@/components/sendpilot-integration-manage";
 import { formatDateTime } from "@/lib/format";
 import { canManageSendPilotCredentials } from "@/lib/sendpilot/credentials";
-import { credentialStatusLabel, statusHeadline } from "@/lib/sendpilot/manage";
-import { CRM_NOT_ENABLED_MESSAGE, LEGACY_PROTECTED_MESSAGE } from "@/lib/sendpilot/manage-copy";
+import { SUPPORTED_SENDPILOT_EVENTS } from "@/lib/sendpilot/events";
+import { fieldCredentialLabel, statusHeadline } from "@/lib/sendpilot/manage";
+import { CRM_NOT_ENABLED_MESSAGE, LEGACY_PROTECTED_MESSAGE, WEBHOOK_SETUP_MESSAGE } from "@/lib/sendpilot/manage-copy";
 import { loadSendPilotIntegrationDetail } from "@/lib/sendpilot/settings-data";
 import { requireUser } from "@/server/session";
 
@@ -39,8 +40,14 @@ export default async function SendPilotIntegrationDetailPage({
             <dd className="mt-1">{detail.trackingMode === "all" ? "All campaigns" : "Selected campaigns"}</dd>
           </div>
           <div>
-            <dt className="text-xs tracking-wide text-muted-foreground uppercase">Credentials</dt>
-            <dd className="mt-1">{credentialStatusLabel(detail.credentialStatus)}</dd>
+            <dt className="text-xs tracking-wide text-muted-foreground uppercase">API key</dt>
+            <dd className="mt-1">{fieldCredentialLabel({ legacyEnv: detail.legacyEnv, configured: detail.apiKeyConfigured })}</dd>
+          </div>
+          <div>
+            <dt className="text-xs tracking-wide text-muted-foreground uppercase">Webhook secret</dt>
+            <dd className="mt-1">
+              {fieldCredentialLabel({ legacyEnv: detail.legacyEnv, configured: detail.webhookSecretConfigured })}
+            </dd>
           </div>
           <div>
             <dt className="text-xs tracking-wide text-muted-foreground uppercase">Workspace ID</dt>
@@ -77,8 +84,13 @@ export default async function SendPilotIntegrationDetailPage({
           <p className="mt-2 text-sm text-muted-foreground">
             {detail.legacyEnv
               ? "This is the existing Realynk Main webhook. Do not replace it in SendPilot from this screen."
-              : "Manual setup only. This app does not create or change the SendPilot webhook subscription."}
+              : WEBHOOK_SETUP_MESSAGE}
           </p>
+          {detail.legacyEnv ? null : (
+            <p className="mt-2 text-sm text-muted-foreground">
+              Supported events: {SUPPORTED_SENDPILOT_EVENTS.join(", ")}.
+            </p>
+          )}
         </div>
       </section>
 
