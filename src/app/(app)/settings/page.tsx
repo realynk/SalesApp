@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { controlClass, Field, PageHeader } from "@/components/bits";
+import { controlClass, Field, PageHeader, SectionCard } from "@/components/bits";
 import { ActionForm, SubmitButton } from "@/components/forms";
 import { getSettings } from "@/lib/data";
 import { saveSettings, updateProfile } from "@/server/actions";
@@ -9,15 +9,23 @@ export default async function SettingsPage() {
   const [settings, session] = await Promise.all([getSettings(), requireUser()]);
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="Workspace" title="Settings" description="How soon a reminder is treated as approaching, and when a card is called stale." />
-      <ActionForm action={saveSettings} className="grid max-w-xl gap-3 rounded-xl border border-border bg-card p-4">
-        <Field label="Stale after days"><input className={controlClass} name="stale_after_days" type="number" min={1} max={180} defaultValue={settings.staleAfterDays} /></Field>
-        <Field label="Profiles waiting days"><input className={controlClass} name="profiles_waiting_days" type="number" min={1} max={90} defaultValue={settings.profilesWaitingDays} /></Field>
-        <Field label="Default recruitment target (business days)"><input className={controlClass} name="recruitment_target_business_days" type="number" min={1} max={60} defaultValue={settings.recruitmentTargetBusinessDays} /></Field>
-        <Field label="Approaching window (days)"><input className={controlClass} name="approaching_window_days" type="number" min={1} max={30} defaultValue={settings.approachingWindowDays} /></Field>
-        <Field label="Business timezone"><input className={controlClass} name="business_timezone" defaultValue={settings.businessTimezone} /></Field>
-        <SubmitButton>Save thresholds</SubmitButton>
-      </ActionForm>
+      <PageHeader eyebrow="Workspace" title="Settings" />
+      <div className="max-w-xl">
+        <SectionCard
+          collapsible
+          title="Thresholds"
+          description="When a reminder is approaching and when a card is stale."
+        >
+          <ActionForm action={saveSettings} className="grid gap-3">
+            <Field label="Stale after days"><input className={controlClass} name="stale_after_days" type="number" min={1} max={180} defaultValue={settings.staleAfterDays} /></Field>
+            <Field label="Profiles waiting days"><input className={controlClass} name="profiles_waiting_days" type="number" min={1} max={90} defaultValue={settings.profilesWaitingDays} /></Field>
+            <Field label="Default recruitment target (business days)"><input className={controlClass} name="recruitment_target_business_days" type="number" min={1} max={60} defaultValue={settings.recruitmentTargetBusinessDays} /></Field>
+            <Field label="Approaching window (days)"><input className={controlClass} name="approaching_window_days" type="number" min={1} max={30} defaultValue={settings.approachingWindowDays} /></Field>
+            <Field label="Business timezone"><input className={controlClass} name="business_timezone" defaultValue={settings.businessTimezone} /></Field>
+            <SubmitButton>Save thresholds</SubmitButton>
+          </ActionForm>
+        </SectionCard>
+      </div>
       <section className="max-w-xl rounded-xl border border-border bg-card p-4">
         <h2 className="text-sm font-semibold">Integrations</h2>
         <p className="mt-2 text-sm text-muted-foreground">Connect SendPilot accounts here.</p>
