@@ -476,8 +476,8 @@ function ItemCard({
 function CardHeading({ item }: { item: BoardItem }) {
   return (
     <>
-      <p className="text-sm font-semibold">{item.companyName}</p>
-      <p className="mt-0.5 text-xs text-muted-foreground">{item.contactName}</p>
+      <p className="text-sm font-semibold">{item.contactName}</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">{item.companyName}</p>
     </>
   );
 }

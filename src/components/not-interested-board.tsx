@@ -253,10 +253,10 @@ function CardBody({ lead }: { lead: NotInterestedCard }) {
   return (
     <>
       <div className="flex items-start justify-between gap-2">
-        <p className="text-sm font-semibold">{lead.companyName}</p>
+        <p className="text-sm font-semibold">{lead.contactName}</p>
         <FlagBadge flag={lead.accountFlag} />
       </div>
-      <p className="mt-0.5 text-xs text-muted-foreground">{lead.contactName}</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">{lead.companyName}</p>
       <p className="mt-2 text-xs">{lead.nextFollowUp ? lead.nextFollowUp.title : "No follow-up scheduled"}</p>
       <p className="mt-1 text-xs text-muted-foreground">{lead.nextFollowUp ? `Due ${formatDate(lead.nextFollowUp.dueOn)}` : "Open the lead to set a reminder"}</p>
     </>
