@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { CAMPAIGN_SYNC_UNAVAILABLE_MESSAGE } from "@/lib/sendpilot/campaign-sync";
 import { SUPPORTED_SENDPILOT_EVENTS } from "@/lib/sendpilot/events";
 import {
+  campaignDisplayName,
   fieldCredentialLabel,
   PHASE_5_SCOPED_MATCHING_AVAILABLE,
   planActivation,
@@ -159,7 +160,7 @@ export function SendPilotIntegrationManage({
                     value={campaign.sendpilotCampaignId}
                     defaultChecked={campaign.tracked}
                   />
-                  {campaign.name || campaign.sendpilotCampaignId}
+                  {campaignDisplayName(campaign)}
                 </label>
               </li>
             ))}

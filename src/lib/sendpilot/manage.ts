@@ -269,6 +269,58 @@ export function uniqueCampaignIds(values: string[]) {
   return ids;
 }
 
+export type DiscoveredCampaignRow = {
+  sendpilotCampaignId: string;
+  name: string | null;
+  remoteStatus: string | null;
+  lastSeenAt: string | null;
+  tracked: boolean;
+};
+
+function asCampaignText(value: unknown) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+export function campaignDisplayName(campaign: { name: string | null; sendpilotCampaignId: string }) {
+  return campaign.name?.trim() || `Campaign ${campaign.sendpilotCampaignId}`;
+}
+
+export function mapDiscoveredCampaigns(input: {
+  integrationId: string;
+  campaigns: Record<string, unknown>[];
+  tracking: Record<string, unknown>[];
+  trackingMode: string;
+}): DiscoveredCampaignRow[] {
+  const trackingMode = parseTrackingMode(input.trackingMode) ?? "all";
+  const trackedById = new Map<string, boolean>();
+  for (const row of input.tracking) {
+    const campaignId = asCampaignText(row.sendpilot_campaign_id);
+    if (!campaignId) continue;
+    trackedById.set(campaignId, row.tracked === true);
+  }
+
+  const seen = new Set<string>();
+  const mapped: DiscoveredCampaignRow[] = [];
+  for (const row of input.campaigns) {
+    const owner = asCampaignText(row.integration_id);
+    if (owner && owner !== input.integrationId) continue;
+    const campaignId = asCampaignText(row.sendpilot_campaign_id);
+    if (!campaignId || seen.has(campaignId)) continue;
+    seen.add(campaignId);
+    mapped.push({
+      sendpilotCampaignId: campaignId,
+      name: asCampaignText(row.name),
+      remoteStatus: asCampaignText(row.remote_status),
+      lastSeenAt: asCampaignText(row.last_seen_at),
+      tracked: trackedById.get(campaignId) ?? trackingMode === "all",
+    });
+  }
+  mapped.sort((a, b) => a.sendpilotCampaignId.localeCompare(b.sendpilotCampaignId));
+  return mapped;
+}
+
 export function planCampaignTrackingRows(input: {
   integrationId: string;
   mode: TrackingMode;
