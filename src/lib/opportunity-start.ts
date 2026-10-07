@@ -132,23 +132,30 @@ export async function startOpportunityForLead(
   return createOpportunityForLead(supabase, userId, leadId, formData);
 }
 
+type LeadOpportunitySource = {
+  id: string;
+  sendpilot_status: string | null;
+  archived_at?: string | null;
+};
+
 export async function maybeAutoCreateInterestedOpportunity(
   supabase: SupabaseClient,
   userId: string | null,
   leadId: string,
   options: { possibleDuplicate?: boolean } = {},
 ): Promise<AutoCreateInterestedResult> {
-  let loaded = await supabase.from("leads").select("id, sendpilot_status, archived_at").eq("id", leadId).maybeSingle();
-  if (loaded.error && /archived_at/i.test(loaded.error.message ?? "")) {
-    loaded = await supabase.from("leads").select("id, sendpilot_status").eq("id", leadId).maybeSingle();
-  }
+  const withArchive = await supabase.from("leads").select("id, sendpilot_status, archived_at").eq("id", leadId).maybeSingle();
+  const loaded = withArchive.error && /archived_at/i.test(withArchive.error.message ?? "")
+    ? await supabase.from("leads").select("id, sendpilot_status").eq("id", leadId).maybeSingle()
+    : withArchive;
   if (loaded.error || !loaded.data) return { created: false, error: "That lead could not be found." };
+  const lead = loaded.data as LeadOpportunitySource;
   const opportunities = await supabase.from("opportunities").select("id").eq("lead_id", leadId);
   if (opportunities.error) return { created: false, error: actionError(opportunities.error) };
   const existingOpportunityCount = Array.isArray(opportunities.data) ? opportunities.data.length : opportunities.data ? 1 : 0;
   const plan = planInterestedOpportunityCreate({
-    sendpilotStatus: loaded.data.sendpilot_status ? String(loaded.data.sendpilot_status) : null,
-    archived: Boolean((loaded.data as { archived_at?: string | null }).archived_at),
+    sendpilotStatus: lead.sendpilot_status ? String(lead.sendpilot_status) : null,
+    archived: Boolean(lead.archived_at),
     existingOpportunityCount,
     possibleDuplicate: options.possibleDuplicate,
   });
@@ -166,17 +173,17 @@ export async function backfillMissingInterestedOpportunities(
   userId: string | null,
   limit = 100,
 ) {
-  let loaded = await supabase
+  const withArchive = await supabase
     .from("leads")
     .select("id, sendpilot_status, archived_at")
     .eq("sendpilot_status", "Interested")
     .is("archived_at", null)
     .limit(limit);
-  if (loaded.error && /archived_at/i.test(loaded.error.message ?? "")) {
-    loaded = await supabase.from("leads").select("id, sendpilot_status").eq("sendpilot_status", "Interested").limit(limit);
-  }
+  const loaded = withArchive.error && /archived_at/i.test(withArchive.error.message ?? "")
+    ? await supabase.from("leads").select("id, sendpilot_status").eq("sendpilot_status", "Interested").limit(limit)
+    : withArchive;
   if (loaded.error || !loaded.data?.length) return { created: 0 };
-  const leads = loaded.data as Array<{ id: string; sendpilot_status: string | null; archived_at?: string | null }>;
+  const leads = loaded.data as LeadOpportunitySource[];
   const ids = leads.map((lead) => lead.id);
   const opportunities = await supabase.from("opportunities").select("lead_id").in("lead_id", ids);
   const withOpportunity = new Set(
