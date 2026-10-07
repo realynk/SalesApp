@@ -63,7 +63,7 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
       </section>
       <section className="rounded-xl border border-border bg-card p-4">
         <h2 className="text-sm font-semibold">Rows held for review</h2>
-        <p className="mt-1 text-xs text-muted-foreground">Each row shows the SendPilot account, file or webhook, and campaign when we have it.</p>
+        <p className="mt-1 text-xs text-muted-foreground">Source is on each row. Select several to create, keep, or skip together.</p>
         <ReviewBulkList records={data.records} />
       </section>
     </div>

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { bulkReviewEligible, reviewRecordOrigin } from "./review-origin.ts";
+import { bulkReviewEligible, reviewClassificationLabel, reviewRecordOrigin } from "./review-origin.ts";
 
 test("shows file import account, filename, and campaign", () => {
   const origin = reviewRecordOrigin({
@@ -31,6 +31,12 @@ test("falls back when only a filename exists", () => {
   const origin = reviewRecordOrigin({ filename: "leads.xlsx", syncSource: "xlsx" });
   assert.equal(origin.channel, "file");
   assert.equal(origin.label, "file import · leads.xlsx");
+});
+
+test("uses short review labels instead of raw classifications", () => {
+  assert.equal(reviewClassificationLabel("unmatched"), "No match");
+  assert.equal(reviewClassificationLabel("possible_duplicate"), "Possible duplicate");
+  assert.equal(reviewClassificationLabel("suppressed"), "Suppressed");
 });
 
 test("bulk create skips suppressed and cross-integration holds", () => {

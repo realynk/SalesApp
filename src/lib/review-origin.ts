@@ -47,6 +47,21 @@ export function reviewRecordOrigin(input: ReviewOriginInput): ReviewOrigin {
   return { channel, label, title: label };
 }
 
+export function reviewClassificationLabel(classification?: string | null) {
+  if (classification === "possible_duplicate") return "Possible duplicate";
+  if (classification === "suppressed") return "Suppressed";
+  if (classification === "possible_same_person") return "Same person?";
+  if (classification === "identity_conflict") return "Identity hold";
+  if (classification === "unmatched") return "No match";
+  return classification && classification.length > 0 ? classification : "Needs review";
+}
+
+export function reviewClassificationTone(classification?: string | null) {
+  if (classification === "possible_duplicate" || classification === "possible_same_person") return "bg-warning/15 text-warning";
+  if (classification === "suppressed" || classification === "identity_conflict") return "bg-destructive/10 text-destructive";
+  return "bg-primary/10 text-primary";
+}
+
 export function bulkReviewEligible(record: { classification?: string | null }, action: "create" | "skip" | "apply") {
   const classification = record.classification ?? "";
   if (classification === "possible_same_person" || classification === "identity_conflict") return false;

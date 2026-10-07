@@ -20,7 +20,7 @@ export function ReviewBulkList({ records }: { records: ReviewRecord[] }) {
   }).length;
 
   function toggle(id: string, checked: boolean) {
-    setSelected((current) => checked ? [...new Set([...current, id])] : current.filter((item) => item !== id));
+    setSelected((current) => (checked ? [...new Set([...current, id])] : current.filter((item) => item !== id)));
   }
 
   function toggleAll(checked: boolean) {
@@ -33,47 +33,49 @@ export function ReviewBulkList({ records }: { records: ReviewRecord[] }) {
 
   return (
     <div className="mt-3 space-y-3">
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-muted/30 px-3 py-2">
         <label className="flex items-center gap-2 text-sm">
           <input
             type="checkbox"
             checked={selected.length > 0 && selected.length === records.length}
             onChange={(event) => toggleAll(event.target.checked)}
           />
-          Select all
+          All
         </label>
-        <p className="text-xs text-muted-foreground">{selected.length} selected</p>
+        <p className="mr-auto text-xs text-muted-foreground">{selected.length} selected</p>
         <form action={bulkCreateReviewedRecords} className="flex flex-wrap items-center gap-2">
           {selected.map((id) => <input key={`create-${id}`} type="hidden" name="record_id" value={id} />)}
-          <label className="flex items-center gap-2 text-xs">
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <input type="checkbox" name="create_opportunity" value="yes" />
-            Also create opportunities
+            Opportunity
           </label>
-          <SubmitButton>Create selected leads{createCount ? ` (${createCount})` : ""}</SubmitButton>
+          <SubmitButton>Create{createCount ? ` (${createCount})` : ""}</SubmitButton>
         </form>
         <form action={bulkApplyReviewedDuplicates}>
           {selected.map((id) => <input key={`apply-${id}`} type="hidden" name="record_id" value={id} />)}
-          <SubmitButton variant="outline">Keep current lead{applyCount ? ` (${applyCount})` : ""}</SubmitButton>
+          <SubmitButton variant="outline">Keep current{applyCount ? ` (${applyCount})` : ""}</SubmitButton>
         </form>
         <form action={bulkSkipReviewedRecords}>
           {selected.map((id) => <input key={`skip-${id}`} type="hidden" name="record_id" value={id} />)}
-          <SubmitButton variant="outline">Skip selected{selected.length ? ` (${selected.length})` : ""}</SubmitButton>
+          <SubmitButton variant="outline">Skip{selected.length ? ` (${selected.length})` : ""}</SubmitButton>
         </form>
       </div>
-      <ul className="space-y-4">
+      <ul className="space-y-3">
         {records.map((record) => (
-          <li key={record.id} className="flex gap-3">
-            <label className="mt-4">
-              <span className="sr-only">Select {record.full_name || "import row"}</span>
-              <input
-                type="checkbox"
-                checked={selectedSet.has(record.id)}
-                onChange={(event) => toggle(record.id, event.target.checked)}
-              />
-            </label>
-            <div className="min-w-0 flex-1">
-              <ReviewRecordCard record={record} />
-            </div>
+          <li key={record.id}>
+            <ReviewRecordCard
+              record={record}
+              select={
+                <label className="mt-1">
+                  <span className="sr-only">Select {record.full_name || "import row"}</span>
+                  <input
+                    type="checkbox"
+                    checked={selectedSet.has(record.id)}
+                    onChange={(event) => toggle(record.id, event.target.checked)}
+                  />
+                </label>
+              }
+            />
           </li>
         ))}
       </ul>
