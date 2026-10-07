@@ -510,10 +510,15 @@ export async function updateNextAction(_state: ActionState, formData: FormData):
   const { supabase, userId } = await requireUser();
   const id = text(formData, "opportunity_id");
   const nextAction = text(formData, "next_action");
-  const nextActionDate = dateField(formData, "next_action_date");
+  let nextActionDate = dateField(formData, "next_action_date");
   const waiting = (WAITING_ON as readonly string[]).includes(text(formData, "waiting_on")) ? text(formData, "waiting_on") : "internal";
   const risk = (RISK_LEVELS as readonly string[]).includes(text(formData, "risk_level")) ? text(formData, "risk_level") : "low";
-  if (!isUuid(id) || !nextAction || !nextActionDate) return { error: "Next action and due date are required." };
+  if (!isUuid(id) || !nextAction) return { error: "Next action is required." };
+  if (!nextActionDate) {
+    const existing = await supabase.from("opportunities").select("next_action_date").eq("id", id).maybeSingle();
+    const stored = existing.data ? String((existing.data as { next_action_date?: string | null }).next_action_date ?? "") : "";
+    nextActionDate = /^\d{4}-\d{2}-\d{2}/.test(stored) ? stored.slice(0, 10) : nextActionDate;
+  }
   const { error } = await supabase.from("opportunities").update({ next_action: nextAction, next_action_date: nextActionDate, waiting_on: waiting, risk_level: risk }).eq("id", id);
   if (error) return { error: actionError(error) };
   await supabase.from("activities").insert({ opportunity_id: id, type: "record_updated", title: "Next action updated", body: `${nextAction} · ${nextActionDate}`, actor_id: userId });
@@ -527,9 +532,14 @@ export async function moveStage(_state: ActionState, formData: FormData): Promis
   const stage = text(formData, "stage") as OpportunityStage;
   if (!isUuid(id) || !(OPPORTUNITY_STAGES as readonly string[]).includes(stage)) return { error: "Choose a stage." };
   const nextAction = optionalText(formData, "next_action");
-  const nextActionDate = dateField(formData, "next_action_date");
-  if (stageRequiresNextAction(stage) && (!nextAction || !nextActionDate)) {
-    return { error: "Every active opportunity needs a next action and a due date." };
+  let nextActionDate = dateField(formData, "next_action_date");
+  if (stageRequiresNextAction(stage) && !nextAction) {
+    return { error: "Every active opportunity needs a next action." };
+  }
+  if (!nextActionDate) {
+    const existing = await supabase.from("opportunities").select("next_action_date").eq("id", id).maybeSingle();
+    const stored = existing.data ? String((existing.data as { next_action_date?: string | null }).next_action_date ?? "") : "";
+    nextActionDate = /^\d{4}-\d{2}-\d{2}/.test(stored) ? stored.slice(0, 10) : null;
   }
   const { error } = await supabase.rpc("update_opportunity_stage", {
     p_opportunity_id: id,
