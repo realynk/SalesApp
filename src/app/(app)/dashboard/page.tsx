@@ -50,7 +50,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                 <Button type="submit">Load sample workspace</Button>
               </form>
               <Button variant="outline" asChild>
-                <Link href="/leads/import">Import SendPilot file</Link>
+                <Link href="/leads/import">Import leads</Link>
               </Button>
             </div>
           }

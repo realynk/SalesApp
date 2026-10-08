@@ -8,22 +8,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-
-export const REPORTING_DURATION_OPTIONS = [
-  { value: "7d", label: "Last 7 days" },
-  { value: "30d", label: "Last 30 days" },
-  { value: "90d", label: "Last 90 days" },
-  { value: "ytd", label: "Year to date" },
-  { value: "all", label: "All time" },
-] as const;
-
-export type ReportingDuration = (typeof REPORTING_DURATION_OPTIONS)[number]["value"];
-
-export function parseReportingDuration(value?: string): ReportingDuration {
-  return REPORTING_DURATION_OPTIONS.some((option) => option.value === value)
-    ? (value as ReportingDuration)
-    : "all";
-}
+import {
+  REPORTING_DURATION_OPTIONS,
+  type ReportingDuration,
+} from "@/lib/reporting-duration";
 
 export function ReportingDurationPicker({ value }: { value: ReportingDuration }) {
   const router = useRouter();

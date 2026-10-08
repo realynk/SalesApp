@@ -3,10 +3,11 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChartColumn, FolderSync, Handshake, LayoutDashboard, Menu, Search, Settings, Users } from "lucide-react";
+import { ChartColumn, FileUp, FolderSync, Handshake, LayoutDashboard, Menu, Search, Settings, Users } from "lucide-react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { isNavActive } from "@/lib/nav";
 import { signOut } from "@/server/actions";
 
 const NAV = [
@@ -14,6 +15,7 @@ const NAV = [
   { href: "/opportunities", label: "Client journey", icon: Handshake },
   { href: "/reporting", label: "Reporting", icon: ChartColumn },
   { href: "/leads", label: "Leads", icon: Users },
+  { href: "/leads/import", label: "Import leads", icon: FileUp },
   { href: "/reconciliation", label: "Lead review", icon: FolderSync },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
@@ -75,7 +77,7 @@ function Nav() {
   return (
     <nav className="flex flex-col gap-1 p-3">
       {NAV.map((item) => {
-        const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+        const active = isNavActive(pathname, item.href);
         const Icon = item.icon;
         return (
           <Link
