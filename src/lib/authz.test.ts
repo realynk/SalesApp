@@ -20,6 +20,8 @@ const importPreview = readFileSync(join(root, "src/app/api/sendpilot/import/prev
 const dataSource = readFileSync(join(root, "src/lib/data.ts"), "utf8");
 const webhookApply = readFileSync(join(root, "src/lib/sendpilot/apply.ts"), "utf8");
 const webhookRoute = readFileSync(join(root, "src/app/api/sendpilot/webhook/route.ts"), "utf8");
+const reportingLoad = readFileSync(join(root, "src/lib/reporting-load.ts"), "utf8");
+const reportingPage = readFileSync(join(root, "src/app/(app)/reporting/page.tsx"), "utf8");
 
 test("sales_lead keeps write and workspace-admin access", () => {
   assert.equal(canWriteCrm("sales_lead"), true);
@@ -46,6 +48,14 @@ test("authorization uses profiles.role helpers and not user_metadata", () => {
   assert.match(actionsSource, /requireWriter/);
   assert.match(importApply, /canWriteCrm\(\(profile as \{ role\?: string \}\)\.role\)/);
   assert.match(importPreview, /canWriteCrm\(\(profile as \{ role\?: string \}\)\.role\)/);
+});
+
+test("reporting dashboard is read-only and does not call requireWriter", () => {
+  assert.match(reportingLoad, /requireUser/);
+  assert.equal(reportingLoad.includes("requireWriter"), false);
+  assert.equal(reportingPage.includes("requireWriter"), false);
+  assert.equal(reportingPage.includes("ActionForm"), false);
+  assert.match(reportingPage, /getReportingDashboard/);
 });
 
 test("reconciliation backfill does not run for view-only roles", () => {
