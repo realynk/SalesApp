@@ -1,5 +1,6 @@
 import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
+import { canWriteCrm } from "@/lib/authz";
 import { applyStoredImport } from "@/lib/sendpilot/import-server";
 import { createClient } from "@/lib/supabase/server";
 
@@ -12,8 +13,8 @@ async function requireImporter() {
   if (error || typeof userId !== "string") {
     return { error: NextResponse.json({ error: "Sign in to import SendPilot files." }, { status: 401 }) };
   }
-  const { data: profile } = await supabase.from("profiles").select("id").eq("id", userId).maybeSingle();
-  if (!profile) {
+  const { data: profile } = await supabase.from("profiles").select("id, role").eq("id", userId).maybeSingle();
+  if (!profile || !canWriteCrm((profile as { role?: string }).role)) {
     return { error: NextResponse.json({ error: "Your account cannot import leads." }, { status: 403 }) };
   }
   return { supabase, userId };

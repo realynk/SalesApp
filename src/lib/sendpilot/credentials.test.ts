@@ -21,6 +21,7 @@ test("admin check uses sales_lead and not user_metadata", () => {
   assert.equal(canManageSendPilotCredentials("sales_lead"), true);
   assert.equal(canManageSendPilotCredentials("recruiter"), false);
   assert.equal(canManageSendPilotCredentials("member"), false);
+  assert.equal(canManageSendPilotCredentials("executive"), false);
   assert.throws(() => assertCredentialAdmin("recruiter"), /admin/);
 });
 
