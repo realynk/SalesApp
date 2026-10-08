@@ -5,6 +5,7 @@ import {
   NOT_INTERESTED_OUTCOMES,
   SENDPILOT_STATUSES,
   accountFlag,
+  belongsToCurrentLeadOrJourney,
   boardStage,
   buildAttention,
   conversionRates,
@@ -14,6 +15,7 @@ import {
   normalizeSendPilotStatus,
   notInterestedColumn,
   notInterestedOutcome,
+  PROFILE_SEND_STAGE,
   stageLabel,
   timeMetrics,
   todayInTimeZone,
@@ -28,6 +30,7 @@ import { raiseIf } from "@/lib/errors";
 import { fullName } from "@/lib/format";
 import { inReportingRange, reportingStartOn, type ReportingDuration } from "@/lib/reporting-duration";
 import { mapSendPilotLeadSources, type SendPilotLeadSource } from "@/lib/sendpilot/lead-sources";
+import { backfillMissingInterestedOpportunities } from "@/lib/opportunity-start";
 import { requireUser } from "@/server/session";
 
 type Row = Record<string, unknown>;
@@ -224,7 +227,36 @@ export const getCommandCenter = cache(async () => {
 
   const allOpportunities = rows(loadedOpportunities.data).map(mapOpportunity);
   const archivedOpportunityIds = new Set(allOpportunities.filter((item) => archivedIds.has(item.leadId)).map((item) => item.id));
-  const opportunities = allOpportunities.filter((item) => !archivedIds.has(item.leadId));
+  let opportunities = allOpportunities.filter((item) => !archivedIds.has(item.leadId));
+  const listedLeads = missingArchivedColumn(leadResult.error)
+    ? await supabase.from("leads").select("id, sendpilot_status").order("updated_at", { ascending: false }).limit(500)
+    : await supabase.from("leads").select("id, sendpilot_status").is("archived_at", null).order("updated_at", { ascending: false }).limit(500);
+  raiseIf(listedLeads.error);
+  const currentLeadIds = new Set<string>();
+  const statusByLead = new Map<string, string | null>();
+  for (const item of rows(listedLeads.error ? [] : listedLeads.data)) {
+    const id = String(item.id);
+    currentLeadIds.add(id);
+    statusByLead.set(id, str(item.sendpilot_status));
+  }
+  for (const item of rows(loadedLeads.data)) {
+    currentLeadIds.add(String(item.id));
+    statusByLead.set(String(item.id), str(item.sendpilot_status) ?? "Interested");
+  }
+  const missingStatusIds = [...new Set(opportunities.map((item) => item.leadId).filter((id) => !statusByLead.has(id)))];
+  if (missingStatusIds.length > 0) {
+    const extraLeads = await supabase.from("leads").select("id, sendpilot_status").in("id", missingStatusIds);
+    raiseIf(extraLeads.error);
+    for (const item of rows(extraLeads.data)) {
+      statusByLead.set(String(item.id), str(item.sendpilot_status));
+    }
+  }
+  for (const opportunity of opportunities) {
+    if (statusByLead.get(opportunity.leadId) === "Not Interested") continue;
+    currentLeadIds.add(opportunity.leadId);
+  }
+  opportunities = opportunities.filter((item) => currentLeadIds.has(item.leadId));
+  const opportunityLeadIds = new Map(opportunities.map((item) => [item.id, item.leadId]));
   const opportunityIds = new Set(opportunities.map((opportunity) => opportunity.leadId));
   const companyByOpportunity = new Map(opportunities.map((opportunity) => [opportunity.id, opportunity.companyName]));
 
@@ -258,50 +290,95 @@ export const getCommandCenter = cache(async () => {
     .filter((item) => {
       if (item.leadId && archivedIds.has(item.leadId)) return false;
       if (item.opportunityId && archivedOpportunityIds.has(item.opportunityId)) return false;
-      return true;
+      return belongsToCurrentLeadOrJourney({
+        leadId: item.leadId,
+        opportunityId: item.opportunityId,
+        currentLeadIds,
+        opportunityLeadIds,
+      });
     });
 
-  const profileBatches = rows(batchResult.data).map((item) => ({
-    id: String(item.id),
-    opportunityId: String(item.opportunity_id),
-    companyName: companyByOpportunity.get(String(item.opportunity_id)) ?? "Client",
-    sentOn: str(item.sent_on) ?? today,
-    profileCount: num(item.profile_count) ?? 0,
-    clientResponse: str(item.client_response),
-    followUpOn: str(item.follow_up_on),
-  }));
+  const profileBatches = rows(batchResult.data)
+    .map((item) => ({
+      id: String(item.id),
+      opportunityId: String(item.opportunity_id),
+      companyName: companyByOpportunity.get(String(item.opportunity_id)) ?? "Client",
+      sentOn: str(item.sent_on) ?? today,
+      profileCount: num(item.profile_count) ?? 0,
+      clientResponse: str(item.client_response),
+      followUpOn: str(item.follow_up_on),
+    }))
+    .filter((item) =>
+      belongsToCurrentLeadOrJourney({
+        opportunityId: item.opportunityId,
+        currentLeadIds,
+        opportunityLeadIds,
+      }),
+    );
 
-  const recruitment = rows(recruitmentResult.data).map((item) => ({
-    id: String(item.id),
-    opportunityId: String(item.opportunity_id),
-    companyName: str(item.company_name) ?? companyByOpportunity.get(String(item.opportunity_id)) ?? "Recruitment",
-    status: str(item.status) ?? "Not Started",
-    targetOn: str(item.target_on) ?? today,
-    urgent: bool(item.urgent),
-  }));
+  const recruitment = rows(recruitmentResult.data)
+    .map((item) => ({
+      id: String(item.id),
+      opportunityId: String(item.opportunity_id),
+      companyName: str(item.company_name) ?? companyByOpportunity.get(String(item.opportunity_id)) ?? "Recruitment",
+      status: str(item.status) ?? "Not Started",
+      targetOn: str(item.target_on) ?? today,
+      urgent: bool(item.urgent),
+    }))
+    .filter((item) =>
+      belongsToCurrentLeadOrJourney({
+        opportunityId: item.opportunityId,
+        currentLeadIds,
+        opportunityLeadIds,
+      }),
+    );
 
-  const interviews = rows(interviewResult.data).map((item) => ({
-    id: String(item.id),
-    opportunityId: String(item.opportunity_id),
-    candidateName: str(item.candidate_name) ?? "Candidate",
-    companyName: str(item.client_name) ?? companyByOpportunity.get(String(item.opportunity_id)) ?? "Client",
-    interviewOn: dateInTimeZone(str(item.interview_at), settings.businessTimezone),
-    status: str(item.status) ?? "Requested",
-  }));
+  const interviews = rows(interviewResult.data)
+    .map((item) => ({
+      id: String(item.id),
+      opportunityId: String(item.opportunity_id),
+      candidateName: str(item.candidate_name) ?? "Candidate",
+      companyName: str(item.client_name) ?? companyByOpportunity.get(String(item.opportunity_id)) ?? "Client",
+      interviewOn: dateInTimeZone(str(item.interview_at), settings.businessTimezone),
+      status: str(item.status) ?? "Requested",
+    }))
+    .filter((item) =>
+      belongsToCurrentLeadOrJourney({
+        opportunityId: item.opportunityId,
+        currentLeadIds,
+        opportunityLeadIds,
+      }),
+    );
 
-  const contracts = rows(contractResult.data).map((item) => ({
-    opportunityId: String(item.opportunity_id),
-    companyName: companyByOpportunity.get(String(item.opportunity_id)) ?? "Client",
-    status: str(item.status) ?? "Preparing",
-    expectedStartOn: str(item.expected_start_on),
-  }));
+  const contracts = rows(contractResult.data)
+    .map((item) => ({
+      opportunityId: String(item.opportunity_id),
+      companyName: companyByOpportunity.get(String(item.opportunity_id)) ?? "Client",
+      status: str(item.status) ?? "Preparing",
+      expectedStartOn: str(item.expected_start_on),
+    }))
+    .filter((item) =>
+      belongsToCurrentLeadOrJourney({
+        opportunityId: item.opportunityId,
+        currentLeadIds,
+        opportunityLeadIds,
+      }),
+    );
 
-  const strategyCalls = rows(callResult.data).map((item) => ({
-    opportunityId: String(item.opportunity_id),
-    companyName: str(item.company_name) ?? companyByOpportunity.get(String(item.opportunity_id)) ?? "Client",
-    callOn: str(item.call_on),
-    status: str(item.status) ?? "Draft",
-  }));
+  const strategyCalls = rows(callResult.data)
+    .map((item) => ({
+      opportunityId: String(item.opportunity_id),
+      companyName: str(item.company_name) ?? companyByOpportunity.get(String(item.opportunity_id)) ?? "Client",
+      callOn: str(item.call_on),
+      status: str(item.status) ?? "Draft",
+    }))
+    .filter((item) =>
+      belongsToCurrentLeadOrJourney({
+        opportunityId: item.opportunityId,
+        currentLeadIds,
+        opportunityLeadIds,
+      }),
+    );
 
   const unmatchedInterested = rows(loadedLeads.data)
     .filter((lead) => !opportunityIds.has(String(lead.id)))
@@ -379,7 +456,7 @@ export const getCommandCenter = cache(async () => {
       nurture: opportunities.filter((item) => item.status === "nurture").length,
       interestedLeads: rows(loadedLeads.data).length,
       interestedWithoutOpportunity: unmatchedInterested.length,
-      profilesInReview: opportunities.filter((item) => item.stage === "Profiles Sent" || item.stage === "Client Review").length,
+      profilesInReview: opportunities.filter((item) => boardStage(item.stage) === PROFILE_SEND_STAGE).length,
       meetingsThisWeek: strategyCalls.filter((call) => call.callOn && call.callOn >= weekStart && call.callOn <= weekEnd).length,
       recruitmentRequests: recruitment.filter((item) => !["Candidate Selected", "No Suitable Candidate"].includes(item.status)).length,
       profilesAwaiting: profileBatches.filter((batch) => !batch.clientResponse).length,
@@ -860,7 +937,8 @@ export type ReviewRecord = {
 };
 
 export async function getReconciliation() {
-  const { supabase } = await requireUser();
+  const { supabase, userId } = await requireUser();
+  await backfillMissingInterestedOpportunities(supabase, userId);
   const [syncs, records, leads] = await Promise.all([
     supabase.from("sendpilot_syncs").select("*").order("created_at", { ascending: false }).limit(8),
     supabase.from("sendpilot_records").select("*").eq("review_required", true).eq("applied", false).order("created_at", { ascending: false }).limit(100),

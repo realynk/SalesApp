@@ -603,6 +603,20 @@ type AttentionOpportunity = {
   lastActivityOn: string | null;
 };
 
+export function belongsToCurrentLeadOrJourney(input: {
+  leadId?: string | null;
+  opportunityId?: string | null;
+  currentLeadIds: Set<string>;
+  opportunityLeadIds: Map<string, string>;
+}) {
+  if (input.leadId && input.currentLeadIds.has(input.leadId)) return true;
+  if (input.opportunityId) {
+    const leadId = input.opportunityLeadIds.get(input.opportunityId);
+    if (leadId && input.currentLeadIds.has(leadId)) return true;
+  }
+  return false;
+}
+
 export type AttentionInput = {
   today: string;
   staleAfterDays: number;

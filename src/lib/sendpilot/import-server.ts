@@ -1,4 +1,5 @@
 import { actionError } from "@/lib/errors";
+import { backfillMissingInterestedOpportunities } from "@/lib/opportunity-start";
 import { IMPORT_STORAGE_BUCKET } from "@/lib/sendpilot/import-limits";
 import { exceptionPreviewRows, parseSendPilotExport } from "@/lib/sendpilot/parse-export";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -72,6 +73,7 @@ export async function applyStoredImport(
   const payload = { filename: parsed.filename, source: parsed.source, rows: parsed.rows };
   const { data, error } = await supabase.rpc("apply_sendpilot_import", { payload });
   if (error) return { ok: false as const, error: actionError(error) };
+  await backfillMissingInterestedOpportunities(supabase, userId);
   await supabase.storage.from(IMPORT_STORAGE_BUCKET).remove([storagePath]);
   return {
     ok: true as const,
