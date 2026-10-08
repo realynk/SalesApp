@@ -260,15 +260,20 @@ export const getCommandCenter = cache(async () => {
   const opportunityLeadIds = new Map(opportunities.map((item) => [item.id, item.leadId]));
   const opportunityIds = new Set(opportunities.map((opportunity) => opportunity.leadId));
   const companyByOpportunity = new Map(opportunities.map((opportunity) => [opportunity.id, opportunity.companyName]));
+  const contactByOpportunity = new Map(opportunities.map((opportunity) => [opportunity.id, opportunity.contactName]));
 
   const companyByLead = new Map<string, string>();
+  const contactByLead = new Map<string, string>();
   for (const opportunity of opportunities) {
     companyByLead.set(opportunity.leadId, opportunity.companyName);
+    contactByLead.set(opportunity.leadId, opportunity.contactName);
   }
   for (const item of rows(loadedLeads.data)) {
     const company = row(item.companies);
     const name = str(company?.name);
     if (name) companyByLead.set(String(item.id), name);
+    const contact = row(item.contacts);
+    contactByLead.set(String(item.id), fullName(str(contact?.first_name), str(contact?.last_name)));
   }
 
   const followUps = rows(followResult.data)
@@ -286,6 +291,10 @@ export const getCommandCenter = cache(async () => {
           (opportunityId ? companyByOpportunity.get(opportunityId) : null) ??
           (leadId ? companyByLead.get(leadId) : null) ??
           "Follow-up",
+        contactName:
+          (opportunityId ? contactByOpportunity.get(opportunityId) : null) ??
+          (leadId ? contactByLead.get(leadId) : null) ??
+          null,
       };
     })
     .filter((item) => {
@@ -422,6 +431,7 @@ export const getCommandCenter = cache(async () => {
       id: opportunity.id,
       title: opportunity.title,
       companyName: opportunity.companyName,
+      contactName: opportunity.contactName,
       stage: opportunity.stage,
       status: opportunity.status,
       riskLevel: opportunity.riskLevel,
@@ -472,6 +482,7 @@ export const getCommandCenter = cache(async () => {
         id: opportunity.id,
         title: opportunity.title,
         companyName: opportunity.companyName,
+        contactName: opportunity.contactName,
         stage: opportunity.stage,
         status: opportunity.status,
         riskLevel: opportunity.riskLevel,

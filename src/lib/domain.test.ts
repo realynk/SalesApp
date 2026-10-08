@@ -298,6 +298,7 @@ test("places the week's calls, follow-ups, and SOW check-backs on their dates", 
         id: "opp-harbor",
         title: "Harbor",
         companyName: "Harbor & Co. Accounting",
+        contactName: "Priya Shah",
         stage: "Strategy Call Scheduled",
         status: "active",
         riskLevel: "low",
@@ -310,6 +311,7 @@ test("places the week's calls, follow-ups, and SOW check-backs on their dates", 
         id: "opp-bright",
         title: "BrightPath",
         companyName: "BrightPath Mortgage",
+        contactName: "Daniel Ortiz",
         stage: "SOW Sent",
         status: "active",
         riskLevel: "medium",
@@ -322,6 +324,7 @@ test("places the week's calls, follow-ups, and SOW check-backs on their dates", 
         id: "opp-north",
         title: "Northstar",
         companyName: "Northstar Legal Group",
+        contactName: "Maya Chen",
         stage: "Email / Profile Preparation",
         status: "active",
         riskLevel: "low",
@@ -366,6 +369,8 @@ test("places the week's calls, follow-ups, and SOW check-backs on their dates", 
   const harbor = tasks.find((task) => task.company === "Harbor & Co. Accounting" && task.date === "2026-09-24");
   assert.equal(harbor?.kind, "strategy_call");
   assert.equal(harbor?.title, "Hold the strategy call and capture requirements");
+  assert.equal(harbor?.contact, "Priya Shah");
+  assert.equal(tasks.find((task) => task.company === "BrightPath Mortgage" && task.kind === "sow")?.contact, "Daniel Ortiz");
   assert.equal(tasks.filter((task) => task.id.startsWith("next-opp-north")).length, 0);
   const northstar = tasks.find((task) => task.company === "Northstar Legal Group");
   assert.equal(northstar?.kind, "follow_up");

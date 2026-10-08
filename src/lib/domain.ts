@@ -594,6 +594,7 @@ type AttentionOpportunity = {
   id: string;
   title: string;
   companyName: string;
+  contactName?: string | null;
   stage: OpportunityStage;
   status: OpportunityStatus;
   riskLevel: RiskLevel;
@@ -631,6 +632,7 @@ export type AttentionInput = {
     dueOn: string;
     status: "open" | "completed" | "cancelled";
     companyName: string;
+    contactName?: string | null;
   }>;
   profileBatches: Array<{
     id: string;
@@ -696,6 +698,7 @@ export type WeekTask = {
   label: string;
   title: string;
   company: string;
+  contact: string;
   href: string;
   followUpId?: string;
   opportunityId?: string | null;
@@ -740,6 +743,10 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
   const tasks: WeekTask[] = [];
   const opportunityById = new Map(input.opportunities.map((opportunity) => [opportunity.id, opportunity]));
   const open = new Set<OpportunityStatus>(["active", "nurture", "on_hold"]);
+  const contactFor = (opportunityId: string | null | undefined, fallback: string, explicit?: string | null) => {
+    const fromOpportunity = opportunityId ? opportunityById.get(opportunityId)?.contactName?.trim() : "";
+    return explicit?.trim() || fromOpportunity || fallback;
+  };
 
   const push = (task: WeekTask) => {
     tasks.push(task);
@@ -756,6 +763,7 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
       label: WEEK_TASK_LABEL.follow_up,
       title: followUp.title,
       company: followUp.companyName,
+      contact: contactFor(followUp.opportunityId, followUp.companyName, followUp.contactName),
       href: followUp.opportunityId ? `/opportunities/${followUp.opportunityId}` : `/leads/${followUp.leadId ?? ""}`,
       followUpId: followUp.id,
       opportunityId: followUp.opportunityId,
@@ -775,6 +783,7 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
       label: WEEK_TASK_LABEL.strategy_call,
       title: sameDayAction ?? "Sales call scheduled",
       company: call.companyName,
+      contact: contactFor(call.opportunityId, call.companyName),
       href: `/opportunities/${call.opportunityId}`,
     });
   }
@@ -789,6 +798,7 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
       label: WEEK_TASK_LABEL.interview,
       title: interview.candidateName,
       company: interview.companyName,
+      contact: contactFor(interview.opportunityId, interview.companyName),
       href: `/opportunities/${interview.opportunityId}`,
     });
   }
@@ -803,6 +813,7 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
       label: WEEK_TASK_LABEL.recruitment,
       title: request.status,
       company: request.companyName,
+      contact: contactFor(request.opportunityId, request.companyName),
       href: `/recruitment/${request.id}`,
     });
   }
@@ -817,6 +828,7 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
       label: WEEK_TASK_LABEL.profiles,
       title: `${batch.profileCount} profiles awaiting a response`,
       company: batch.companyName,
+      contact: contactFor(batch.opportunityId, batch.companyName),
       href: `/opportunities/${batch.opportunityId}`,
     });
   }
@@ -832,6 +844,7 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
       label: WEEK_TASK_LABEL[kind],
       title: opportunity.nextAction,
       company: opportunity.companyName,
+      contact: contactFor(opportunity.id, opportunity.companyName, opportunity.contactName),
       href: `/opportunities/${opportunity.id}`,
     });
   }
@@ -847,6 +860,7 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
         label: WEEK_TASK_LABEL.sow,
         title: "Check back on the SOW",
         company: contract.companyName,
+        contact: contactFor(contract.opportunityId, contract.companyName),
         href: `/opportunities/${contract.opportunityId}`,
       });
     }
@@ -858,12 +872,13 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
         label: WEEK_TASK_LABEL.start,
         title: "Expected start",
         company: contract.companyName,
+        contact: contactFor(contract.opportunityId, contract.companyName),
         href: `/opportunities/${contract.opportunityId}`,
       });
     }
   }
 
-  return tasks.sort((a, b) => a.date.localeCompare(b.date) || a.company.localeCompare(b.company) || a.label.localeCompare(b.label));
+  return tasks.sort((a, b) => a.date.localeCompare(b.date) || a.contact.localeCompare(b.contact) || a.label.localeCompare(b.label));
 }
 
 export function buildAttention(input: AttentionInput): AttentionItem[] {

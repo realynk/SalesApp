@@ -87,7 +87,7 @@ function TaskChip({ task, overdue }: { task: WeekTask; overdue: boolean }) {
       <Link href={task.href} className="block">
         <p className={`text-[11px] font-medium uppercase ${overdue ? "text-destructive" : "text-primary"}`}>{overdue ? `${task.label} · overdue` : task.label}</p>
         <p className="mt-0.5 text-xs font-medium leading-4 text-foreground">{task.title}</p>
-        <p className="text-[11px] text-muted-foreground">{task.company}</p>
+        <p className="text-[11px] text-muted-foreground">{task.contact}</p>
       </Link>
       {task.followUpId ? (
         <form action={completeFollowUp} className="mt-1.5">
