@@ -35,6 +35,11 @@ import {
 import { importedSendPilotStatus, parseDuplicateTagging, taggingPatch } from "@/lib/sendpilot/review";
 import { actionError } from "@/lib/errors";
 import { getSettings } from "@/lib/data";
+import {
+  createOpportunityForLead,
+  maybeAutoCreateInterestedOpportunity,
+  startOpportunityForLead,
+} from "@/lib/opportunity-start";
 import { createClient } from "@/lib/supabase/server";
 import { dateField, optionalNumber, optionalText, settingsSchema, text, type ActionState } from "@/server/form";
 import { requireUser } from "@/server/session";
@@ -272,109 +277,6 @@ export async function deleteLeadPermanently(_state: ActionState, formData: FormD
   redirect("/leads?notice=" + encodeURIComponent("Lead permanently deleted. SendPilot will not recreate it unless you restore it from review."));
 }
 
-async function createOpportunityForLead(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  userId: string,
-  leadId: string,
-  formData: FormData,
-) {
-  let loaded = await supabase.from("leads").select("id, company_id, contact_id, account_flag, archived_at, companies(name), contacts(first_name, last_name)").eq("id", leadId).maybeSingle();
-  if (loaded.error && /archived_at/i.test(loaded.error.message ?? "")) {
-    loaded = await supabase.from("leads").select("id, company_id, contact_id, account_flag, companies(name), contacts(first_name, last_name)").eq("id", leadId).maybeSingle();
-  }
-  if (loaded.error && /account_flag/i.test(loaded.error.message ?? "")) {
-    loaded = await supabase.from("leads").select("id, company_id, contact_id, companies(name), contacts(first_name, last_name)").eq("id", leadId).maybeSingle();
-  }
-  if (loaded.error || !loaded.data) return { error: "That lead could not be found." };
-  if ((loaded.data as { archived_at?: string | null }).archived_at) {
-    return { error: "Restore this archived lead before starting a client journey." };
-  }
-  const lead = loaded.data;
-  const record = lead as { company_id: string; contact_id: string; account_flag?: string | null; companies: { name: string } | { name: string }[] | null };
-  const company = Array.isArray(record.companies) ? record.companies[0] : record.companies;
-  const stage = text(formData, "stage") || "Interested";
-  if (!(OPPORTUNITY_STAGES as readonly string[]).includes(stage)) return { error: "Choose a pipeline stage." };
-  if (stage === "Client Started" || stage === "Won" || stage === "Lost") return { error: "Create the opportunity in an active stage, then record the outcome from the workspace." };
-  const nextAction = text(formData, "next_action");
-  const nextActionDate = dateField(formData, "next_action_date");
-  if (!nextAction || !nextActionDate) return { error: "Every opportunity needs a next action and a due date." };
-  const headcount = optionalNumber(formData, "headcount");
-  const billingRate = optionalNumber(formData, "billing_rate");
-  if (Number.isNaN(headcount) || Number.isNaN(billingRate)) return { error: "Headcount must be a number." };
-  const nurture = stage === "On Hold / Nurture";
-  const { data, error: insertError } = await supabase
-    .from("opportunities")
-    .insert({
-      lead_id: leadId,
-      company_id: record.company_id,
-      contact_id: record.contact_id,
-      owner_id: userId,
-      title: `${company?.name ?? "Opportunity"} — virtual staff`,
-      stage,
-      status: nurture ? "nurture" : "active",
-      risk_level: (RISK_LEVELS as readonly string[]).includes(text(formData, "risk_level")) ? text(formData, "risk_level") : "low",
-      waiting_on: (WAITING_ON as readonly string[]).includes(text(formData, "waiting_on")) ? text(formData, "waiting_on") : "internal",
-      next_action: nextAction,
-      next_action_date: nextActionDate,
-      headcount,
-      billing_rate: billingRate,
-      nurture_reason: optionalText(formData, "nurture_reason"),
-      nurture_notes: optionalText(formData, "nurture_notes"),
-      notes: optionalText(formData, "notes"),
-    })
-    .select("id")
-    .single();
-  if (insertError || !data) return { error: actionError(insertError) };
-  const opportunityId = String((data as { id: string }).id);
-  const inheritedFlag = accountFlag(record.account_flag);
-  if (inheritedFlag) {
-    await supabase.from("opportunities").update({ account_flag: inheritedFlag }).eq("id", opportunityId);
-  }
-  await supabase.from("activities").insert({
-    opportunity_id: opportunityId,
-    lead_id: leadId,
-    company_id: record.company_id,
-    contact_id: record.contact_id,
-    type: "opportunity_created",
-    title: "Opportunity created",
-    actor_id: userId,
-  });
-  if (nurture) {
-    await supabase.from("follow_ups").insert({
-      opportunity_id: opportunityId,
-      lead_id: leadId,
-      owner_id: userId,
-      title: nextAction,
-      due_on: nextActionDate,
-      reason: optionalText(formData, "nurture_reason"),
-      notes: optionalText(formData, "nurture_notes"),
-    });
-    await supabase.from("activities").insert({
-      opportunity_id: opportunityId,
-      lead_id: leadId,
-      type: "follow_up_created",
-      title: "Nurture follow-up created",
-      body: optionalText(formData, "nurture_notes"),
-      actor_id: userId,
-    });
-  }
-  return { id: opportunityId };
-}
-
-async function startOpportunityForLead(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  userId: string,
-  leadId: string,
-) {
-  const settings = await getSettings();
-  const formData = new FormData();
-  formData.set("stage", "Interested");
-  formData.set("next_action", STAGE_PLAYBOOK.Interested.nextAction);
-  formData.set("waiting_on", STAGE_PLAYBOOK.Interested.waitingOn);
-  formData.set("next_action_date", addBusinessDays(todayInTimeZone(settings.businessTimezone), 2));
-  return createOpportunityForLead(supabase, userId, leadId, formData);
-}
-
 export async function updateLeadStatus(_state: ActionState, formData: FormData): Promise<ActionState> {
   const { supabase, userId } = await requireUser();
   const leadId = text(formData, "lead_id");
@@ -409,6 +311,10 @@ export async function updateLeadStatus(_state: ActionState, formData: FormData):
       body: note ?? (previous ? `Was ${previous}` : null),
       actor_id: userId,
     });
+  }
+  if (status === "Interested") {
+    const created = await maybeAutoCreateInterestedOpportunity(supabase, userId, leadId);
+    if (created.error) return { error: created.error };
   }
   refresh(`/leads/${leadId}`, "/leads", "/dashboard", "/reconciliation", "/opportunities", "/follow-ups");
   return { success: "Lead status saved." };
@@ -1432,6 +1338,12 @@ export async function createFromReviewedRecord(_state: ActionState, formData: Fo
   const leadId = (leadInsert.data as { id: string }).id;
   await supabase.from("sendpilot_records").update({ applied: true, review_required: false, matched_contact_id: (contactInsert.data as { id: string }).id, matched_lead_id: leadId }).eq("id", id);
   await supabase.from("activities").insert({ lead_id: leadId, type: "lead_imported", title: "Lead created from a reviewed import row", actor_id: userId });
+  const auto = await maybeAutoCreateInterestedOpportunity(supabase, userId, leadId);
+  if (auto.error) return { error: auto.error };
+  if (auto.created && auto.id) {
+    refresh("/reconciliation", "/leads", "/opportunities", "/dashboard");
+    redirect(`/opportunities/${auto.id}`);
+  }
   if (text(formData, "create_opportunity") === "yes") {
     const created = await startOpportunityForLead(supabase, userId, leadId);
     if (created && "error" in created && created.error) return created;
@@ -1516,6 +1428,13 @@ export async function applyReviewedDuplicate(_state: ActionState, formData: Form
     matched_lead_id: leadId,
     matched_contact_id: isUuid(matchedContactId) ? matchedContactId : record.matched_contact_id,
   }).eq("id", id);
+  const auto = await maybeAutoCreateInterestedOpportunity(supabase, userId, leadId);
+  if (auto.error) return { error: auto.error };
+  if (auto.created && auto.id) {
+    refresh("/reconciliation", "/leads", "/opportunities", "/dashboard", `/leads/${leadId}`);
+    if (text(formData, "create_opportunity") === "yes") redirect(`/opportunities/${auto.id}`);
+    redirect(`/reconciliation?notice=${encodeURIComponent("Existing lead kept. Opportunity started.")}`);
+  }
   if (text(formData, "create_opportunity") === "yes") {
     const open = await supabase.from("opportunities").select("id").eq("lead_id", leadId).in("status", ["active", "nurture", "on_hold"]).maybeSingle();
     if (open.data) {
