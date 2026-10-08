@@ -43,6 +43,7 @@ import {
   webhookStatusActivity,
 } from "@/lib/sendpilot/webhook";
 import { identitiesOverlap } from "./suppress";
+import { maybeAutoCreateInterestedOpportunity } from "@/lib/opportunity-start";
 import { createAdminClient, supabaseServiceRoleKey } from "@/lib/supabase/admin";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -1219,6 +1220,29 @@ export async function applySendPilotWebhook(
     const { error: updateError } = await supabase.from("leads").update(leadUpdate).eq("id", lead.leadId);
     if (updateError) throw updateError;
 
+    let opportunityCreated = false;
+    if (!lead.archived) {
+      try {
+        const auto = await maybeAutoCreateInterestedOpportunity(supabase, null, lead.leadId);
+        opportunityCreated = auto.created;
+        if (auto.error) {
+          console.error("[sendpilot.webhook]", {
+            eventId,
+            eventType,
+            outcome: "opportunity_auto_create_failed",
+            error: auto.error,
+          });
+        }
+      } catch (error) {
+        console.error("[sendpilot.webhook]", {
+          eventId,
+          eventType,
+          outcome: "opportunity_auto_create_failed",
+          error: asErrorMessage(error),
+        });
+      }
+    }
+
     if (ids.email || ids.linkedinUrl || ids.title) {
       const current = await supabase
         .from("contacts")
@@ -1327,6 +1351,7 @@ export async function applySendPilotWebhook(
         created,
         sendpilotStatus: status.applyNormalized ? status.normalized : previousStatus,
         opportunityStageUntouched: true,
+        opportunityCreated,
         archived: lead.archived,
         activityType,
       },
