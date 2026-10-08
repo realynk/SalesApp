@@ -10,6 +10,7 @@ import {
   median,
   normalizeSendPilotStatus,
   accountFlag,
+  belongsToCurrentLeadOrJourney,
   notInterestedColumn,
   notInterestedOutcome,
   boardStage,
@@ -197,6 +198,50 @@ test("surfaces overdue follow-ups, stale opportunities, and interested leads wit
   assert.equal(interested?.detail, "Leah Okonkwo — Westline Architects · Tagged Interested in SendPilot");
   assert.equal(interested?.href, "/leads/lead-leah");
   assert.equal(items[0]?.severity, "overdue");
+});
+
+test("attention subjects stay only when the lead is on the current list or client journey", () => {
+  const currentLeadIds = new Set(["lead-visible"]);
+  const opportunityLeadIds = new Map([
+    ["opp-visible", "lead-visible"],
+    ["opp-missing", "lead-gone"],
+  ]);
+  assert.equal(
+    belongsToCurrentLeadOrJourney({
+      leadId: "lead-visible",
+      opportunityId: null,
+      currentLeadIds,
+      opportunityLeadIds,
+    }),
+    true,
+  );
+  assert.equal(
+    belongsToCurrentLeadOrJourney({
+      leadId: null,
+      opportunityId: "opp-visible",
+      currentLeadIds,
+      opportunityLeadIds,
+    }),
+    true,
+  );
+  assert.equal(
+    belongsToCurrentLeadOrJourney({
+      leadId: "lead-gone",
+      opportunityId: "opp-missing",
+      currentLeadIds,
+      opportunityLeadIds,
+    }),
+    false,
+  );
+  assert.equal(
+    belongsToCurrentLeadOrJourney({
+      leadId: null,
+      opportunityId: "opp-unknown",
+      currentLeadIds,
+      opportunityLeadIds,
+    }),
+    false,
+  );
 });
 
 test("does not duplicate a next action that is already a follow-up", () => {

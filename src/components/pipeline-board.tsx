@@ -476,8 +476,8 @@ function ItemCard({
 function CardHeading({ item }: { item: BoardItem }) {
   return (
     <>
-      <p className="text-sm font-semibold">{item.companyName}</p>
-      <p className="mt-0.5 text-xs text-muted-foreground">{item.contactName}</p>
+      <p className="text-sm font-semibold">{item.contactName}</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">{item.companyName}</p>
     </>
   );
 }
@@ -486,7 +486,7 @@ function CardMeta({ item }: { item: BoardItem }) {
   return (
     <dl className="mt-2 space-y-1 text-xs">
       <CardField label={item.kind === "lead" ? "Follow-up" : "Next action"} value={item.nextAction ?? "Set the next action"} />
-      <CardField label="Due" value={formatDate(item.nextActionDate)} />
+      {item.nextActionDate ? <CardField label="Due" value={formatDate(item.nextActionDate)} /> : null}
     </dl>
   );
 }

@@ -57,7 +57,7 @@ export default async function OpportunityPage({ params }: { params: Promise<{ id
               <input className={controlClass} name="next_action" defaultValue={opportunity.nextAction ?? playbook.nextAction} required />
             </Field>
             <Field label="Remind me on">
-              <input className={controlClass} name="next_action_date" type="date" defaultValue={opportunity.nextActionDate ?? opportunity.today} required />
+              <input className={controlClass} name="next_action_date" type="date" defaultValue={opportunity.nextActionDate ?? ""} />
             </Field>
             <Field label="Flag">
               <AccountFlagControl leadId={opportunity.leadId} opportunityId={opportunity.id} value={opportunity.accountFlag} />
