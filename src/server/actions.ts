@@ -41,6 +41,17 @@ import {
   maybeAutoCreateInterestedOpportunity,
   startOpportunityForLead,
 } from "@/lib/opportunity-start";
+import { cookies } from "next/headers";
+import { appOrigin } from "@/lib/auth/origin";
+import {
+  LOGIN_METHOD_COOKIE,
+  LOGIN_METHOD_MAGIC,
+  LOGIN_METHOD_PASSWORD,
+  MAGIC_LINK_SENT,
+  loginMethodCookieOptions,
+  magicLinkEmailRedirectTo,
+  safeNextPath,
+} from "@/lib/auth/passwordless";
 import { createClient } from "@/lib/supabase/server";
 import { dateField, optionalNumber, optionalText, settingsSchema, text, type ActionState } from "@/server/form";
 import { requireUser, requireWriter } from "@/server/session";
@@ -62,8 +73,28 @@ export async function signIn(_state: ActionState, formData: FormData): Promise<A
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithPassword(parsed.data);
   if (error) return { error: "Those credentials were not accepted." };
+  const cookieStore = await cookies();
+  cookieStore.set(LOGIN_METHOD_COOKIE, LOGIN_METHOD_PASSWORD, loginMethodCookieOptions);
   const next = text(formData, "next");
-  redirect(next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard");
+  redirect(safeNextPath(next));
+}
+
+export async function requestExecutiveMagicLink(_state: ActionState, formData: FormData): Promise<ActionState> {
+  const parsed = z.object({ email: z.email() }).safeParse({ email: text(formData, "email") });
+  if (!parsed.success) return { error: "Enter the authorized Executive email." };
+  const origin = await appOrigin();
+  if (!origin) return { error: "The sign-in link could not be prepared. Try again from the SalesApp address." };
+  const supabase = await createClient();
+  const cookieStore = await cookies();
+  cookieStore.set(LOGIN_METHOD_COOKIE, LOGIN_METHOD_MAGIC, loginMethodCookieOptions);
+  await supabase.auth.signInWithOtp({
+    email: parsed.data.email,
+    options: {
+      shouldCreateUser: false,
+      emailRedirectTo: magicLinkEmailRedirectTo(origin, text(formData, "next")),
+    },
+  });
+  return { success: MAGIC_LINK_SENT };
 }
 
 export async function signOut() {
