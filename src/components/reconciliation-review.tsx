@@ -108,7 +108,7 @@ export function ReviewRecordCard({
             <SubmitButton variant="outline">Skip</SubmitButton>
           </form>
         </div>
-      )}
+      ) : null}
     </article>
   );
 }
