@@ -6,10 +6,12 @@ import { buildWeekTasks } from "@/lib/domain";
 import { getCommandCenter } from "@/lib/data";
 import { firstParam } from "@/lib/format";
 import { loadSampleWorkspace } from "@/server/actions";
+import { profileCanWrite, requireUser } from "@/server/session";
 
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ notice?: string; week?: string }> }) {
   const query = await searchParams;
-  const center = await getCommandCenter();
+  const [center, session] = await Promise.all([getCommandCenter(), requireUser()]);
+  const canWrite = profileCanWrite(session.profile);
   const weekTasks = buildWeekTasks({
     today: center.today,
     staleAfterDays: center.settings.staleAfterDays,
@@ -45,18 +47,20 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           title="No leads yet"
           body="Import a SendPilot file so Interested and Not Interested leads show on the board."
           action={
-            <div className="flex flex-wrap justify-center gap-2">
-              <form action={loadSampleWorkspace}>
-                <Button type="submit">Load sample workspace</Button>
-              </form>
-              <Button variant="outline" asChild>
-                <Link href="/leads/import">Import leads</Link>
-              </Button>
-            </div>
+            canWrite ? (
+              <div className="flex flex-wrap justify-center gap-2">
+                <form action={loadSampleWorkspace}>
+                  <Button type="submit">Load sample workspace</Button>
+                </form>
+                <Button variant="outline" asChild>
+                  <Link href="/leads/import">Import leads</Link>
+                </Button>
+              </div>
+            ) : undefined
           }
         />
       ) : null}
-      {empty ? null : <WeekCalendar today={center.today} week={firstParam(query.week)} tasks={weekTasks} notice={firstParam(query.notice)} />}
+      {empty ? null : <WeekCalendar today={center.today} week={firstParam(query.week)} tasks={weekTasks} notice={firstParam(query.notice)} canWrite={canWrite} />}
       <div className="grid gap-3 sm:grid-cols-3">
         <KpiCard label="Tagged Interested" value={String(center.kpis.interestedLeads)} detail={`${center.kpis.interestedWithoutOpportunity} still on Interested`} />
         <KpiCard label="Sent profiles" value={String(center.kpis.profilesInReview)} />

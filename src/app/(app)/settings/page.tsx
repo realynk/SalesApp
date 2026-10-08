@@ -3,10 +3,11 @@ import { controlClass, Field, PageHeader, SectionCard } from "@/components/bits"
 import { ActionForm, SubmitButton } from "@/components/forms";
 import { getSettings } from "@/lib/data";
 import { saveSettings, updateProfile } from "@/server/actions";
-import { requireUser } from "@/server/session";
+import { profileCanWrite, requireUser } from "@/server/session";
 
 export default async function SettingsPage() {
   const [settings, session] = await Promise.all([getSettings(), requireUser()]);
+  const canWrite = profileCanWrite(session.profile);
   return (
     <div className="space-y-6">
       <PageHeader eyebrow="Workspace" title="Settings" />
@@ -16,6 +17,7 @@ export default async function SettingsPage() {
           title="Thresholds"
           description="When a reminder is approaching and when a card is stale."
         >
+          {canWrite ? (
           <ActionForm action={saveSettings} className="grid gap-3">
             <Field label="Stale after days"><input className={controlClass} name="stale_after_days" type="number" min={1} max={180} defaultValue={settings.staleAfterDays} /></Field>
             <Field label="Profiles waiting days"><input className={controlClass} name="profiles_waiting_days" type="number" min={1} max={90} defaultValue={settings.profilesWaitingDays} /></Field>
@@ -24,11 +26,22 @@ export default async function SettingsPage() {
             <Field label="Business timezone"><input className={controlClass} name="business_timezone" defaultValue={settings.businessTimezone} /></Field>
             <SubmitButton>Save thresholds</SubmitButton>
           </ActionForm>
+          ) : (
+            <dl className="grid gap-2 text-sm">
+              <div><dt className="text-xs text-muted-foreground uppercase">Stale after days</dt><dd>{settings.staleAfterDays}</dd></div>
+              <div><dt className="text-xs text-muted-foreground uppercase">Profiles waiting days</dt><dd>{settings.profilesWaitingDays}</dd></div>
+              <div><dt className="text-xs text-muted-foreground uppercase">Recruitment target (business days)</dt><dd>{settings.recruitmentTargetBusinessDays}</dd></div>
+              <div><dt className="text-xs text-muted-foreground uppercase">Approaching window (days)</dt><dd>{settings.approachingWindowDays}</dd></div>
+              <div><dt className="text-xs text-muted-foreground uppercase">Business timezone</dt><dd>{settings.businessTimezone}</dd></div>
+            </dl>
+          )}
         </SectionCard>
       </div>
       <section className="max-w-xl rounded-xl border border-border bg-card p-4">
         <h2 className="text-sm font-semibold">Integrations</h2>
-        <p className="mt-2 text-sm text-muted-foreground">Connect SendPilot accounts here.</p>
+        <p className="mt-2 text-sm text-muted-foreground">
+          {canWrite ? "Connect SendPilot accounts here." : "View SendPilot accounts connected to this workspace."}
+        </p>
         <p className="mt-3">
           <Link className="text-sm font-medium text-primary" href="/settings/sendpilot">
             Open SendPilot

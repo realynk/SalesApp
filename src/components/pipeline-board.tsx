@@ -28,6 +28,7 @@ import { BookedCallDialog } from "@/components/booked-call-dialog";
 import { ProfileSendDialog, type ProfileSendDraft } from "@/components/profile-send-dialog";
 import { SalesCallCompleteDialog } from "@/components/sales-call-complete-dialog";
 import { BoardScroller } from "@/components/board-scroller";
+import { useCanWriteCrm } from "@/components/workspace-access";
 
 const COLUMN_TONE = [
   "border-t-[#f97066]",
@@ -152,6 +153,7 @@ export function PipelineBoard({
     ...opportunities.filter((item) => item.stage !== "Interested").map(fromOpportunity),
   ];
 
+  const canWrite = useCanWriteCrm();
   const router = useRouter();
   const [items, setItems] = useState(initialItems);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -171,11 +173,11 @@ export function PipelineBoard({
           stage,
           tone: COLUMN_TONE[index % COLUMN_TONE.length],
           items: items.filter((item) => item.stage === stage),
-          acceptsDrop: !BLOCKED_DROPS.has(stage),
+          acceptsDrop: canWrite && !BLOCKED_DROPS.has(stage),
         }))
         .filter((column) => !isHiddenBoardStage(column.stage))
         .filter((column) => column.items.length > 0 || column.acceptsDrop),
-    [items, stages],
+    [items, stages, canWrite],
   );
 
   const activeItem = items.find((item) => item.id === activeId) ?? initialItems.find((item) => item.id === activeId);
@@ -226,11 +228,13 @@ export function PipelineBoard({
   }
 
   function handleDragStart(event: DragStartEvent) {
+    if (!canWrite) return;
     setActiveId(String(event.active.id));
     setNotice(null);
   }
 
   function handleDragEnd(event: DragEndEvent) {
+    if (!canWrite) return;
     setActiveId(null);
     const item = items.find((entry) => entry.id === event.active.id);
     const stage = event.over?.id ? String(event.over.id) as OpportunityStage : null;
@@ -264,7 +268,9 @@ export function PipelineBoard({
   return (
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">
-        The Interested column is every lead tagged Interested in SendPilot who has not moved further. Drag a card to a later stage. Flag the account if you need to spot it quickly.
+        {canWrite
+          ? "The Interested column is every lead tagged Interested in SendPilot who has not moved further. Drag a card to a later stage. Flag the account if you need to spot it quickly."
+          : "The Interested column is every lead tagged Interested in SendPilot who has not moved further. Open a card to review it. This account is view-only."}
       </p>
       {notice ? <p className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground">{notice}</p> : null}
       <DndContext
@@ -283,7 +289,8 @@ export function PipelineBoard({
               items={column.items}
               acceptsDrop={column.acceptsDrop}
               disabledId={pendingId}
-              onFlagChange={persistFlag}
+              canDrag={canWrite}
+              onFlagChange={canWrite ? persistFlag : undefined}
             />
           ))}
         </BoardScroller>
@@ -356,6 +363,7 @@ function BoardColumn({
   items,
   acceptsDrop,
   disabledId,
+  canDrag,
   onFlagChange,
 }: {
   stage: OpportunityStage;
@@ -363,7 +371,8 @@ function BoardColumn({
   items: BoardItem[];
   acceptsDrop: boolean;
   disabledId: string | null;
-  onFlagChange: (item: BoardItem, flag: AccountFlag | null) => void;
+  canDrag: boolean;
+  onFlagChange?: (item: BoardItem, flag: AccountFlag | null) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: stage,
@@ -390,12 +399,12 @@ function BoardColumn({
       <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-3">
         {items.map((item) => (
           <li key={item.id}>
-            <DraggableCard item={item} disabled={disabledId === item.id} onFlagChange={onFlagChange} />
+            <DraggableCard item={item} disabled={!canDrag || disabledId === item.id} canDrag={canDrag} onFlagChange={onFlagChange} />
           </li>
         ))}
         {items.length === 0 ? (
           <li className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
-            {acceptsDrop ? "Drop a card here" : "Open the opportunity to use this stage"}
+            {canDrag && acceptsDrop ? "Drop a card here" : items.length === 0 ? "No cards in this stage" : "Open the opportunity to use this stage"}
           </li>
         ) : null}
       </ul>
@@ -406,11 +415,13 @@ function BoardColumn({
 function DraggableCard({
   item,
   disabled,
+  canDrag,
   onFlagChange,
 }: {
   item: BoardItem;
   disabled: boolean;
-  onFlagChange: (item: BoardItem, flag: AccountFlag | null) => void;
+  canDrag: boolean;
+  onFlagChange?: (item: BoardItem, flag: AccountFlag | null) => void;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: item.id,
@@ -420,7 +431,7 @@ function DraggableCard({
 
   return (
     <div ref={setNodeRef} className={isDragging ? "opacity-30" : undefined} {...listeners} {...attributes}>
-      <ItemCard item={item} onFlagChange={onFlagChange} />
+      <ItemCard item={item} canDrag={canDrag} onFlagChange={onFlagChange} />
     </div>
   );
 }
@@ -428,16 +439,18 @@ function DraggableCard({
 function ItemCard({
   item,
   overlay = false,
+  canDrag = true,
   onFlagChange,
 }: {
   item: BoardItem;
   overlay?: boolean;
+  canDrag?: boolean;
   onFlagChange?: (item: BoardItem, flag: AccountFlag | null) => void;
 }) {
   return (
-    <article className={`rounded-lg border border-border bg-card p-3 shadow-sm ${overlay ? "rotate-1 cursor-grabbing shadow-lg" : "cursor-grab"}`}>
+    <article className={`rounded-lg border border-border bg-card p-3 shadow-sm ${overlay ? "rotate-1 cursor-grabbing shadow-lg" : canDrag ? "cursor-grab" : ""}`}>
       <div className="flex items-start gap-2">
-        <GripVertical className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
+        {canDrag ? <GripVertical className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden /> : null}
         <div className="min-w-0 flex-1">
           <div className="flex items-start gap-1">
             {overlay ? (

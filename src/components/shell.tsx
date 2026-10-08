@@ -7,18 +7,19 @@ import { ChartColumn, FileUp, FolderSync, Handshake, LayoutDashboard, Menu, Sear
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { isNavActive } from "@/lib/nav";
+import { isNavActive, navItemsForAccess } from "@/lib/nav";
 import { signOut } from "@/server/actions";
+import { useCanWriteCrm } from "@/components/workspace-access";
 
-const NAV = [
-  { href: "/dashboard", label: "Command Center", icon: LayoutDashboard },
-  { href: "/opportunities", label: "Client journey", icon: Handshake },
-  { href: "/reporting", label: "Reporting", icon: ChartColumn },
-  { href: "/leads", label: "Leads", icon: Users },
-  { href: "/leads/import", label: "Import leads", icon: FileUp },
-  { href: "/reconciliation", label: "Lead review", icon: FolderSync },
-  { href: "/settings", label: "Settings", icon: Settings },
-];
+const NAV_ICONS = {
+  "/dashboard": LayoutDashboard,
+  "/opportunities": Handshake,
+  "/reporting": ChartColumn,
+  "/leads": Users,
+  "/leads/import": FileUp,
+  "/reconciliation": FolderSync,
+  "/settings": Settings,
+} as const;
 
 export function Shell({
   children,
@@ -74,11 +75,12 @@ function Brand() {
 
 function Nav() {
   const pathname = usePathname();
+  const canWrite = useCanWriteCrm();
   return (
     <nav className="flex flex-col gap-1 p-3">
-      {NAV.map((item) => {
+      {navItemsForAccess(canWrite).map((item) => {
         const active = isNavActive(pathname, item.href);
-        const Icon = item.icon;
+        const Icon = NAV_ICONS[item.href];
         return (
           <Link
             key={item.href}

@@ -86,4 +86,5 @@ test("callback exchanges a session, requires a profile, and does not weaken writ
   assert.match(session, /loginPathForMethod/);
   assert.match(authz, /role === "sales_lead"/);
   assert.match(actions, /signInWithPassword/);
+  assert.match(actions, /redirect\(loginPathForMethod\(method\)\)/);
 });

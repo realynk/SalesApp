@@ -53,7 +53,9 @@ export default async function SendPilotIntegrationsPage() {
                   <p className="mt-1 text-sm text-muted-foreground">{statusHeadline(integration)}</p>
                 </div>
                 <Button variant="outline" size="sm" asChild>
-                  <Link href={`/settings/sendpilot/${integration.id}`}>{integration.legacyEnv ? "View" : "Manage"}</Link>
+                  <Link href={`/settings/sendpilot/${integration.id}`}>
+                    {canManage && !integration.legacyEnv ? "Manage" : "View"}
+                  </Link>
                 </Button>
               </div>
               <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">

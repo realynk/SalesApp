@@ -116,6 +116,24 @@ test("rollback notes keep member defaults and do not rewrite admin profiles", ()
   assert.match(rollback, /Roll back the \*\*application\*\*/);
 });
 
+test("app layout and write surfaces gate executives in the UI", () => {
+  const layout = readFileSync(join(root, "src/app/(app)/layout.tsx"), "utf8");
+  const leads = readFileSync(join(root, "src/app/(app)/leads/page.tsx"), "utf8");
+  const dashboard = readFileSync(join(root, "src/app/(app)/dashboard/page.tsx"), "utf8");
+  const settings = readFileSync(join(root, "src/app/(app)/settings/page.tsx"), "utf8");
+  const pipeline = readFileSync(join(root, "src/components/pipeline-board.tsx"), "utf8");
+  const menu = readFileSync(join(root, "src/components/lead-actions-menu.tsx"), "utf8");
+  assert.match(layout, /WorkspaceAccessProvider canWrite=\{profileCanWrite\(session\.profile\)\}/);
+  assert.match(leads, /readOnly=\{!canWrite\}/);
+  assert.match(leads, /archived \|\| !canWrite \? null : \(/);
+  assert.match(dashboard, /canWrite \? \(/);
+  assert.match(settings, /saveSettings/);
+  assert.match(settings, /canWrite \? \(/);
+  assert.match(pipeline, /useCanWriteCrm/);
+  assert.match(pipeline, /canDrag=\{canWrite\}/);
+  assert.match(menu, /if \(!canWrite\) return null/);
+});
+
 test("SendPilot webhook apply path is unchanged by this foundation", () => {
   assert.equal(webhookApply.includes("canWriteCrm"), false);
   assert.equal(webhookApply.includes("requireWriter"), false);

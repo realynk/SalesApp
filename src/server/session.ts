@@ -2,7 +2,7 @@ import { cache } from "react";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { LOGIN_METHOD_COOKIE, loginPathForMethod } from "@/lib/auth/passwordless";
-import { authorizeCrmWrite, CRM_WRITE_DENIED, type UserRole } from "@/lib/authz";
+import { authorizeCrmWrite, canWriteCrm, CRM_WRITE_DENIED, type UserRole } from "@/lib/authz";
 import { createClient } from "@/lib/supabase/server";
 
 export type Profile = {
@@ -23,6 +23,10 @@ export const requireUser = cache(async () => {
   const { data: profile } = await supabase.from("profiles").select("id, email, full_name, role").eq("id", userId).maybeSingle();
   return { supabase, userId, profile: (profile as Profile | null) ?? null };
 });
+
+export function profileCanWrite(profile: Profile | null | undefined) {
+  return canWriteCrm(profile?.role);
+}
 
 export const requireWriter = cache(async () => {
   const session = await requireUser();

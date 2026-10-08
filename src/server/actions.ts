@@ -49,6 +49,7 @@ import {
   LOGIN_METHOD_PASSWORD,
   MAGIC_LINK_SENT,
   loginMethodCookieOptions,
+  loginPathForMethod,
   magicLinkEmailRedirectTo,
   safeNextPath,
 } from "@/lib/auth/passwordless";
@@ -98,9 +99,11 @@ export async function requestExecutiveMagicLink(_state: ActionState, formData: F
 }
 
 export async function signOut() {
+  const cookieStore = await cookies();
+  const method = cookieStore.get(LOGIN_METHOD_COOKIE)?.value;
   const supabase = await createClient();
   await supabase.auth.signOut();
-  redirect("/login");
+  redirect(loginPathForMethod(method));
 }
 
 export async function updateProfile(_state: ActionState, formData: FormData): Promise<ActionState> {
