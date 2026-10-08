@@ -27,6 +27,7 @@ import {
 import { raiseIf } from "@/lib/errors";
 import { fullName } from "@/lib/format";
 import { mapSendPilotLeadSources, type SendPilotLeadSource } from "@/lib/sendpilot/lead-sources";
+import { backfillMissingInterestedOpportunities } from "@/lib/opportunity-start";
 import { requireUser } from "@/server/session";
 
 type Row = Record<string, unknown>;
@@ -856,7 +857,8 @@ export type ReviewRecord = {
 };
 
 export async function getReconciliation() {
-  const { supabase } = await requireUser();
+  const { supabase, userId } = await requireUser();
+  await backfillMissingInterestedOpportunities(supabase, userId);
   const [syncs, records, leads] = await Promise.all([
     supabase.from("sendpilot_syncs").select("*").order("created_at", { ascending: false }).limit(8),
     supabase.from("sendpilot_records").select("*").eq("review_required", true).eq("applied", false).order("created_at", { ascending: false }).limit(100),
