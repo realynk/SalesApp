@@ -2,6 +2,7 @@
 -- Does not update existing profiles.role values.
 -- Does not change SendPilot webhook apply (service_role bypasses RLS).
 -- SELECT policies stay private.is_internal() so every internal profile can read.
+-- Rollback notes: 20261008020000_executive_role_security.rollback.md
 
 alter type public.user_role add value if not exists 'executive';
 
@@ -153,9 +154,13 @@ create policy sendpilot_imports_delete
 alter function public.apply_sendpilot_import(jsonb) rename to apply_sendpilot_import_impl;
 alter function public.apply_sendpilot_import_impl(jsonb) set schema private;
 
+-- Wrappers are SECURITY DEFINER so they can call private impls after can_write().
+-- auth.uid() remains the signed-in user. Impl EXECUTE is not granted to
+-- authenticated/anon, so executives cannot call impls directly.
 create or replace function public.apply_sendpilot_import(payload jsonb)
 returns jsonb
 language plpgsql
+security definer
 volatile
 set search_path = ''
 as $$
@@ -169,8 +174,7 @@ $$;
 
 revoke all on function public.apply_sendpilot_import(jsonb) from public, anon;
 grant execute on function public.apply_sendpilot_import(jsonb) to authenticated;
-revoke all on function private.apply_sendpilot_import_impl(jsonb) from public, anon;
-grant execute on function private.apply_sendpilot_import_impl(jsonb) to authenticated;
+revoke all on function private.apply_sendpilot_import_impl(jsonb) from public, anon, authenticated;
 
 alter function public.update_opportunity_stage(uuid, public.opportunity_stage, text, text, date, public.waiting_on, public.risk_level, text) rename to update_opportunity_stage_impl;
 alter function public.update_opportunity_stage_impl(uuid, public.opportunity_stage, text, text, date, public.waiting_on, public.risk_level, text) set schema private;
@@ -187,6 +191,7 @@ create or replace function public.update_opportunity_stage(
 )
 returns void
 language plpgsql
+security definer
 volatile
 set search_path = ''
 as $$
@@ -202,8 +207,7 @@ $$;
 
 revoke all on function public.update_opportunity_stage(uuid, public.opportunity_stage, text, text, date, public.waiting_on, public.risk_level, text) from public, anon;
 grant execute on function public.update_opportunity_stage(uuid, public.opportunity_stage, text, text, date, public.waiting_on, public.risk_level, text) to authenticated;
-revoke all on function private.update_opportunity_stage_impl(uuid, public.opportunity_stage, text, text, date, public.waiting_on, public.risk_level, text) from public, anon;
-grant execute on function private.update_opportunity_stage_impl(uuid, public.opportunity_stage, text, text, date, public.waiting_on, public.risk_level, text) to authenticated;
+revoke all on function private.update_opportunity_stage_impl(uuid, public.opportunity_stage, text, text, date, public.waiting_on, public.risk_level, text) from public, anon, authenticated;
 
 alter function public.start_client(uuid, date, integer, numeric, text) rename to start_client_impl;
 alter function public.start_client_impl(uuid, date, integer, numeric, text) set schema private;
@@ -217,6 +221,7 @@ create or replace function public.start_client(
 )
 returns uuid
 language plpgsql
+security definer
 volatile
 set search_path = ''
 as $$
@@ -230,8 +235,7 @@ $$;
 
 revoke all on function public.start_client(uuid, date, integer, numeric, text) from public, anon;
 grant execute on function public.start_client(uuid, date, integer, numeric, text) to authenticated;
-revoke all on function private.start_client_impl(uuid, date, integer, numeric, text) from public, anon;
-grant execute on function private.start_client_impl(uuid, date, integer, numeric, text) to authenticated;
+revoke all on function private.start_client_impl(uuid, date, integer, numeric, text) from public, anon, authenticated;
 
 alter function public.load_sample_workspace() rename to load_sample_workspace_impl;
 alter function public.load_sample_workspace_impl() set schema private;

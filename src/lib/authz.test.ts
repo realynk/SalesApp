@@ -84,6 +84,38 @@ test("migration wraps write RPCs and preserves last sales_lead", () => {
   assert.match(migration, /new\.role := old\.role/);
 });
 
+test("private write impls are not executable by authenticated or anon", () => {
+  const impls = [
+    "private.apply_sendpilot_import_impl(jsonb)",
+    "private.update_opportunity_stage_impl(uuid, public.opportunity_stage, text, text, date, public.waiting_on, public.risk_level, text)",
+    "private.start_client_impl(uuid, date, integer, numeric, text)",
+    "private.load_sample_workspace_impl()",
+  ];
+  for (const impl of impls) {
+    assert.match(migration, new RegExp(`revoke all on function ${impl.replace(/[().]/g, "\\$&")} from public, anon, authenticated;`));
+  }
+  assert.doesNotMatch(migration, /grant execute on function private\.(apply_sendpilot_import_impl|update_opportunity_stage_impl|start_client_impl|load_sample_workspace_impl)/);
+});
+
+test("public write wrappers are security definer and still check can_write", () => {
+  assert.match(migration, /create or replace function public\.apply_sendpilot_import[\s\S]*?security definer[\s\S]*?private\.can_write\(\)/);
+  assert.match(migration, /create or replace function public\.update_opportunity_stage[\s\S]*?security definer[\s\S]*?private\.can_write\(\)/);
+  assert.match(migration, /create or replace function public\.start_client[\s\S]*?security definer[\s\S]*?private\.can_write\(\)/);
+  assert.match(migration, /create or replace function public\.load_sample_workspace[\s\S]*?security definer[\s\S]*?private\.can_write\(\)/);
+  assert.match(migration, /grant execute on function public\.apply_sendpilot_import\(jsonb\) to authenticated/);
+});
+
+test("rollback notes keep member defaults and do not rewrite admin profiles", () => {
+  const rollback = readFileSync(join(root, "supabase/migrations/20261008020000_executive_role_security.rollback.md"), "utf8");
+  assert.match(rollback, /Restore previous RPC definitions/);
+  assert.match(rollback, /Restore previous RLS write policies/);
+  assert.match(rollback, /handle_new_user/);
+  assert.match(rollback, /Do \*\*not\*\* try to remove `executive`/);
+  assert.match(rollback, /Do \*\*not\*\* `UPDATE public\.profiles`/);
+  assert.match(rollback, /Keep public email signup disabled/);
+  assert.match(rollback, /Roll back the \*\*application\*\*/);
+});
+
 test("SendPilot webhook apply path is unchanged by this foundation", () => {
   assert.equal(webhookApply.includes("canWriteCrm"), false);
   assert.equal(webhookApply.includes("requireWriter"), false);
