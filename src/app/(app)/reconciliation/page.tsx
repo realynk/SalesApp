@@ -17,7 +17,7 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
         eyebrow="SendPilot"
         title="Lead reconciliation"
         description="Matched and new import rows are added to current leads. Duplicates stay here so you can use the existing lead (keep, replace, or clear tagging), create a new lead or opportunity, or skip the row."
-        actions={<Button asChild><Link href="/leads/import">Import file</Link></Button>}
+        actions={<Button asChild><Link href="/leads/import">Import leads</Link></Button>}
       />
       <Notice message={firstParam(query.notice)} />
       {latest ? (

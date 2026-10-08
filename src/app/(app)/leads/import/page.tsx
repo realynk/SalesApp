@@ -8,7 +8,7 @@ export default function ImportPage() {
     <div className="space-y-6">
       <PageHeader
         back={{ href: "/leads", label: "Back to leads" }}
-        eyebrow="SendPilot"
+        eyebrow="Leads"
         title="Import leads"
         description="The file is uploaded securely, then classified before anything is written. Duplicates are matched on email, LinkedIn URL, and company plus contact name."
         actions={<Button variant="outline" asChild><Link href="/samples/sendpilot-export.csv">Download sample CSV</Link></Button>}
