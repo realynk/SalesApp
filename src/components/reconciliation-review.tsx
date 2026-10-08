@@ -14,9 +14,11 @@ function textValue(value: unknown, fallback: string) {
 export function ReviewRecordCard({
   record,
   select,
+  canWrite = true,
 }: {
   record: ReviewRecord;
   select?: ReactNode;
+  canWrite?: boolean;
 }) {
   const id = record.id;
   const classification = textValue(record.classification, "unmatched");
@@ -66,7 +68,7 @@ export function ReviewRecordCard({
 
       {isCrossWorkspaceReview ? (
         <p className="mt-3 text-xs text-muted-foreground">Held for a later identity decision. CRM was not updated.</p>
-      ) : (
+      ) : canWrite ? (
         <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
           {isDuplicate && existing ? (
             <ActionForm action={applyReviewedDuplicate} className="flex flex-wrap items-center gap-2">
@@ -106,7 +108,7 @@ export function ReviewRecordCard({
             <SubmitButton variant="outline">Skip</SubmitButton>
           </form>
         </div>
-      )}
+      ) : null}
     </article>
   );
 }

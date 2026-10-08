@@ -6,8 +6,10 @@ import { SubmitButton } from "@/components/forms";
 import type { ReviewRecord } from "@/lib/data";
 import { bulkReviewEligible } from "@/lib/review-origin";
 import { bulkApplyReviewedDuplicates, bulkCreateReviewedRecords, bulkSkipReviewedRecords } from "@/server/actions";
+import { useCanWriteCrm } from "@/components/workspace-access";
 
 export function ReviewBulkList({ records }: { records: ReviewRecord[] }) {
+  const canWrite = useCanWriteCrm();
   const [selected, setSelected] = useState<string[]>([]);
   const selectedSet = useMemo(() => new Set(selected), [selected]);
   const createCount = selected.filter((id) => {
@@ -33,6 +35,7 @@ export function ReviewBulkList({ records }: { records: ReviewRecord[] }) {
 
   return (
     <div className="mt-3 space-y-3">
+      {canWrite ? (
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-muted/30 px-3 py-2">
         <label className="flex items-center gap-2 text-sm">
           <input
@@ -60,12 +63,15 @@ export function ReviewBulkList({ records }: { records: ReviewRecord[] }) {
           <SubmitButton variant="outline">Skip{selected.length ? ` (${selected.length})` : ""}</SubmitButton>
         </form>
       </div>
+      ) : null}
       <ul className="space-y-3">
         {records.map((record) => (
           <li key={record.id}>
             <ReviewRecordCard
               record={record}
+              canWrite={canWrite}
               select={
+                canWrite ? (
                 <label className="mt-1">
                   <span className="sr-only">Select {record.full_name || "import row"}</span>
                   <input
@@ -74,6 +80,7 @@ export function ReviewBulkList({ records }: { records: ReviewRecord[] }) {
                     onChange={(event) => toggle(record.id, event.target.checked)}
                   />
                 </label>
+                ) : null
               }
             />
           </li>

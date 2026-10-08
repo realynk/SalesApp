@@ -74,6 +74,7 @@ test("A. sales_lead can access integration management", () => {
 test("B/S. non-admin cannot mutate integrations including direct action calls", () => {
   assert.equal(authorizeSendPilotMutation("recruiter").ok, false);
   assert.equal(authorizeSendPilotMutation("member").ok, false);
+  assert.equal(authorizeSendPilotMutation("executive").ok, false);
   assert.equal(authorizeSendPilotMutation(null).ok, false);
   assert.match(actionsSource, /if \(!auth\.ok\) return \{ error: auth\.error \}/);
   assert.equal((actionsSource.match(/authorizeSendPilotMutation/g) ?? []).length >= 1, true);

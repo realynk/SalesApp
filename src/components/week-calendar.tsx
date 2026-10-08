@@ -17,11 +17,13 @@ export function WeekCalendar({
   week,
   tasks,
   notice,
+  canWrite = true,
 }: {
   today: string;
   week?: string;
   tasks: WeekTask[];
   notice?: string;
+  canWrite?: boolean;
 }) {
   const requested = week && /^\d{4}-\d{2}-\d{2}$/.test(week) ? week : today;
   const start = weekStartMonday(requested);
@@ -65,7 +67,7 @@ export function WeekCalendar({
                   {items.length === 0 ? <li className="text-xs text-muted-foreground">Nothing due</li> : null}
                   {items.map((task) => (
                     <li key={task.id}>
-                      <TaskChip task={task} overdue={task.date < today} />
+                      <TaskChip task={task} overdue={task.date < today} canWrite={canWrite} />
                     </li>
                   ))}
                 </ul>
@@ -81,7 +83,7 @@ export function WeekCalendar({
   );
 }
 
-function TaskChip({ task, overdue }: { task: WeekTask; overdue: boolean }) {
+function TaskChip({ task, overdue, canWrite }: { task: WeekTask; overdue: boolean; canWrite: boolean }) {
   return (
     <div className="rounded-lg border border-border bg-card px-2 py-1.5 hover:border-primary">
       <Link href={task.href} className="block">
@@ -89,7 +91,7 @@ function TaskChip({ task, overdue }: { task: WeekTask; overdue: boolean }) {
         <p className="mt-0.5 text-xs font-medium leading-4 text-foreground">{task.title}</p>
         <p className="text-[11px] text-muted-foreground">{task.contact}</p>
       </Link>
-      {task.followUpId ? (
+      {canWrite && task.followUpId ? (
         <form action={completeFollowUp} className="mt-1.5">
           <input type="hidden" name="follow_up_id" value={task.followUpId} />
           {task.opportunityId ? <input type="hidden" name="opportunity_id" value={task.opportunityId} /> : null}

@@ -41,8 +41,8 @@ export default async function OpportunitiesPage({ searchParams }: { searchParams
         title={interest === "interested" ? "Interested" : "Not Interested"}
         description={
           interest === "interested"
-            ? "See where each SendPilot Interested lead sits. Drag a card to move it. Drop prompts only ask what you need to set the next tasks."
-            : "SendPilot Not Interested leads start here. Drag a card onto Nurture or another reason."
+            ? "See where each SendPilot Interested lead sits."
+            : "SendPilot Not Interested leads start here."
         }
         actions={
           <div className="flex flex-wrap gap-2">

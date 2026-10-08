@@ -31,6 +31,7 @@ import { formatDate } from "@/lib/format";
 import { AccountFlagSelect, FlagBadge } from "@/components/account-flag-field";
 import { dropLeadOnOutcome, setAccountFlagFromBoard } from "@/server/actions";
 import { BoardScroller } from "@/components/board-scroller";
+import { useCanWriteCrm } from "@/components/workspace-access";
 
 const COLUMN_TONE = [
   "border-t-[#f97066]",
@@ -58,6 +59,7 @@ const collisionDetection: CollisionDetection = (args) => {
 };
 
 export function NotInterestedBoard({ leads }: { leads: NotInterestedCard[] }) {
+  const canWrite = useCanWriteCrm();
   const router = useRouter();
   const [items, setItems] = useState(leads);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -98,11 +100,13 @@ export function NotInterestedBoard({ leads }: { leads: NotInterestedCard[] }) {
   }
 
   function handleDragStart(event: DragStartEvent) {
+    if (!canWrite) return;
     setActiveId(String(event.active.id));
     setNotice(null);
   }
 
   function handleDragEnd(event: DragEndEvent) {
+    if (!canWrite) return;
     setActiveId(null);
     const lead = items.find((item) => item.id === event.active.id);
     const column = event.over?.id ? String(event.over.id) as NotInterestedColumn : null;
@@ -135,7 +139,9 @@ export function NotInterestedBoard({ leads }: { leads: NotInterestedCard[] }) {
   return (
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">
-        The Not Interested column is every lead tagged Not Interested in SendPilot. Drag a card onto Nurture or another reason.
+        {canWrite
+          ? "The Not Interested column is every lead tagged Not Interested in SendPilot. Drag a card onto Nurture or another reason."
+          : "The Not Interested column is every lead tagged Not Interested in SendPilot. Open a card to review it. This account is view-only."}
       </p>
       {notice ? <p className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground">{notice}</p> : null}
       <DndContext
@@ -147,7 +153,7 @@ export function NotInterestedBoard({ leads }: { leads: NotInterestedCard[] }) {
       >
         <BoardScroller>
           {columns.map((column) => (
-            <OutcomeColumn key={column.column} column={column.column} tone={column.tone} items={column.items} disabledId={pendingId} onFlagChange={persistFlag} />
+            <OutcomeColumn key={column.column} column={column.column} tone={column.tone} items={column.items} disabledId={pendingId} canDrag={canWrite} onFlagChange={canWrite ? persistFlag : undefined} />
           ))}
         </BoardScroller>
         <DragOverlay dropAnimation={null}>
@@ -163,15 +169,17 @@ function OutcomeColumn({
   tone,
   items,
   disabledId,
+  canDrag,
   onFlagChange,
 }: {
   column: NotInterestedColumn;
   tone: string;
   items: NotInterestedCard[];
   disabledId: string | null;
-  onFlagChange: (lead: NotInterestedCard, flag: AccountFlag | null) => void;
+  canDrag: boolean;
+  onFlagChange?: (lead: NotInterestedCard, flag: AccountFlag | null) => void;
 }) {
-  const { setNodeRef, isOver } = useDroppable({ id: column, data: { column } });
+  const { setNodeRef, isOver } = useDroppable({ id: column, disabled: !canDrag, data: { column } });
   const sendpilotIntake = column === NOT_INTERESTED_INTAKE;
   return (
     <section
@@ -189,11 +197,11 @@ function OutcomeColumn({
       <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-3">
         {items.map((lead) => (
           <li key={lead.id}>
-            <DraggableLead lead={lead} disabled={disabledId === lead.id} onFlagChange={onFlagChange} />
+            <DraggableLead lead={lead} disabled={!canDrag || disabledId === lead.id} canDrag={canDrag} onFlagChange={onFlagChange} />
           </li>
         ))}
         {items.length === 0 ? (
-          <li className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">Drop a card here</li>
+          <li className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">{canDrag ? "Drop a card here" : "No cards in this column"}</li>
         ) : null}
       </ul>
     </section>
@@ -203,16 +211,18 @@ function OutcomeColumn({
 function DraggableLead({
   lead,
   disabled,
+  canDrag,
   onFlagChange,
 }: {
   lead: NotInterestedCard;
   disabled: boolean;
-  onFlagChange: (lead: NotInterestedCard, flag: AccountFlag | null) => void;
+  canDrag: boolean;
+  onFlagChange?: (lead: NotInterestedCard, flag: AccountFlag | null) => void;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: lead.id, disabled, data: { lead } });
   return (
     <div ref={setNodeRef} className={isDragging ? "opacity-30" : undefined} {...listeners} {...attributes}>
-      <LeadCard lead={lead} onFlagChange={onFlagChange} />
+      <LeadCard lead={lead} canDrag={canDrag} onFlagChange={onFlagChange} />
     </div>
   );
 }
@@ -220,16 +230,18 @@ function DraggableLead({
 function LeadCard({
   lead,
   overlay = false,
+  canDrag = true,
   onFlagChange,
 }: {
   lead: NotInterestedCard;
   overlay?: boolean;
+  canDrag?: boolean;
   onFlagChange?: (lead: NotInterestedCard, flag: AccountFlag | null) => void;
 }) {
   return (
-    <article className={`rounded-lg border border-border bg-card p-3 shadow-sm ${overlay ? "rotate-1 cursor-grabbing shadow-lg" : "cursor-grab"}`}>
+    <article className={`rounded-lg border border-border bg-card p-3 shadow-sm ${overlay ? "rotate-1 cursor-grabbing shadow-lg" : canDrag ? "cursor-grab" : ""}`}>
       <div className="flex items-start gap-2">
-        <GripVertical className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
+        {canDrag ? <GripVertical className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden /> : null}
         <div className="min-w-0 flex-1">
           {overlay ? (
             <CardBody lead={lead} />

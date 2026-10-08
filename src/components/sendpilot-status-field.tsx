@@ -19,16 +19,29 @@ export function SendPilotStatusControl({
   leadId,
   status,
   outcome,
+  readOnly = false,
 }: {
   leadId: string;
   status: SendPilotStatus | null;
   outcome: NotInterestedOutcome | null;
+  readOnly?: boolean;
 }) {
   const router = useRouter();
   const [currentStatus, setCurrentStatus] = useState<SendPilotStatus | "">(status ?? "");
   const [currentOutcome, setCurrentOutcome] = useState<NotInterestedOutcome | "">(outcome ?? "");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+
+  if (readOnly) {
+    return (
+      <div className="min-w-[9.5rem] text-sm">
+        <p>{status ?? "Unknown"}</p>
+        {status === "Not Interested" ? (
+          <p className="text-xs text-muted-foreground">{outcome ?? "Not yet sorted"}</p>
+        ) : null}
+      </div>
+    );
+  }
 
   async function persist(nextStatus: SendPilotStatus | "", nextOutcome: NotInterestedOutcome | "") {
     const previousStatus = currentStatus;

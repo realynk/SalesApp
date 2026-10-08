@@ -10,6 +10,7 @@ import { SENDPILOT_UNIBOX_LINK } from "@/lib/sendpilot/app-links";
 import { getLead } from "@/lib/data";
 import { firstParam, formatDate } from "@/lib/format";
 import { addNote, completeFollowUp, createFollowUp, updateLeadStatus } from "@/server/actions";
+import { profileCanWrite, requireUser } from "@/server/session";
 
 export default async function LeadDetailPage({
   params,
@@ -20,7 +21,8 @@ export default async function LeadDetailPage({
 }) {
   const { id } = await params;
   const query = await searchParams;
-  const lead = await getLead(id);
+  const [lead, session] = await Promise.all([getLead(id), requireUser()]);
+  const canWrite = profileCanWrite(session.profile);
   if (!lead) notFound();
   const openOpportunity = lead.opportunities.find((item) => item.status === "active" || item.status === "nurture" || item.status === "on_hold");
   const openTasks = lead.followUps.filter((item) => item.status === "open");
@@ -57,7 +59,7 @@ export default async function LeadDetailPage({
       <Notice message={firstParam(query.notice)} />
       {archived ? (
         <p className="rounded-xl border border-border bg-card px-4 py-3 text-sm">
-          This lead is archived. SendPilot can still update the source tag. It stays off the board until you restore it.
+          This lead is archived. SendPilot can still update the source tag. It stays off the board until an admin restores it.
         </p>
       ) : null}
       <div className="grid gap-4 xl:grid-cols-2">
@@ -65,8 +67,13 @@ export default async function LeadDetailPage({
           {openOpportunity ? (
             <p className="mb-3 text-sm">On the journey: <StageBadge stage={openOpportunity.stage} /> · {openOpportunity.nextAction ?? "No next action"} · {formatDate(openOpportunity.nextActionDate)}</p>
           ) : (
-            <p className="mb-3 text-sm text-muted-foreground">Not on a later stage yet. Drag the card on Client journey when you are ready.</p>
+            <p className="mb-3 text-sm text-muted-foreground">
+              {canWrite
+                ? "Not on a later stage yet. Drag the card on Client journey when you are ready."
+                : "Not on a later stage yet. Open Client journey to see where this account sits."}
+            </p>
           )}
+          {canWrite ? (
           <ActionForm action={updateLeadStatus} className="grid gap-3">
             <input type="hidden" name="lead_id" value={lead.id} />
             <Field label="Status">
@@ -86,8 +93,16 @@ export default async function LeadDetailPage({
             </Field>
             <SubmitButton>Save status</SubmitButton>
           </ActionForm>
+          ) : (
+            <dl className="grid gap-2 text-sm">
+              <div><dt className="text-xs text-muted-foreground uppercase">Status</dt><dd>{lead.sendpilotStatus ?? "Unknown"}</dd></div>
+              {lead.notInterestedOutcome ? <div><dt className="text-xs text-muted-foreground uppercase">If not interested</dt><dd>{lead.notInterestedOutcome}</dd></div> : null}
+              <div><dt className="text-xs text-muted-foreground uppercase">Flag</dt><dd>{lead.accountFlag ?? "None"}</dd></div>
+            </dl>
+          )}
         </SectionCard>
         <SectionCard title="Tasks" description="Reminders for this lead. They appear on the week calendar.">
+          {canWrite ? (
           <ActionForm action={createFollowUp} className="grid gap-3">
             <input type="hidden" name="lead_id" value={lead.id} />
             {openOpportunity ? <input type="hidden" name="opportunity_id" value={openOpportunity.id} /> : null}
@@ -95,6 +110,7 @@ export default async function LeadDetailPage({
             <Field label="Due"><input className={controlClass} name="due_on" type="date" required /></Field>
             <SubmitButton>Add task</SubmitButton>
           </ActionForm>
+          ) : null}
           <ul className="mt-4 divide-y divide-border text-sm">
             {openTasks.map((item) => (
               <li key={item.id} className="flex flex-wrap items-start justify-between gap-3 py-3">
@@ -102,12 +118,14 @@ export default async function LeadDetailPage({
                   <p className="font-medium">{item.title}</p>
                   <p className="text-xs text-muted-foreground">Due {formatDate(item.dueOn)}</p>
                 </div>
+                {canWrite ? (
                 <form action={completeFollowUp}>
                   <input type="hidden" name="follow_up_id" value={item.id} />
                   <input type="hidden" name="lead_id" value={lead.id} />
                   {openOpportunity ? <input type="hidden" name="opportunity_id" value={openOpportunity.id} /> : null}
                   <SubmitButton variant="outline">Done</SubmitButton>
                 </form>
+                ) : null}
               </li>
             ))}
             {openTasks.length === 0 ? <li className="py-3 text-sm text-muted-foreground">No open tasks.</li> : null}
@@ -115,11 +133,13 @@ export default async function LeadDetailPage({
         </SectionCard>
       </div>
       <SectionCard title="Notes">
+        {canWrite ? (
         <ActionForm action={addNote} className="space-y-3">
           <input type="hidden" name="lead_id" value={lead.id} />
           <textarea className={textareaClass} name="body" required placeholder="Anything you need to remember" />
           <SubmitButton>Add note</SubmitButton>
         </ActionForm>
+        ) : null}
         <ul className="mt-4 space-y-3 text-sm">
           {lead.notes.map((note) => (
             <li key={note.id} className="rounded-lg border border-border px-3 py-2">

@@ -17,6 +17,7 @@ import {
   type AccountFlag,
 } from "@/lib/domain";
 import { setAccountFlagFromBoard } from "@/server/actions";
+import { useCanWriteCrm } from "@/components/workspace-access";
 
 export function FlagBadge({ flag }: { flag: AccountFlag | null }) {
   if (!flag) return null;
@@ -115,6 +116,11 @@ export function AccountFlagControl({
 }) {
   const [flag, setFlag] = useState<AccountFlag | null>(value);
   const [error, setError] = useState<string | null>(null);
+  const canWrite = useCanWriteCrm();
+
+  if (!canWrite) {
+    return flag ? <FlagBadge flag={flag} /> : <span className="text-sm text-muted-foreground">No flag</span>;
+  }
 
   async function persist(next: AccountFlag | null) {
     const previous = flag;

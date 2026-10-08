@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
 import { DataError } from "@/components/bits";
 import { Shell } from "@/components/shell";
+import { WorkspaceAccessProvider } from "@/components/workspace-access";
 import { getCommandCenter } from "@/lib/data";
 import { AppDataError } from "@/lib/errors";
 import { signOut } from "@/server/actions";
-import { requireUser } from "@/server/session";
+import { profileCanWrite, requireUser } from "@/server/session";
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const session = await requireUser();
@@ -30,8 +31,10 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <Shell>
-      {children}
-    </Shell>
+    <WorkspaceAccessProvider canWrite={profileCanWrite(session.profile)}>
+      <Shell>
+        {children}
+      </Shell>
+    </WorkspaceAccessProvider>
   );
 }

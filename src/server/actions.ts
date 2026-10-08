@@ -41,9 +41,21 @@ import {
   maybeAutoCreateInterestedOpportunity,
   startOpportunityForLead,
 } from "@/lib/opportunity-start";
+import { cookies } from "next/headers";
+import { appOrigin } from "@/lib/auth/origin";
+import {
+  LOGIN_METHOD_COOKIE,
+  LOGIN_METHOD_MAGIC,
+  LOGIN_METHOD_PASSWORD,
+  MAGIC_LINK_SENT,
+  loginMethodCookieOptions,
+  loginPathForMethod,
+  magicLinkEmailRedirectTo,
+  safeNextPath,
+} from "@/lib/auth/passwordless";
 import { createClient } from "@/lib/supabase/server";
 import { dateField, optionalNumber, optionalText, settingsSchema, text, type ActionState } from "@/server/form";
-import { requireUser } from "@/server/session";
+import { requireUser, requireWriter } from "@/server/session";
 
 function refresh(...paths: string[]) {
   for (const path of paths) revalidatePath(path);
@@ -62,14 +74,36 @@ export async function signIn(_state: ActionState, formData: FormData): Promise<A
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithPassword(parsed.data);
   if (error) return { error: "Those credentials were not accepted." };
+  const cookieStore = await cookies();
+  cookieStore.set(LOGIN_METHOD_COOKIE, LOGIN_METHOD_PASSWORD, loginMethodCookieOptions);
   const next = text(formData, "next");
-  redirect(next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard");
+  redirect(safeNextPath(next));
+}
+
+export async function requestExecutiveMagicLink(_state: ActionState, formData: FormData): Promise<ActionState> {
+  const parsed = z.object({ email: z.email() }).safeParse({ email: text(formData, "email") });
+  if (!parsed.success) return { error: "Enter the authorized Executive email." };
+  const origin = await appOrigin();
+  if (!origin) return { error: "The sign-in link could not be prepared. Try again from the SalesApp address." };
+  const supabase = await createClient();
+  const cookieStore = await cookies();
+  cookieStore.set(LOGIN_METHOD_COOKIE, LOGIN_METHOD_MAGIC, loginMethodCookieOptions);
+  await supabase.auth.signInWithOtp({
+    email: parsed.data.email,
+    options: {
+      shouldCreateUser: false,
+      emailRedirectTo: magicLinkEmailRedirectTo(origin, text(formData, "next")),
+    },
+  });
+  return { success: MAGIC_LINK_SENT };
 }
 
 export async function signOut() {
+  const cookieStore = await cookies();
+  const method = cookieStore.get(LOGIN_METHOD_COOKIE)?.value;
   const supabase = await createClient();
   await supabase.auth.signOut();
-  redirect("/login");
+  redirect(loginPathForMethod(method));
 }
 
 export async function updateProfile(_state: ActionState, formData: FormData): Promise<ActionState> {
@@ -83,7 +117,7 @@ export async function updateProfile(_state: ActionState, formData: FormData): Pr
 }
 
 export async function saveSettings(_state: ActionState, formData: FormData): Promise<ActionState> {
-  const { supabase, userId } = await requireUser();
+  const { supabase, userId } = await requireWriter();
   const parsed = settingsSchema.safeParse({
     stale_after_days: text(formData, "stale_after_days"),
     profiles_waiting_days: text(formData, "profiles_waiting_days"),
@@ -99,7 +133,7 @@ export async function saveSettings(_state: ActionState, formData: FormData): Pro
 }
 
 export async function loadSampleWorkspace(): Promise<void> {
-  const { supabase } = await requireUser();
+  const { supabase } = await requireWriter();
   const { error } = await supabase.rpc("load_sample_workspace");
   if (error) redirect(`/dashboard?notice=${encodeURIComponent(actionError(error))}`);
   refresh("/dashboard", "/leads", "/opportunities", "/reconciliation", "/recruitment", "/reporting", "/follow-ups");
@@ -107,7 +141,7 @@ export async function loadSampleWorkspace(): Promise<void> {
 }
 
 export async function createLead(_state: ActionState, formData: FormData): Promise<ActionState> {
-  const { supabase, userId } = await requireUser();
+  const { supabase, userId } = await requireWriter();
   const firstName = text(formData, "first_name");
   const lastName = text(formData, "last_name");
   const companyName = text(formData, "company");
@@ -199,7 +233,7 @@ export async function archiveLeadFromList(formData: FormData): Promise<void> {
 }
 
 export async function dismissReviewedRecord(formData: FormData): Promise<void> {
-  const { supabase } = await requireUser();
+  const { supabase } = await requireWriter();
   const id = text(formData, "record_id");
   if (!isUuid(id)) {
     redirect(`/reconciliation?notice=${encodeURIComponent("That import row could not be found.")}`);
@@ -224,7 +258,7 @@ export async function dismissReviewedRecord(formData: FormData): Promise<void> {
 }
 
 export async function restoreLead(_state: ActionState, formData: FormData): Promise<ActionState> {
-  const { supabase, userId } = await requireUser();
+  const { supabase, userId } = await requireWriter();
   const leadId = text(formData, "lead_id");
   if (!isUuid(leadId)) return { error: "That lead could not be found." };
   const { error } = await supabase.from("leads").update({ archived_at: null, archived_by: null }).eq("id", leadId);
@@ -245,7 +279,7 @@ export async function archiveSelectedLeads(_state: ActionState, formData: FormDa
 }
 
 async function archiveLeadIds(ids: string[], fallbackPath: string): Promise<ActionState> {
-  const { supabase, userId } = await requireUser();
+  const { supabase, userId } = await requireWriter();
   const unique = [...new Set(ids)].filter((id) => isUuid(id)).slice(0, 50);
   if (unique.length === 0) return { error: "Select at least one lead to archive." };
   const { error } = await supabase
@@ -267,7 +301,7 @@ async function archiveLeadIds(ids: string[], fallbackPath: string): Promise<Acti
 }
 
 export async function deleteLeadPermanently(_state: ActionState, formData: FormData): Promise<ActionState> {
-  const { supabase } = await requireUser();
+  const { supabase } = await requireWriter();
   const leadId = text(formData, "lead_id");
   const confirmName = text(formData, "confirm_name");
   if (!isUuid(leadId)) return { error: "That lead could not be found." };
@@ -279,7 +313,7 @@ export async function deleteLeadPermanently(_state: ActionState, formData: FormD
 }
 
 export async function updateLeadStatus(_state: ActionState, formData: FormData): Promise<ActionState> {
-  const { supabase, userId } = await requireUser();
+  const { supabase, userId } = await requireWriter();
   const leadId = text(formData, "lead_id");
   const status = optionalText(formData, "sendpilot_status");
   const note = optionalText(formData, "note");
@@ -326,7 +360,7 @@ export async function updateLeadStatusFromList(formData: FormData): Promise<Acti
 }
 
 export async function dropLeadOnOutcome(formData: FormData): Promise<ActionState> {
-  const { supabase, userId } = await requireUser();
+  const { supabase, userId } = await requireWriter();
   const leadId = text(formData, "lead_id");
   const column = text(formData, "not_interested_outcome");
   const unsorted = column === NOT_INTERESTED_INTAKE;
@@ -383,7 +417,7 @@ async function writeAccountFlag(
 }
 
 export async function setAccountFlagFromBoard(formData: FormData): Promise<ActionState> {
-  const { supabase } = await requireUser();
+  const { supabase } = await requireWriter();
   const leadId = text(formData, "lead_id");
   if (!isUuid(leadId)) return { error: "Choose an account." };
   const saved = await writeAccountFlag(supabase, {
@@ -403,7 +437,7 @@ export async function setAccountFlag(_state: ActionState, formData: FormData): P
 }
 
 export async function createOpportunity(_state: ActionState, formData: FormData): Promise<ActionState> {
-  const { supabase, userId } = await requireUser();
+  const { supabase, userId } = await requireWriter();
   const leadId = text(formData, "lead_id");
   if (!isUuid(leadId)) return { error: "Choose a lead." };
   const created = await createOpportunityForLead(supabase, userId, leadId, formData);
@@ -414,7 +448,7 @@ export async function createOpportunity(_state: ActionState, formData: FormData)
 }
 
 export async function updateNextAction(_state: ActionState, formData: FormData): Promise<ActionState> {
-  const { supabase, userId } = await requireUser();
+  const { supabase, userId } = await requireWriter();
   const id = text(formData, "opportunity_id");
   const nextAction = text(formData, "next_action");
   let nextActionDate = dateField(formData, "next_action_date");
@@ -434,7 +468,7 @@ export async function updateNextAction(_state: ActionState, formData: FormData):
 }
 
 export async function moveStage(_state: ActionState, formData: FormData): Promise<ActionState> {
-  const { supabase } = await requireUser();
+  const { supabase } = await requireWriter();
   const id = text(formData, "opportunity_id");
   const stage = text(formData, "stage") as OpportunityStage;
   if (!isUuid(id) || !(OPPORTUNITY_STAGES as readonly string[]).includes(stage)) return { error: "Choose a stage." };
@@ -468,7 +502,7 @@ export async function dropOpportunityOnStage(formData: FormData): Promise<Action
 }
 
 export async function dropLeadOnStage(formData: FormData): Promise<ActionState> {
-  const { supabase, userId } = await requireUser();
+  const { supabase, userId } = await requireWriter();
   const leadId = text(formData, "lead_id");
   const stage = text(formData, "stage") as OpportunityStage;
   if (!isUuid(leadId) || !(OPPORTUNITY_STAGES as readonly string[]).includes(stage)) return { error: "Choose a stage." };
@@ -515,7 +549,7 @@ export async function dropLeadOnStage(formData: FormData): Promise<ActionState> 
 }
 
 export async function saveProfileSendFromBoard(formData: FormData): Promise<ActionState> {
-  const { supabase, userId } = await requireUser();
+  const { supabase, userId } = await requireWriter();
   const leadId = text(formData, "lead_id");
   const email = text(formData, "client_email").toLowerCase();
   const sentOn = dateField(formData, "profile_sent_on");
@@ -637,7 +671,7 @@ export async function saveProfileSendFromBoard(formData: FormData): Promise<Acti
 }
 
 export async function saveBookedSalesCallFromBoard(formData: FormData): Promise<ActionState> {
-  const { supabase, userId } = await requireUser();
+  const { supabase, userId } = await requireWriter();
   const leadId = text(formData, "lead_id");
   const callOn = dateField(formData, "call_on");
   const callTime = text(formData, "call_time");
@@ -721,7 +755,7 @@ export async function saveBookedSalesCallFromBoard(formData: FormData): Promise<
 }
 
 export async function saveSalesCallCompleteFromBoard(formData: FormData): Promise<ActionState> {
-  const { supabase, userId } = await requireUser();
+  const { supabase, userId } = await requireWriter();
   const leadId = text(formData, "lead_id");
   const callOn = dateField(formData, "call_on");
   const notes = optionalText(formData, "notes");
@@ -823,7 +857,7 @@ export async function saveSalesCallCompleteFromBoard(formData: FormData): Promis
 }
 
 export async function createFollowUp(_state: ActionState, formData: FormData): Promise<ActionState> {
-  const { supabase, userId } = await requireUser();
+  const { supabase, userId } = await requireWriter();
   const opportunityId = optionalText(formData, "opportunity_id");
   const leadId = optionalText(formData, "lead_id");
   const title = text(formData, "title");
@@ -861,7 +895,7 @@ export async function createFollowUp(_state: ActionState, formData: FormData): P
 }
 
 export async function completeFollowUp(formData: FormData) {
-  const { supabase, userId } = await requireUser();
+  const { supabase, userId } = await requireWriter();
   const id = text(formData, "follow_up_id");
   const opportunityId = optionalText(formData, "opportunity_id");
   const leadId = optionalText(formData, "lead_id");
@@ -879,7 +913,7 @@ export async function completeFollowUp(formData: FormData) {
 }
 
 export async function saveStrategyCall(_state: ActionState, formData: FormData): Promise<ActionState> {
-  const { supabase, userId } = await requireUser();
+  const { supabase, userId } = await requireWriter();
   const opportunityId = text(formData, "opportunity_id");
   if (!isUuid(opportunityId)) return { error: "Opportunity not found." };
   const status = text(formData, "status");
@@ -937,7 +971,7 @@ export async function saveStrategyCall(_state: ActionState, formData: FormData):
 }
 
 export async function sendToRecruitment(_state: ActionState, formData: FormData): Promise<ActionState> {
-  const { supabase, userId } = await requireUser();
+  const { supabase, userId } = await requireWriter();
   const opportunityId = text(formData, "opportunity_id");
   if (!isUuid(opportunityId)) return { error: "Opportunity not found." };
   const { data: existing } = await supabase.from("recruitment_requests").select("id").eq("opportunity_id", opportunityId).maybeSingle();
@@ -1001,7 +1035,7 @@ export async function sendToRecruitment(_state: ActionState, formData: FormData)
 }
 
 export async function updateRecruitmentStatus(_state: ActionState, formData: FormData): Promise<ActionState> {
-  const { supabase, userId } = await requireUser();
+  const { supabase, userId } = await requireWriter();
   const id = text(formData, "recruitment_id");
   const status = text(formData, "status");
   const opportunityId = text(formData, "opportunity_id");
@@ -1014,7 +1048,7 @@ export async function updateRecruitmentStatus(_state: ActionState, formData: For
 }
 
 export async function addCandidate(_state: ActionState, formData: FormData): Promise<ActionState> {
-  const { supabase, userId } = await requireUser();
+  const { supabase, userId } = await requireWriter();
   const requestId = text(formData, "recruitment_id");
   const opportunityId = text(formData, "opportunity_id");
   const name = text(formData, "name");
@@ -1034,7 +1068,7 @@ export async function addCandidate(_state: ActionState, formData: FormData): Pro
 }
 
 export async function updateCandidate(_state: ActionState, formData: FormData): Promise<ActionState> {
-  const { supabase, userId } = await requireUser();
+  const { supabase, userId } = await requireWriter();
   const id = text(formData, "candidate_id");
   const status = text(formData, "status");
   const opportunityId = text(formData, "opportunity_id");
@@ -1053,7 +1087,7 @@ export async function updateCandidate(_state: ActionState, formData: FormData): 
 }
 
 export async function recordProfileBatch(_state: ActionState, formData: FormData): Promise<ActionState> {
-  const { supabase, userId } = await requireUser();
+  const { supabase, userId } = await requireWriter();
   const opportunityId = text(formData, "opportunity_id");
   const requestId = optionalText(formData, "recruitment_id");
   const sentOn = dateField(formData, "sent_on");
@@ -1092,7 +1126,7 @@ export async function recordProfileBatch(_state: ActionState, formData: FormData
 }
 
 export async function recordClientResponse(_state: ActionState, formData: FormData): Promise<ActionState> {
-  const { supabase, userId } = await requireUser();
+  const { supabase, userId } = await requireWriter();
   const id = text(formData, "batch_id");
   const opportunityId = text(formData, "opportunity_id");
   const response = text(formData, "client_response");
@@ -1105,7 +1139,7 @@ export async function recordClientResponse(_state: ActionState, formData: FormDa
 }
 
 export async function saveInterview(_state: ActionState, formData: FormData): Promise<ActionState> {
-  const { supabase, userId } = await requireUser();
+  const { supabase, userId } = await requireWriter();
   const opportunityId = text(formData, "opportunity_id");
   const status = text(formData, "status");
   const candidateName = text(formData, "candidate_name");
@@ -1141,7 +1175,7 @@ export async function saveInterview(_state: ActionState, formData: FormData): Pr
 }
 
 export async function saveContract(_state: ActionState, formData: FormData): Promise<ActionState> {
-  const { supabase, userId } = await requireUser();
+  const { supabase, userId } = await requireWriter();
   const opportunityId = text(formData, "opportunity_id");
   const status = text(formData, "status");
   if (!isUuid(opportunityId) || !(CONTRACT_STATUSES as readonly string[]).includes(status)) return { error: "Choose an SOW status." };
@@ -1179,7 +1213,7 @@ export async function saveContract(_state: ActionState, formData: FormData): Pro
 }
 
 export async function startClient(_state: ActionState, formData: FormData): Promise<ActionState> {
-  const { supabase } = await requireUser();
+  const { supabase } = await requireWriter();
   const opportunityId = text(formData, "opportunity_id");
   const startDate = dateField(formData, "start_date");
   const vas = optionalNumber(formData, "number_of_vas");
@@ -1200,7 +1234,7 @@ export async function startClient(_state: ActionState, formData: FormData): Prom
 }
 
 export async function addNote(_state: ActionState, formData: FormData): Promise<ActionState> {
-  const { supabase, userId } = await requireUser();
+  const { supabase, userId } = await requireWriter();
   const body = text(formData, "body");
   const opportunityId = optionalText(formData, "opportunity_id");
   const leadId = optionalText(formData, "lead_id");
@@ -1213,7 +1247,7 @@ export async function addNote(_state: ActionState, formData: FormData): Promise<
 }
 
 export async function logActivity(_state: ActionState, formData: FormData): Promise<ActionState> {
-  const { supabase, userId } = await requireUser();
+  const { supabase, userId } = await requireWriter();
   const type = text(formData, "type");
   const title = text(formData, "title");
   const opportunityId = optionalText(formData, "opportunity_id");
@@ -1235,7 +1269,7 @@ export async function logActivity(_state: ActionState, formData: FormData): Prom
 }
 
 export async function addTask(_state: ActionState, formData: FormData): Promise<ActionState> {
-  const { supabase, userId } = await requireUser();
+  const { supabase, userId } = await requireWriter();
   const opportunityId = text(formData, "opportunity_id");
   const title = text(formData, "title");
   if (!isUuid(opportunityId) || !title) return { error: "Task title is required." };
@@ -1259,7 +1293,7 @@ export async function addTask(_state: ActionState, formData: FormData): Promise<
 }
 
 export async function uploadDocument(_state: ActionState, formData: FormData): Promise<ActionState> {
-  const { supabase, userId } = await requireUser();
+  const { supabase, userId } = await requireWriter();
   const opportunityId = text(formData, "opportunity_id");
   const file = formData.get("file");
   if (!isUuid(opportunityId) || !(file instanceof File) || file.size === 0) return { error: "Choose a file." };
@@ -1357,7 +1391,7 @@ async function createLeadFromReviewRecord(
 }
 
 export async function createFromReviewedRecord(_state: ActionState, formData: FormData): Promise<ActionState> {
-  const { supabase, userId } = await requireUser();
+  const { supabase, userId } = await requireWriter();
   const created = await createLeadFromReviewRecord(supabase, userId, formData);
   if ("error" in created && created.error) return created;
   if ("opportunityId" in created && created.opportunityId) {
@@ -1392,7 +1426,7 @@ async function skipReviewRecord(
 }
 
 export async function skipReviewedRecord(formData: FormData): Promise<void> {
-  const { supabase } = await requireUser();
+  const { supabase } = await requireWriter();
   const skipped = await skipReviewRecord(supabase, text(formData, "record_id"));
   if ("error" in skipped && skipped.error) {
     redirect(`/reconciliation?notice=${encodeURIComponent(skipped.error)}`);
@@ -1406,7 +1440,7 @@ function selectedReviewIds(formData: FormData) {
 }
 
 export async function bulkCreateReviewedRecords(formData: FormData): Promise<void> {
-  const { supabase, userId } = await requireUser();
+  const { supabase, userId } = await requireWriter();
   const ids = selectedReviewIds(formData);
   if (ids.length === 0) {
     redirect(`/reconciliation?notice=${encodeURIComponent("Select at least one review row.")}`);
@@ -1433,7 +1467,7 @@ export async function bulkCreateReviewedRecords(formData: FormData): Promise<voi
 }
 
 export async function bulkSkipReviewedRecords(formData: FormData): Promise<void> {
-  const { supabase } = await requireUser();
+  const { supabase } = await requireWriter();
   const ids = selectedReviewIds(formData);
   if (ids.length === 0) {
     redirect(`/reconciliation?notice=${encodeURIComponent("Select at least one review row.")}`);
@@ -1450,7 +1484,7 @@ export async function bulkSkipReviewedRecords(formData: FormData): Promise<void>
 }
 
 export async function bulkApplyReviewedDuplicates(formData: FormData): Promise<void> {
-  const { supabase, userId } = await requireUser();
+  const { supabase, userId } = await requireWriter();
   const ids = selectedReviewIds(formData);
   if (ids.length === 0) {
     redirect(`/reconciliation?notice=${encodeURIComponent("Select at least one review row.")}`);
@@ -1544,7 +1578,7 @@ async function applyDuplicateReviewRecord(
 }
 
 export async function applyReviewedDuplicate(_state: ActionState, formData: FormData): Promise<ActionState> {
-  const { supabase, userId } = await requireUser();
+  const { supabase, userId } = await requireWriter();
   const applied = await applyDuplicateReviewRecord(supabase, userId, formData);
   if ("error" in applied && applied.error) return applied;
   if ("alreadyOpen" in applied && applied.alreadyOpen && applied.opportunityId) {
