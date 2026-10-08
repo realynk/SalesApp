@@ -1,14 +1,23 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { ActionForm, SubmitButton } from "@/components/forms";
+import { cn } from "cn";
 import type { ReviewRecord } from "@/lib/data";
 import { formatDateTime } from "@/lib/format";
+import { reviewClassificationLabel, reviewClassificationTone } from "@/lib/review-origin";
 import { applyReviewedDuplicate, createFromReviewedRecord, skipReviewedRecord } from "@/server/actions";
 
 function textValue(value: unknown, fallback: string) {
   return typeof value === "string" && value.length > 0 ? value : fallback;
 }
 
-export function ReviewRecordCard({ record }: { record: ReviewRecord }) {
+export function ReviewRecordCard({
+  record,
+  select,
+}: {
+  record: ReviewRecord;
+  select?: ReactNode;
+}) {
   const id = record.id;
   const classification = textValue(record.classification, "unmatched");
   const importedTag = textValue(record.sendpilot_status, "None");
@@ -19,83 +28,85 @@ export function ReviewRecordCard({ record }: { record: ReviewRecord }) {
     classification === "possible_same_person" || classification === "identity_conflict";
 
   return (
-    <li className="space-y-3 rounded-lg border border-border p-3 text-sm">
-      <div>
-        <p className="font-medium">{textValue(record.full_name, "Unnamed")} — {textValue(record.company_name, "No company")}</p>
-        <p className="text-muted-foreground">{classification} · {textValue(record.review_reason, "Needs a person to decide")}</p>
-        <p className="text-xs text-muted-foreground">{textValue(record.email, "No email")} · imported tag: {importedTag} · {formatDateTime(textValue(record.created_at, ""))}</p>
+    <article className="rounded-xl border border-border bg-card px-4 py-3 text-sm">
+      <div className="flex items-start gap-3">
+        {select}
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="font-medium tracking-tight">{textValue(record.full_name, "Unnamed")}</p>
+              <p className="text-sm text-muted-foreground">{textValue(record.company_name, "No company")}</p>
+            </div>
+            <span className={cn("inline-flex shrink-0 rounded-full px-2 py-0.5 text-xs font-medium", reviewClassificationTone(classification))}>
+              {reviewClassificationLabel(classification)}
+            </span>
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground" title={record.origin.title}>
+            {record.origin.label}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {textValue(record.email, "No email")}
+            <span aria-hidden> · </span>
+            {importedTag}
+            <span aria-hidden> · </span>
+            {formatDateTime(textValue(record.created_at, ""))}
+          </p>
+        </div>
       </div>
 
       {existing ? (
-        <div className="rounded-lg bg-muted/40 px-3 py-2">
-          <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Already in SalesApp</p>
-          <p className="mt-1 font-medium">{existing.contactName} — {existing.companyName}</p>
-          <p className="text-muted-foreground">
-            {existing.email ?? "No email"} · current tag: {existing.sendpilotStatus ?? "None"}
-            {existing.opportunityStage ? ` · opportunity: ${existing.opportunityStage}` : " · no opportunity"}
-          </p>
-          <p className="mt-1 text-xs">
-            <Link className="font-medium text-primary" href={`/leads/${existing.leadId}`}>Open current lead</Link>
-          </p>
-        </div>
+        <p className="mt-3 text-xs text-muted-foreground">
+          Already in SalesApp: {existing.contactName}
+          {existing.sendpilotStatus ? ` · ${existing.sendpilotStatus}` : ""}
+          {existing.opportunityStage ? ` · ${existing.opportunityStage}` : " · no opportunity"}
+          {" · "}
+          <Link className="font-medium text-primary hover:underline" href={`/leads/${existing.leadId}`}>Open lead</Link>
+        </p>
       ) : null}
 
       {isCrossWorkspaceReview ? (
-        <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-          Cross-integration identity linking is held for a later explicit decision. This event did not update CRM status.
-        </p>
-      ) : null}
+        <p className="mt-3 text-xs text-muted-foreground">Held for a later identity decision. CRM was not updated.</p>
+      ) : (
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
+          {isDuplicate && existing ? (
+            <ActionForm action={applyReviewedDuplicate} className="flex flex-wrap items-center gap-2">
+              <input type="hidden" name="record_id" value={id} />
+              <select name="tagging" defaultValue="keep" className="h-8 rounded-lg border border-input bg-card px-2 text-xs">
+                <option value="keep">Keep {existing.sendpilotStatus ?? "current tag"}</option>
+                <option value="replace">Use imported {importedTag}</option>
+                <option value="clear">Clear tagging</option>
+              </select>
+              {existing.opportunityId ? null : (
+                <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <input type="checkbox" name="create_opportunity" value="yes" />
+                  Opportunity
+                </label>
+              )}
+              <SubmitButton>Keep current</SubmitButton>
+            </ActionForm>
+          ) : null}
 
-      {isDuplicate && existing && !isCrossWorkspaceReview ? (
-        <ActionForm action={applyReviewedDuplicate} className="space-y-2 rounded-lg border border-border p-3">
-          <input type="hidden" name="record_id" value={id} />
-          <p className="font-medium">Use the current lead</p>
-          <p className="text-xs text-muted-foreground">Do not add a second lead. Choose what happens to tagging on the record already in the system.</p>
-          <label className="flex items-start gap-2">
-            <input type="radio" name="tagging" value="keep" required defaultChecked />
-            <span>Keep current tagging{existing.sendpilotStatus ? ` (${existing.sendpilotStatus})` : ""}</span>
-          </label>
-          <label className="flex items-start gap-2">
-            <input type="radio" name="tagging" value="replace" />
-            <span>Replace tagging with the imported tag ({importedTag})</span>
-          </label>
-          <label className="flex items-start gap-2">
-            <input type="radio" name="tagging" value="clear" />
-            <span>Clear tagging on the current lead</span>
-          </label>
-          {existing.opportunityId ? null : (
-            <label className="flex items-center gap-2">
+          <ActionForm action={createFromReviewedRecord} className="flex flex-wrap items-center gap-2">
+            <input type="hidden" name="record_id" value={id} />
+            {isSuppressed ? (
+              <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <input type="checkbox" name="lift_suppression" value="yes" required />
+                Recreate deleted
+              </label>
+            ) : null}
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <input type="checkbox" name="create_opportunity" value="yes" />
-              Also create an opportunity on this lead
+              Opportunity
             </label>
-          )}
-          <SubmitButton>Apply to current lead</SubmitButton>
-        </ActionForm>
-      ) : null}
+            <SubmitButton variant={isDuplicate ? "outline" : "default"}>{isDuplicate ? "Create new" : "Create lead"}</SubmitButton>
+          </ActionForm>
 
-      {isCrossWorkspaceReview ? null : <ActionForm action={createFromReviewedRecord} className="space-y-2 rounded-lg border border-border p-3">
-        <input type="hidden" name="record_id" value={id} />
-        <p className="font-medium">{isDuplicate ? "Create a new lead (duplicate)" : "Create a new lead"}</p>
-        <p className="text-xs text-muted-foreground">
-          {isDuplicate
-            ? "Adds this import row as another lead, even if someone similar already exists."
-            : "Adds this import row to the current leads list."}
-        </p>
-        {isSuppressed ? (
-          <label className="flex items-center gap-2"><input type="checkbox" name="lift_suppression" value="yes" required /> Recreate this permanently deleted SendPilot lead on purpose.</label>
-        ) : null}
-        <label className="flex items-center gap-2">
-          <input type="checkbox" name="create_opportunity" value="yes" />
-          Also create an opportunity
-        </label>
-        <SubmitButton variant="outline">{isDuplicate ? "Create new lead" : "Create contact from this row"}</SubmitButton>
-      </ActionForm>}
-
-      <form action={skipReviewedRecord}>
-        <input type="hidden" name="record_id" value={id} />
-        <p className="mb-2 text-xs text-muted-foreground">Do not add this import row to the system.</p>
-        <SubmitButton variant="outline">Skip this row</SubmitButton>
-      </form>
-    </li>
+          <form action={skipReviewedRecord} className="ml-auto">
+            <input type="hidden" name="record_id" value={id} />
+            <SubmitButton variant="outline">Skip</SubmitButton>
+          </form>
+        </div>
+      )}
+    </article>
   );
 }

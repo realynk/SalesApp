@@ -383,6 +383,6 @@ test("U/V. non-legacy CRM apply is blocked unless every safety gate passes", () 
 
 test("Y. Settings/management and review hold possible_same_person without auto-resolve", () => {
   assert.match(reviewSource, /possible_same_person/);
-  assert.match(reviewSource, /Cross-integration identity linking is held/);
+  assert.match(reviewSource, /Held for a later identity decision/);
   assert.match(applySource, /planWebhookMatch/);
 });

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Notice, PageHeader } from "@/components/bits";
-import { ReviewRecordCard } from "@/components/reconciliation-review";
+import { ReviewBulkList } from "@/components/review-bulk-list";
 import { SubmitButton } from "@/components/forms";
 import { Button } from "@/components/ui/button";
 import { getReconciliation } from "@/lib/data";
@@ -14,8 +14,8 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="SendPilot"
-        title="Lead reconciliation"
+        eyebrow="Leads"
+        title="Lead review"
         description="Matched and new import rows are added to current leads. Duplicates stay here so you can use the existing lead (keep, replace, or clear tagging), create a new lead or opportunity, or skip the row."
         actions={<Button asChild><Link href="/leads/import">Import leads</Link></Button>}
       />
@@ -63,12 +63,8 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
       </section>
       <section className="rounded-xl border border-border bg-card p-4">
         <h2 className="text-sm font-semibold">Rows held for review</h2>
-        <ul className="mt-3 space-y-4">
-          {data.records.map((record) => (
-            <ReviewRecordCard key={record.id} record={record} />
-          ))}
-          {data.records.length === 0 ? <li className="text-sm text-muted-foreground">No unmatched or duplicate rows are waiting.</li> : null}
-        </ul>
+        <p className="mt-1 text-xs text-muted-foreground">Source is on each row. Select several to create, keep, or skip together.</p>
+        <ReviewBulkList records={data.records} />
       </section>
     </div>
   );

@@ -29,6 +29,7 @@ import {
 import { raiseIf } from "@/lib/errors";
 import { fullName } from "@/lib/format";
 import { inReportingRange, reportingStartOn, type ReportingDuration } from "@/lib/reporting-duration";
+import { reviewRecordOrigin, type ReviewOrigin } from "@/lib/review-origin";
 import { mapSendPilotLeadSources, type SendPilotLeadSource } from "@/lib/sendpilot/lead-sources";
 import { backfillMissingInterestedOpportunities } from "@/lib/opportunity-start";
 import { requireUser } from "@/server/session";
@@ -933,6 +934,7 @@ export type ReviewRecord = {
   email: string | null;
   sendpilot_status: string | null;
   created_at: string | null;
+  origin: ReviewOrigin;
   existing: ExistingReviewLead | null;
 };
 
@@ -947,6 +949,49 @@ export async function getReconciliation() {
   raiseIf(syncs.error);
   raiseIf(records.error);
   const recordRows = rows(records.data);
+  const reviewSyncIds = [...new Set(recordRows.map((item) => str(item.sync_id)).filter((id): id is string => Boolean(id && isUuid(id))))];
+  const reviewIntegrationIds = [...new Set(recordRows.map((item) => str(item.integration_id)).filter((id): id is string => Boolean(id && isUuid(id))))];
+  const reviewCampaignKeys = recordRows.flatMap((item) => {
+    const integrationId = str(item.integration_id);
+    const campaignId = str(item.campaign_id);
+    return integrationId && campaignId ? [`${integrationId}:${campaignId}`] : [];
+  });
+  const originSyncs = reviewSyncIds.length
+    ? await supabase.from("sendpilot_syncs").select("id, source, filename, integration_id").in("id", reviewSyncIds)
+    : { data: [], error: null };
+  raiseIf(originSyncs.error);
+  for (const item of rows(originSyncs.data)) {
+    const integrationId = str(item.integration_id);
+    if (integrationId && isUuid(integrationId)) reviewIntegrationIds.push(integrationId);
+  }
+  const uniqueIntegrationIds = [...new Set(reviewIntegrationIds)];
+  const originIntegrations = uniqueIntegrationIds.length
+    ? await supabase.from("sendpilot_integrations").select("id, name").in("id", uniqueIntegrationIds)
+    : { data: [], error: null };
+  raiseIf(originIntegrations.error);
+  const campaignPairs = [...new Set(reviewCampaignKeys)].map((key) => {
+    const [integrationId, campaignId] = key.split(":");
+    return { integrationId, campaignId };
+  });
+  const originCampaigns = campaignPairs.length
+    ? await supabase
+        .from("sendpilot_campaigns")
+        .select("integration_id, sendpilot_campaign_id, name")
+        .in("integration_id", [...new Set(campaignPairs.map((item) => item.integrationId))])
+    : { data: [], error: null };
+  raiseIf(originCampaigns.error);
+  const syncById = new Map(rows(originSyncs.data).map((item) => [String(item.id), item]));
+  const integrationNameById = new Map(
+    rows(originIntegrations.data).map((item) => [String(item.id), str(item.name) ?? "Untitled"]),
+  );
+  const campaignNameByKey = new Map(
+    rows(originCampaigns.data).flatMap((item) => {
+      const integrationId = str(item.integration_id);
+      const campaignId = str(item.sendpilot_campaign_id);
+      if (!integrationId || !campaignId) return [];
+      return [[`${integrationId}:${campaignId}`, str(item.name)] as const];
+    }),
+  );
   const contactIds = [...new Set(recordRows.map((item) => str(item.matched_contact_id)).filter((id): id is string => Boolean(id && isUuid(id))))];
   const leadIds = [...new Set(recordRows.map((item) => str(item.matched_lead_id)).filter((id): id is string => Boolean(id && isUuid(id))))];
   const existingByLead = new Map<string, ExistingReviewLead>();
@@ -1001,6 +1046,9 @@ export async function getReconciliation() {
       if (!id) return [];
       const matchedLeadId = str(item.matched_lead_id);
       const matchedContactId = str(item.matched_contact_id);
+      const sync = syncById.get(str(item.sync_id) ?? "");
+      const integrationId = str(item.integration_id) ?? str(sync?.integration_id);
+      const campaignId = str(item.campaign_id);
       return [{
         id,
         classification: str(item.classification),
@@ -1010,6 +1058,14 @@ export async function getReconciliation() {
         email: str(item.email),
         sendpilot_status: str(item.sendpilot_status),
         created_at: str(item.created_at),
+        origin: reviewRecordOrigin({
+          recordSource: str(item.source),
+          syncSource: str(sync?.source),
+          filename: str(sync?.filename),
+          integrationName: integrationId ? integrationNameById.get(integrationId) ?? null : null,
+          campaignId,
+          campaignName: integrationId && campaignId ? campaignNameByKey.get(`${integrationId}:${campaignId}`) ?? null : null,
+        }),
         existing:
           (matchedLeadId ? existingByLead.get(matchedLeadId) : null) ??
           (matchedContactId ? existingByContact.get(matchedContactId) : null) ??

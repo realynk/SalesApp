@@ -16,7 +16,7 @@ const NAV = [
   { href: "/reporting", label: "Reporting", icon: ChartColumn },
   { href: "/leads", label: "Leads", icon: Users },
   { href: "/leads/import", label: "Import leads", icon: FileUp },
-  { href: "/reconciliation", label: "SendPilot import", icon: FolderSync },
+  { href: "/reconciliation", label: "Lead review", icon: FolderSync },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
