@@ -374,6 +374,41 @@ export function boardStage(stage: OpportunityStage): OpportunityStage {
 
 export const BOARD_STAGES = OPPORTUNITY_STAGES.filter((stage) => !isHiddenBoardStage(stage));
 
+/** First four Client journey columns: Interested through Sales Call Complete. */
+export const SALES_BOARD_COUNT_STAGES = [
+  "Interested",
+  PROFILE_SEND_STAGE,
+  BOOKED_CALL_STAGE,
+  SALES_CALL_COMPLETE_STAGE,
+] as const satisfies readonly OpportunityStage[];
+
+export function salesBoardColumnCounts(input: {
+  opportunities: Array<{ leadId: string; stage: string }>;
+  interestedLeadIds: string[];
+}) {
+  const laterLeadIds = new Set(
+    input.opportunities.filter((item) => item.stage !== "Interested").map((item) => item.leadId),
+  );
+  const intakeIds = new Set(input.interestedLeadIds.filter((id) => !laterLeadIds.has(id)));
+  const extraInterestedOpportunities = input.opportunities.filter(
+    (item) => item.stage === "Interested" && !intakeIds.has(item.leadId),
+  ).length;
+  const laterCounts = new Map<OpportunityStage, number>();
+  for (const item of input.opportunities) {
+    if (item.stage === "Interested") continue;
+    const column = boardStage(item.stage as OpportunityStage);
+    laterCounts.set(column, (laterCounts.get(column) ?? 0) + 1);
+  }
+  return SALES_BOARD_COUNT_STAGES.map((stage) => ({
+    stage,
+    label: stageLabel(stage),
+    count: stage === "Interested" ? intakeIds.size + extraInterestedOpportunities : laterCounts.get(stage) ?? 0,
+    unit: stage === "Interested" ? ("lead" as const) : ("opportunity" as const),
+  }));
+}
+
+export type SalesBoardColumnCount = ReturnType<typeof salesBoardColumnCounts>[number];
+
 export function stageLabel(stage: string) {
   if (stage === PROFILE_SEND_STAGE) return "Sent Profiles to the client";
   if (stage === BOOKED_CALL_STAGE) return "Booked Sales Call";
