@@ -19,11 +19,34 @@ import {
   profileSendCheckBacks,
   salesCallCompleteTasks,
   stageLabel,
+  salesBoardColumnCounts,
   storedLinkedInHref,
   potentialArr,
   potentialMrr,
   timeMetrics,
 } from "./domain.ts";
+
+test("sales board counts match Client journey columns without listing cards", () => {
+  const rows = salesBoardColumnCounts({
+    interestedLeadIds: ["still-open", "already-moved", "no-opportunity"],
+    opportunities: [
+      { leadId: "still-open", stage: "Interested" },
+      { leadId: "already-moved", stage: "Email / Profile Preparation" },
+      { leadId: "profile-only", stage: "Email / Profile Preparation" },
+      { leadId: "booked", stage: "Strategy Call Proposed" },
+      { leadId: "complete-alias", stage: "Requirements Captured" },
+    ],
+  });
+  assert.deepEqual(
+    rows.map((row) => ({ label: row.label, count: row.count, unit: row.unit })),
+    [
+      { label: "Interested", count: 2, unit: "lead" },
+      { label: "Sent Profiles to the client", count: 2, unit: "opportunity" },
+      { label: "Booked Sales Call", count: 1, unit: "opportunity" },
+      { label: "Sales Call Complete", count: 1, unit: "opportunity" },
+    ],
+  );
+});
 
 test("labels the profile-send stage and defaults check-backs from the call", () => {
   assert.equal(stageLabel("Email / Profile Preparation"), "Sent Profiles to the client");

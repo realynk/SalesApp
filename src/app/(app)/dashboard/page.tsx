@@ -2,7 +2,7 @@ import Link from "next/link";
 import { AttentionList, EmptyState, KpiCard, Notice, PageHeader, SectionCard } from "@/components/bits";
 import { WeekCalendar } from "@/components/week-calendar";
 import { Button } from "@/components/ui/button";
-import { buildWeekTasks } from "@/lib/domain";
+import { buildWeekTasks, type SalesBoardColumnCount } from "@/lib/domain";
 import { getCommandCenter } from "@/lib/data";
 import { firstParam } from "@/lib/format";
 import { loadSampleWorkspace } from "@/server/actions";
@@ -42,6 +42,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         }
       />
       <Notice message={firstParam(query.notice)} />
+      {empty ? null : <SalesBoardCountTable rows={center.salesBoardCounts} />}
       {empty ? (
         <EmptyState
           title="No leads yet"
@@ -75,5 +76,59 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         <AttentionList items={needs} empty="Nothing overdue right now." />
       </SectionCard>
     </div>
+  );
+}
+
+const SALES_BOARD_TONES = ["border-t-[#f97066]", "border-t-[#7a5af8]", "border-t-[#12b76a]", "border-t-[#3538cd]"];
+
+function SalesBoardCountTable({ rows }: { rows: SalesBoardColumnCount[] }) {
+  return (
+    <section className="overflow-hidden rounded-xl border border-border bg-card">
+      <div className="flex flex-wrap items-end justify-between gap-2 border-b border-border px-4 py-3">
+        <div>
+          <h2 className="text-sm font-semibold">Client journey now</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            How many are on each of the first four board columns right now. Cards stay on Client journey.
+          </p>
+        </div>
+        <Link href="/opportunities" className="text-sm font-medium text-primary hover:underline">
+          Open board
+        </Link>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[36rem] text-left text-sm">
+          <thead>
+            <tr>
+              {rows.map((row, index) => (
+                <th
+                  key={row.stage}
+                  className={`border-t-4 px-4 py-3 text-sm font-bold leading-5 ${SALES_BOARD_TONES[index] ?? "border-t-border"}`}
+                >
+                  {row.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            <tr className="border-t border-border">
+              {rows.map((row) => (
+                <td key={row.stage} className="px-4 py-3 align-top">
+                  <p className="font-mono text-2xl tabular-nums">{row.count}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {row.unit === "lead"
+                      ? row.count === 1
+                        ? "lead"
+                        : "leads"
+                      : row.count === 1
+                        ? "opportunity"
+                        : "opportunities"}
+                  </p>
+                </td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }

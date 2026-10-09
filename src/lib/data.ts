@@ -7,6 +7,7 @@ import {
   accountFlag,
   belongsToCurrentLeadOrJourney,
   boardStage,
+  salesBoardColumnCounts,
   buildAttention,
   conversionRates,
   dateInTimeZone,
@@ -456,6 +457,16 @@ export const getCommandCenter = cache(async () => {
   const month = today.slice(0, 7);
   const clients = rows(clientResult.data);
   const activeCount = opportunities.filter((item) => item.status === "active" || item.status === "nurture" || item.status === "on_hold").length;
+  const interestedLeadIds = [
+    ...new Set([
+      ...[...statusByLead.entries()].filter(([, status]) => status === "Interested").map(([id]) => id),
+      ...rows(loadedLeads.data).map((item) => String(item.id)),
+    ]),
+  ];
+  const salesBoardCounts = salesBoardColumnCounts({
+    opportunities: opportunities.map((opportunity) => ({ leadId: opportunity.leadId, stage: opportunity.stage })),
+    interestedLeadIds,
+  });
 
   return {
     profile,
@@ -463,6 +474,7 @@ export const getCommandCenter = cache(async () => {
     today,
     attention,
     opportunities,
+    salesBoardCounts,
     kpis: {
       activeOpportunities: activeCount,
       nurture: opportunities.filter((item) => item.status === "nurture").length,
