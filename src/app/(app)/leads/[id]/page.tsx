@@ -31,6 +31,7 @@ export default async function LeadDetailPage({
       phone={lead.contact.phone}
       linkedInUrl={lead.contact.linkedinUrl}
       sendpilotStatus={lead.sendpilotStatus}
+      notInterestedOutcome={lead.notInterestedOutcome}
       accountFlag={lead.accountFlag}
       nextAction={lead.followUps.find((item) => item.status === "open")?.title}
       nextActionDate={lead.followUps.find((item) => item.status === "open")?.dueOn}

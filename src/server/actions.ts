@@ -53,7 +53,8 @@ import {
   planSowSignature,
   planTrialPeriodTasks,
 } from "@/lib/pipeline-automation";
-import { todayInWorkflowZone } from "@/lib/workflow-dates";
+import { resolvedProfileCount, writeFailureMessage } from "@/lib/migration-columns";
+import { civilTimeInZoneToIso, todayInWorkflowZone } from "@/lib/workflow-dates";
 import {
   afterFollowUpCompleted,
   cancelAutomationTypes,
@@ -1066,9 +1067,9 @@ export async function sendToRecruitment(_state: ActionState, formData: FormData)
   if (!call && opp.stage !== "Requirements Captured" && opp.stage !== "Recruitment") {
     return { error: "Save the strategy call or move the opportunity to Requirements Captured before sending it to recruitment." };
   }
-  const today = todayInWorkflowZone();
+  const requestedOn = dateField(formData, "sent_on") ?? todayInWorkflowZone();
   const agreed = dateField(formData, "target_on") ?? (typeof callRow.start_date_target === "string" ? callRow.start_date_target : null);
-  const target = defaultRecruitmentTarget(today, agreed);
+  const target = defaultRecruitmentTarget(requestedOn, agreed);
   const { error: insertError } = await supabase.from("recruitment_requests").insert({
     opportunity_id: opportunityId,
     strategy_call_id: call ? (call as { id: string }).id : null,
@@ -1093,7 +1094,8 @@ export async function sendToRecruitment(_state: ActionState, formData: FormData)
   await supabase.from("activities").insert({ opportunity_id: opportunityId, type: "recruitment_requested", title: "Sent to recruitment", body: `Target ${target}`, actor_id: userId });
   const leadId = await opportunityLeadId(supabase, opportunityId);
   await cancelAutomationTypes(supabase, { opportunityId, types: ["call_notes", "call_talent_request"] });
-  await upsertAutomationTasks(supabase, userId, planRecruitmentProgress({ opportunityId, leadId, requestedOn: today }));
+  const planned = await upsertAutomationTasks(supabase, userId, planRecruitmentProgress({ opportunityId, leadId, requestedOn }));
+  if (planned?.error) return planned;
   const early = ["Interested", "Email / Profile Preparation", "Strategy Call Proposed", "Strategy Call Scheduled", "Strategy Call Complete", "Requirements Captured", "On Hold / Nurture"];
   if (early.includes(opp.stage)) {
     await supabase.rpc("update_opportunity_stage", {
@@ -1240,12 +1242,18 @@ export async function saveInterview(_state: ActionState, formData: FormData): Pr
   }
   const interviewId = optionalText(formData, "interview_id");
   const when = text(formData, "interview_at");
+  const whenIso = when
+    ? (/^\d{4}-\d{2}-\d{2}T\d{1,2}:\d{2}/.test(when) && !when.endsWith("Z") && !/[+-]\d{2}:\d{2}$/.test(when)
+      ? civilTimeInZoneToIso(when.slice(0, 10), when.slice(11, 16))
+      : new Date(when).toISOString())
+    : null;
+  if (when && !whenIso) return { error: "Enter a valid interview date and time." };
   const payload = {
     opportunity_id: opportunityId,
     candidate_id: optionalText(formData, "candidate_id"),
     candidate_name: candidateName,
     client_name: optionalText(formData, "client_name"),
-    interview_at: when ? new Date(when).toISOString() : null,
+    interview_at: whenIso,
     status,
     client_feedback: optionalText(formData, "client_feedback"),
     next_action: optionalText(formData, "next_action"),
@@ -1264,11 +1272,11 @@ export async function saveInterview(_state: ActionState, formData: FormData): Pr
     actor_id: userId,
   });
   const leadId = await opportunityLeadId(supabase, opportunityId);
-  const interviewOn = when ? (dateInTimeZone(new Date(when).toISOString(), "America/New_York") ?? todayInWorkflowZone()) : todayInWorkflowZone();
-  const interviewTime = when ? formatClock(new Date(when).toISOString().slice(11, 16)) : null;
+  const interviewOn = whenIso ? (dateInTimeZone(whenIso, "America/New_York") ?? todayInWorkflowZone()) : todayInWorkflowZone();
+  const interviewTime = when ? formatClock(when.slice(11, 16) || "12:00") : null;
   const feedback = optionalText(formData, "client_feedback");
   if (status === "Scheduled" || status === "Reschedule" || status === "Requested" || status === "Additional Interview") {
-    await upsertAutomationTasks(supabase, userId, planInterviewDay({
+    const planned = await upsertAutomationTasks(supabase, userId, planInterviewDay({
       interviewId: savedId,
       opportunityId,
       leadId,
@@ -1276,6 +1284,7 @@ export async function saveInterview(_state: ActionState, formData: FormData): Pr
       clientName: optionalText(formData, "client_name"),
       interviewTime,
     }));
+    if (planned?.error) return planned;
   }
   if (status === "Completed") {
     await cancelAutomationTypes(supabase, { opportunityId, types: ["interview_day"] });
@@ -1285,10 +1294,11 @@ export async function saveInterview(_state: ActionState, formData: FormData): Pr
         types: ["interview_feedback_1", "interview_feedback_2", "interview_review_7"],
       });
     } else {
-      await upsertAutomationTasks(supabase, userId, [
+      const planned = await upsertAutomationTasks(supabase, userId, [
         ...planInterviewFeedback({ interviewId: savedId, opportunityId, leadId, interviewOn }),
         ...planInterviewReview({ interviewId: savedId, opportunityId, leadId, interviewOn }),
       ]);
+      if (planned?.error) return planned;
     }
   }
   refresh(`/opportunities/${opportunityId}`, "/dashboard");
@@ -1432,12 +1442,40 @@ async function ensureOpportunityForBoard(
   return { id };
 }
 
-export async function loadTalentRequestDraft(leadId: string, opportunityId: string | null) {
+async function latestInterviewId(opportunityId: string) {
+  const { supabase } = await requireWriter();
+  const loaded = await supabase.from("interviews").select("id").eq("opportunity_id", opportunityId).order("interview_at", { ascending: false }).limit(1).maybeSingle();
+  return loaded.data ? String((loaded.data as { id: string }).id) : null;
+}
+
+export async function loadBoardWorkContext(opportunityId: string | null) {
+  await requireUser();
+  if (!opportunityId || !isUuid(opportunityId)) return { candidates: [] as Array<{ id: string; name: string }>, interviewId: null as string | null, sentOn: null as string | null };
+  const { supabase } = await requireUser();
+  const [request, interview, opportunity] = await Promise.all([
+    supabase.from("recruitment_requests").select("id, candidates(id, name, status)").eq("opportunity_id", opportunityId).maybeSingle(),
+    supabase.from("interviews").select("id").eq("opportunity_id", opportunityId).order("interview_at", { ascending: false }).limit(1).maybeSingle(),
+    supabase.from("opportunities").select("talent_request_sent_on").eq("id", opportunityId).maybeSingle(),
+  ]);
+  const candidates = request.data
+    ? (((request.data as { candidates?: { id: string; name: string; status: string }[] }).candidates ?? []).map((item) => ({ id: item.id, name: item.name })))
+    : [];
+  return {
+    candidates,
+    interviewId: interview.data ? String((interview.data as { id: string }).id) : null,
+    sentOn: opportunity.data && !opportunity.error ? String((opportunity.data as { talent_request_sent_on?: string | null }).talent_request_sent_on ?? "") || null : null,
+  };
+}
+
+export async function loadTalentRequestDraft(leadId: string, opportunityId: string | null): Promise<
+  { error: string } | { body: string; missing: string[]; sentOn: string | null }
+> {
   const { supabase } = await requireUser();
   const oppId = opportunityId && isUuid(opportunityId) ? opportunityId : null;
   const opportunity = oppId
     ? await supabase.from("opportunities").select("id, notes, headcount, billing_rate, talent_request_draft, talent_request_sent_on, companies(name), contacts(first_name, last_name)").eq("id", oppId).maybeSingle()
     : { data: null, error: null };
+  if (opportunity.error) return { error: writeFailureMessage(opportunity.error, "The talent request could not be loaded.") };
   const call = oppId ? await supabase.from("strategy_calls").select("*").eq("opportunity_id", oppId).maybeSingle() : { data: null };
   const notes = oppId
     ? await supabase.from("notes").select("body").eq("opportunity_id", oppId).order("created_at", { ascending: false }).limit(5)
@@ -1492,7 +1530,7 @@ export async function saveTalentRequestDraft(formData: FormData): Promise<Action
   if ("error" in ensured) return ensured;
   const body = optionalText(formData, "draft_body") ?? "";
   const { error } = await supabase.from("opportunities").update({ talent_request_draft: body }).eq("id", ensured.id);
-  if (error && !/talent_request_draft/i.test(error.message ?? "")) return { error: actionError(error) };
+  if (error) return { error: writeFailureMessage(error, "The talent request draft could not be saved.") };
   await supabase.from("activities").insert({
     opportunity_id: ensured.id,
     lead_id: leadId,
@@ -1506,6 +1544,7 @@ export async function saveTalentRequestDraft(formData: FormData): Promise<Action
 }
 
 export async function markTalentRequestSent(formData: FormData): Promise<ActionState> {
+  const sentOn = dateField(formData, "sent_on") ?? todayInWorkflowZone();
   const saved = await saveTalentRequestDraft(formData);
   if (saved?.error) return saved;
   const { supabase, userId } = await requireWriter();
@@ -1518,22 +1557,32 @@ export async function markTalentRequestSent(formData: FormData): Promise<ActionS
       return { id: row.data ? String((row.data as { id: string }).id) : "" };
     })();
   if (!isUuid(loaded.id)) return { error: "Opportunity not found." };
-  const today = todayInWorkflowZone();
-  await supabase.from("opportunities").update({ talent_request_sent_on: today }).eq("id", loaded.id);
+  const current = await supabase.from("opportunities").select("talent_request_sent_on").eq("id", loaded.id).maybeSingle();
+  if (current.error) return { error: writeFailureMessage(current.error, "The sent date could not be saved.") };
+  const alreadySent = Boolean((current.data as { talent_request_sent_on?: string | null } | null)?.talent_request_sent_on);
+  const existingRequest = await supabase.from("recruitment_requests").select("id").eq("opportunity_id", loaded.id).maybeSingle();
+  if (alreadySent || existingRequest.data) {
+    refresh(`/opportunities/${loaded.id}`, "/recruitment", "/dashboard");
+    return { success: "Talent request was already marked sent. Follow-up dates were left unchanged." };
+  }
+  const { error: sentError } = await supabase.from("opportunities").update({ talent_request_sent_on: sentOn }).eq("id", loaded.id);
+  if (sentError) return { error: writeFailureMessage(sentError, "The sent date could not be saved.") };
   const sendData = new FormData();
   sendData.set("opportunity_id", loaded.id);
+  sendData.set("sent_on", sentOn);
   const sent = await sendToRecruitment({}, sendData);
-  if (sent?.error && !/already exists/i.test(sent.error)) return sent;
+  if (sent?.error && !/already exists/i.test(sent.error)) {
+    await supabase.from("opportunities").update({ talent_request_sent_on: null }).eq("id", loaded.id);
+    return sent;
+  }
   if (sent?.error) {
-    const lead = await opportunityLeadId(supabase, loaded.id);
-    await upsertAutomationTasks(supabase, userId, planRecruitmentProgress({ opportunityId: loaded.id, leadId: lead, requestedOn: today }));
     await cancelAutomationTypes(supabase, { opportunityId: loaded.id, types: ["call_notes", "call_talent_request"] });
   }
   await supabase.from("activities").insert({
     opportunity_id: loaded.id,
     type: "recruitment_requested",
     title: "Talent request marked sent",
-    body: today,
+    body: sentOn,
     actor_id: userId,
   });
   refresh(`/opportunities/${loaded.id}`, "/recruitment", "/dashboard");
@@ -1544,7 +1593,10 @@ export async function recordCandidateProfilesSentFromBoard(formData: FormData): 
   const { supabase, userId } = await requireWriter();
   const sentOn = dateField(formData, "sent_on");
   const leadId = text(formData, "lead_id");
+  const candidateIds = formData.getAll("candidate_id").map(String).filter(isUuid);
+  const profileCount = resolvedProfileCount(candidateIds, optionalText(formData, "profile_count"));
   if (!sentOn) return { error: "When were the candidate profiles sent to the client?" };
+  if (profileCount < 1) return { error: "Select at least one candidate or enter how many profiles were sent." };
   const ensured = await ensureOpportunityForBoard(
     leadId,
     optionalText(formData, "opportunity_id"),
@@ -1555,26 +1607,48 @@ export async function recordCandidateProfilesSentFromBoard(formData: FormData): 
   );
   if ("error" in ensured) return ensured;
   const request = await supabase.from("recruitment_requests").select("id").eq("opportunity_id", ensured.id).maybeSingle();
-  const { error } = await supabase.from("profile_batches").insert({
-    opportunity_id: ensured.id,
-    recruitment_request_id: request.data ? String((request.data as { id: string }).id) : null,
-    sent_on: sentOn,
-    profile_count: 0,
-    notes: "Candidate profiles sent after recruitment",
-    created_by: userId,
-  });
-  if (error) return { error: actionError(error) };
-  await supabase.from("activities").insert({
-    opportunity_id: ensured.id,
-    lead_id: leadId,
-    type: "profile_sent",
-    title: "Candidate profiles sent",
-    body: sentOn,
-    actor_id: userId,
-  });
+  const existing = await supabase
+    .from("profile_batches")
+    .select("id, sent_on, profile_count")
+    .eq("opportunity_id", ensured.id)
+    .order("sent_on", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (existing.error) return { error: actionError(existing.error) };
+  const existingId = existing.data ? String((existing.data as { id: string }).id) : null;
+  if (existingId) {
+    const { error } = await supabase.from("profile_batches").update({
+      sent_on: sentOn,
+      profile_count: profileCount,
+      notes: "Candidate profiles sent after recruitment",
+    }).eq("id", existingId);
+    if (error) return { error: actionError(error) };
+  } else {
+    const { error } = await supabase.from("profile_batches").insert({
+      opportunity_id: ensured.id,
+      recruitment_request_id: request.data ? String((request.data as { id: string }).id) : null,
+      sent_on: sentOn,
+      profile_count: profileCount,
+      notes: "Candidate profiles sent after recruitment",
+      created_by: userId,
+    });
+    if (error) return { error: actionError(error) };
+    await supabase.from("activities").insert({
+      opportunity_id: ensured.id,
+      lead_id: leadId,
+      type: "candidate_profile_sent",
+      title: "Candidate profiles sent",
+      body: `${profileCount} · ${sentOn}`,
+      actor_id: userId,
+    });
+  }
+  if (candidateIds.length > 0) {
+    await supabase.from("candidates").update({ status: "Sent", date_sent_to_client: sentOn }).in("id", candidateIds);
+  }
   const oppLeadId = await opportunityLeadId(supabase, ensured.id);
   await cancelAutomationTypes(supabase, { opportunityId: ensured.id, types: ["recruitment_progress"] });
-  await upsertAutomationTasks(supabase, userId, planCandidateProfileFollowUp({ opportunityId: ensured.id, leadId: oppLeadId, sentOn }));
+  const planned = await upsertAutomationTasks(supabase, userId, planCandidateProfileFollowUp({ opportunityId: ensured.id, leadId: oppLeadId, sentOn }));
+  if (planned?.error) return planned;
   refresh(`/opportunities/${ensured.id}`, "/dashboard", "/opportunities");
   return { success: "Candidate profile send recorded. Follow-ups use the sent date." };
 }
@@ -1595,15 +1669,22 @@ export async function saveInterviewFromBoard(formData: FormData): Promise<Action
   const next = new FormData();
   next.set("opportunity_id", ensured.id);
   next.set("status", "Scheduled");
-  next.set("candidate_name", optionalText(formData, "candidate_name") ?? "Candidate");
+  next.set("candidate_name", optionalText(formData, "candidate_name") ?? "Interview");
   next.set("client_name", optionalText(formData, "client_name") ?? "");
   next.set("interview_at", `${interviewOn}T${interviewTime}`);
+  const existingId = await latestInterviewId(ensured.id);
+  if (existingId) next.set("interview_id", existingId);
   return saveInterview({}, next);
 }
 
 export async function saveInterviewOutcomeFromBoard(formData: FormData): Promise<ActionState> {
   const selected = text(formData, "selected") === "yes";
   const interviewOn = dateField(formData, "interview_on") ?? todayInWorkflowZone();
+  const candidateId = optionalText(formData, "candidate_id");
+  let candidateName = optionalText(formData, "candidate_name");
+  if (selected && !candidateId && !candidateName) {
+    return { error: "Name the selected candidate." };
+  }
   const stage = selected ? "Candidate Selected" : INTERVIEW_COMPLETE_STAGE;
   const ensured = await ensureOpportunityForBoard(
     text(formData, "lead_id"),
@@ -1614,24 +1695,30 @@ export async function saveInterviewOutcomeFromBoard(formData: FormData): Promise
     selected ? "Client selected a candidate" : "Interview completed. Awaiting client feedback.",
   );
   if ("error" in ensured) return ensured;
+  if (selected && candidateId && !candidateName) {
+    const { supabase } = await requireWriter();
+    const loaded = await supabase.from("candidates").select("name").eq("id", candidateId).maybeSingle();
+    candidateName = loaded.data ? String((loaded.data as { name?: string }).name ?? "") : candidateName;
+  }
   const next = new FormData();
   next.set("opportunity_id", ensured.id);
   next.set("status", "Completed");
-  next.set("candidate_name", "Candidate");
+  next.set("candidate_name", candidateName ?? "Interview");
   next.set("client_name", optionalText(formData, "client_name") ?? "");
   next.set("interview_at", `${interviewOn}T12:00`);
+  const existingId = await latestInterviewId(ensured.id);
+  if (existingId) next.set("interview_id", existingId);
+  if (candidateId) next.set("candidate_id", candidateId);
   if (selected) next.set("client_feedback", "Candidate selected");
   const saved = await saveInterview({}, next);
   if (saved?.error) return saved;
-  if (selected) {
+  if (selected && candidateId) {
     const { supabase } = await requireWriter();
-    const request = await supabase.from("recruitment_requests").select("id, candidates(id, status)").eq("opportunity_id", ensured.id).maybeSingle();
+    const request = await supabase.from("recruitment_requests").select("id").eq("opportunity_id", ensured.id).maybeSingle();
     const requestId = request.data ? String((request.data as { id: string }).id) : "";
-    const candidates = request.data ? ((request.data as { candidates?: { id: string; status: string }[] }).candidates ?? []) : [];
-    const chosen = candidates.find((item) => item.status !== "Rejected" && item.status !== "Withdrawn");
-    if (chosen && requestId) {
+    if (requestId) {
       const update = new FormData();
-      update.set("candidate_id", chosen.id);
+      update.set("candidate_id", candidateId);
       update.set("status", "Selected");
       update.set("opportunity_id", ensured.id);
       update.set("recruitment_id", requestId);
@@ -1729,7 +1816,7 @@ export async function saveNextActionOverride(_state: ActionState, formData: Form
     next_action_date: dueOn,
     next_action_manual: true,
   }).eq("id", opportunityId);
-  if (error) return { error: actionError(error) };
+  if (error) return { error: writeFailureMessage(error, "The next action could not be saved.") };
   refresh(`/opportunities/${opportunityId}`, "/dashboard", "/opportunities");
   return { success: "Next action is set manually until you clear it." };
 }
@@ -1738,8 +1825,10 @@ export async function clearNextActionOverride(_state: ActionState, formData: For
   const { supabase } = await requireWriter();
   const opportunityId = text(formData, "opportunity_id");
   if (!isUuid(opportunityId)) return { error: "Opportunity not found." };
-  await supabase.from("opportunities").update({ next_action_manual: false }).eq("id", opportunityId);
-  await syncOpportunityNextAction(supabase, opportunityId);
+  const { error } = await supabase.from("opportunities").update({ next_action_manual: false }).eq("id", opportunityId);
+  if (error) return { error: writeFailureMessage(error, "The next-action override could not be cleared.") };
+  const synced = await syncOpportunityNextAction(supabase, opportunityId);
+  if (synced?.error) return synced;
   refresh(`/opportunities/${opportunityId}`, "/dashboard", "/opportunities");
   return { success: "Next action is following the earliest open task again." };
 }

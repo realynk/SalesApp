@@ -51,6 +51,9 @@ export function InterviewScheduledDialog({
           <Field label="Interview time">
             <input className={controlClass} name="interview_time" type="time" required defaultValue="10:00" />
           </Field>
+          <Field label="Candidate name (optional)">
+            <input className={controlClass} name="candidate_name" placeholder="If already known" />
+          </Field>
           <DialogFooter>
             <Button type="button" variant="outline" disabled={pending} onClick={onCancel}>Cancel</Button>
             <Button type="submit" disabled={pending}>{pending ? "Saving…" : "Save"}</Button>

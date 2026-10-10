@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Field, textareaClass } from "@/components/bits";
+import { controlClass, Field, textareaClass } from "@/components/bits";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { todayInWorkflowZone } from "@/lib/workflow-dates";
 import { loadTalentRequestDraft, markTalentRequestSent, saveTalentRequestDraft } from "@/server/actions";
 
 export function TalentRequestDialog({
@@ -20,6 +21,7 @@ export function TalentRequestDialog({
   const [body, setBody] = useState("");
   const [missing, setMissing] = useState<string[]>([]);
   const [sentOn, setSentOn] = useState<string | null>(null);
+  const [sentDate, setSentDate] = useState(todayInWorkflowZone());
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -27,9 +29,16 @@ export function TalentRequestDialog({
     let cancelled = false;
     void loadTalentRequestDraft(draft.leadId, draft.opportunityId).then((result) => {
       if (cancelled) return;
-      setBody(result.body);
-      setMissing(result.missing);
-      setSentOn(result.sentOn);
+      if ("error" in result && result.error) {
+        setError(result.error);
+        return;
+      }
+      if ("body" in result && result.body != null) {
+        setBody(result.body);
+        setMissing(result.missing ?? []);
+        setSentOn(result.sentOn ?? null);
+        if (result.sentOn) setSentDate(result.sentOn);
+      }
     });
     return () => {
       cancelled = true;
@@ -44,6 +53,7 @@ export function TalentRequestDialog({
     formData.set("lead_id", draft.leadId);
     if (draft.opportunityId) formData.set("opportunity_id", draft.opportunityId);
     formData.set("draft_body", body);
+    formData.set("sent_on", sentDate);
     const result = markSent ? await markTalentRequestSent(formData) : await saveTalentRequestDraft(formData);
     setPending(false);
     if (result?.error) {
@@ -75,6 +85,9 @@ export function TalentRequestDialog({
           ) : null}
           <Field label="Email draft">
             <textarea className={`${textareaClass} min-h-56`} value={body} onChange={(event) => setBody(event.target.value)} />
+          </Field>
+          <Field label="Sent date">
+            <input className={controlClass} type="date" value={sentDate} onChange={(event) => setSentDate(event.target.value)} />
           </Field>
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" onClick={copyEmail}>{copied ? "Copied" : "Copy email"}</Button>

@@ -4,7 +4,8 @@ import { controlClass, Field, PageHeader, SectionCard, StageBadge, textareaClass
 import { ActionForm, SubmitButton } from "@/components/forms";
 import { MeetingNotesPanel } from "@/components/meeting-notes-panel";
 import { Button } from "@/components/ui/button";
-import { SALES_BOARD_COUNT_STAGES, boardStage, stageLabel, statusDetailLabel } from "@/lib/domain";
+import { SendPilotStatusControl } from "@/components/sendpilot-status-field";
+import { SALES_BOARD_COUNT_STAGES, OPPORTUNITY_STAGES, STAGE_PLAYBOOK, boardStage, stageLabel, statusDetailLabel } from "@/lib/domain";
 import { resolveNextAction } from "@/lib/next-action";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { SENDPILOT_UNIBOX_LINK } from "@/lib/sendpilot/app-links";
@@ -14,9 +15,9 @@ import {
   clearNextActionOverride,
   completeFollowUp,
   createFollowUp,
+  moveStage,
   saveNextActionOverride,
   startClient,
-  updateLeadStatus,
 } from "@/server/actions";
 import { ProfileWorkButtons } from "@/components/profile-work-buttons";
 
@@ -59,6 +60,11 @@ export function AccountProfile({
   recruitmentStatus,
   contractStatus,
   targetStartOn,
+  clientStartOn,
+  vaCount,
+  waitingOn,
+  riskLevel,
+  notInterestedOutcome,
   today,
 }: {
   canWrite: boolean;
@@ -89,10 +95,16 @@ export function AccountProfile({
   recruitmentStatus?: string | null;
   contractStatus?: string | null;
   targetStartOn?: string | null;
+  clientStartOn?: string | null;
+  vaCount?: number | null;
+  waitingOn?: string | null;
+  riskLevel?: string | null;
+  notInterestedOutcome?: string | null;
   today: string;
 }) {
   const currentTab = TABS.some(([key]) => key === tab) ? tab : "overview";
   const openTasks = followUps.filter((item) => item.status === "open");
+  const closedTasks = followUps.filter((item) => item.status !== "open").slice(0, 12);
   const resolved = resolveNextAction({
     manual: nextActionManual,
     manualTitle: nextAction,
@@ -116,6 +128,9 @@ export function AccountProfile({
             <Button variant="outline" asChild>
               <a href={SENDPILOT_UNIBOX_LINK.href} target={SENDPILOT_UNIBOX_LINK.target} rel={SENDPILOT_UNIBOX_LINK.rel}>Open SendPilot</a>
             </Button>
+            <Button variant="outline" asChild>
+              <Link href={`/leads/${leadId}`}>Source lead</Link>
+            </Button>
             {linkedInHref ? (
               <Button variant="outline" asChild>
                 <a href={linkedInHref} target="_blank" rel="noopener noreferrer">View LinkedIn</a>
@@ -129,6 +144,23 @@ export function AccountProfile({
         {stage ? <StageBadge stage={stage as never} /> : <span className="text-sm text-muted-foreground">Not on a later stage yet</span>}
         {stage ? <span className="text-xs text-muted-foreground">Status: {statusDetailLabel(stage)}</span> : null}
       </div>
+      {canWrite && opportunityId && stage ? (
+        <ActionForm action={moveStage} className="grid max-w-xl gap-3 md:grid-cols-[1fr_auto]">
+          <input type="hidden" name="opportunity_id" value={opportunityId} />
+          <input type="hidden" name="next_action" value={nextAction ?? STAGE_PLAYBOOK[stage as keyof typeof STAGE_PLAYBOOK]?.nextAction ?? ""} />
+          <input type="hidden" name="next_action_date" value={nextActionDate ?? today} />
+          <input type="hidden" name="waiting_on" value={waitingOn ?? "internal"} />
+          <input type="hidden" name="risk_level" value={riskLevel ?? "low"} />
+          <Field label="Underlying status">
+            <select className={controlClass} name="stage" defaultValue={stage}>
+              {OPPORTUNITY_STAGES.map((item) => (
+                <option key={item} value={item}>{statusDetailLabel(item)}</option>
+              ))}
+            </select>
+          </Field>
+          <div className="flex items-end"><SubmitButton>Update status</SubmitButton></div>
+        </ActionForm>
+      ) : null}
       <ol className="flex flex-wrap gap-1">
         {SALES_BOARD_COUNT_STAGES.map((item) => (
           <li
@@ -210,6 +242,13 @@ export function AccountProfile({
                 </li>
               ))}
             </ul>
+            {closedTasks.length > 0 ? (
+              <ul className="mt-3 space-y-1 text-xs text-muted-foreground">
+                {closedTasks.map((item) => (
+                  <li key={item.id}>{item.status === "cancelled" ? "Canceled" : "Done"} · {item.title} · {formatDate(item.dueOn)}</li>
+                ))}
+              </ul>
+            ) : null}
           </SectionCard>
           {canWrite && opportunityId ? (
             <SectionCard title="Next action override" description="Automatic next action follows the earliest open task unless you set one yourself.">
@@ -241,14 +280,16 @@ export function AccountProfile({
           ) : null}
           {stage === "Client Started" || stage === "Onboarding" || stage === "Won" ? (
             <SectionCard title="Client start">
-              {canWrite ? (
+              {clientStartOn ? (
+                <p className="text-sm">Started {formatDate(clientStartOn)} · {vaCount ?? "—"} VAs</p>
+              ) : canWrite ? (
                 <ActionForm action={startClient} className="grid gap-3 md:grid-cols-3">
                   <input type="hidden" name="opportunity_id" value={opportunityId ?? ""} />
                   <Field label="Start date"><input className={controlClass} type="date" name="start_date" required /></Field>
                   <Field label="Number of VAs"><input className={controlClass} name="number_of_vas" defaultValue="1" required /></Field>
                   <div className="flex items-end"><SubmitButton>Mark started</SubmitButton></div>
                 </ActionForm>
-              ) : <p className="text-sm text-muted-foreground">Client start is recorded from Work when you have access.</p>}
+              ) : <p className="text-sm text-muted-foreground">Client start has not been recorded.</p>}
             </SectionCard>
           ) : null}
         </div>
@@ -286,6 +327,9 @@ export function AccountProfile({
                 {item.note ? <p className="text-muted-foreground">{item.note}</p> : null}
               </li>
             ))}
+            {closedTasks.map((item) => (
+              <li key={`task-${item.id}`} className="text-sm">{item.status === "cancelled" ? "Canceled" : "Completed"} · {item.title}<span className="text-xs text-muted-foreground"> · {formatDate(item.dueOn)}</span></li>
+            ))}
             {activities.map((item) => (
               <li key={item.id} className="text-sm">{item.title}<span className="text-xs text-muted-foreground"> · {formatDateTime(item.occurredAt)}</span></li>
             ))}
@@ -309,15 +353,12 @@ export function AccountProfile({
             </dl>
           </SectionCard>
           <SectionCard title="SendPilot status">
-            {canWrite ? (
-              <ActionForm action={updateLeadStatus} className="grid gap-3">
-                <input type="hidden" name="lead_id" value={leadId} />
-                <Field label="Status">
-                  <input className={controlClass} name="sendpilot_status" defaultValue={sendpilotStatus ?? ""} />
-                </Field>
-                <SubmitButton>Save SendPilot status</SubmitButton>
-              </ActionForm>
-            ) : <p className="text-sm">{sendpilotStatus ?? "Unknown"}</p>}
+            <SendPilotStatusControl
+              leadId={leadId}
+              status={(sendpilotStatus as never) ?? null}
+              outcome={(notInterestedOutcome as never) ?? null}
+              readOnly={!canWrite}
+            />
           </SectionCard>
         </div>
       ) : null}

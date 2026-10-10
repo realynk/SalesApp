@@ -1140,6 +1140,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
   }
 
   for (const batch of input.profileBatches) {
+    if ((batch.profileCount ?? 0) <= 0) continue;
     if (batch.clientResponse && batch.clientResponse.trim()) continue;
     const waiting = daysBetween(batch.sentOn, input.today);
     if (waiting >= input.profilesWaitingDays) {

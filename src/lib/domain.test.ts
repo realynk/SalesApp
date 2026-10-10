@@ -488,6 +488,33 @@ test("calculates conversion and duration from stage history", () => {
   assert.equal(duration?.medianDays, median([9, 15]));
 });
 
+test("zero-count profile batches do not appear in Attention", () => {
+  const items = attentionBase({
+    profileBatches: [
+      {
+        id: "empty",
+        opportunityId: "opp-1",
+        companyName: "Harbor",
+        sentOn: "2026-09-01",
+        profileCount: 0,
+        clientResponse: null,
+        followUpOn: "2026-09-08",
+      },
+      {
+        id: "real",
+        opportunityId: "opp-2",
+        companyName: "Harbor",
+        sentOn: "2026-09-01",
+        profileCount: 2,
+        clientResponse: null,
+        followUpOn: "2026-09-08",
+      },
+    ],
+  });
+  assert.equal(items.some((item) => item.id === "profiles-empty"), false);
+  assert.ok(items.some((item) => item.id === "profiles-real"));
+});
+
 function attentionBase(overrides: Partial<Parameters<typeof buildAttention>[0]> = {}) {
   return buildAttention({
     today: "2026-09-23",

@@ -27,6 +27,7 @@ export default async function OpportunityPage({
       phone={opportunity.phone}
       linkedInUrl={opportunity.linkedInUrl}
       sendpilotStatus={opportunity.sendpilotStatus}
+      notInterestedOutcome={opportunity.notInterestedOutcome}
       stage={opportunity.stage}
       accountFlag={opportunity.accountFlag}
       nextAction={opportunity.nextAction}
@@ -34,7 +35,7 @@ export default async function OpportunityPage({
       nextActionManual={opportunity.nextActionManual}
       leadId={opportunity.leadId}
       opportunityId={opportunity.id}
-      followUps={mergedWorkItems(opportunity.followUps, opportunity.tasks)}
+      followUps={opportunity.followUps}
       notes={opportunity.notes}
       activities={opportunity.activities.map((item) => ({ id: item.id, title: item.title, occurredAt: item.occurredAt }))}
       history={opportunity.history}
@@ -44,27 +45,13 @@ export default async function OpportunityPage({
       recruitmentStatus={opportunity.recruitment ? String(opportunity.recruitment.status ?? "") : null}
       contractStatus={opportunity.contract ? String(opportunity.contract.status ?? "") : null}
       targetStartOn={opportunity.targetStartOn}
+      clientStartOn={opportunity.client ? String(opportunity.client.start_date ?? "") || null : null}
+      vaCount={opportunity.client ? Number(opportunity.client.number_of_vas ?? 0) || null : null}
+      waitingOn={opportunity.waitingOn}
+      riskLevel={opportunity.riskLevel}
       companyIndustry={opportunity.companyIndustry}
       companyWebsite={opportunity.companyWebsite}
       today={opportunity.today}
     />
   );
-}
-
-function mergedWorkItems(
-  followUps: Array<{ id: string; title: string; dueOn: string; status: string; notes?: string | null }>,
-  tasks: Array<{ id: string; title: string; details: string | null; status: string; dueOn: string | null }>,
-) {
-  const seen = new Set(followUps.map((item) => `${item.title}|${item.dueOn}`));
-  const extras = tasks
-    .filter((item) => item.status === "open" || item.status === "done")
-    .filter((item) => !seen.has(`${item.title}|${item.dueOn ?? ""}`))
-    .map((item) => ({
-      id: item.id,
-      title: item.title,
-      dueOn: item.dueOn ?? "",
-      status: item.status === "done" ? "completed" : item.status,
-      notes: item.details,
-    }));
-  return [...followUps, ...extras];
 }

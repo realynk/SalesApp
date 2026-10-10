@@ -304,7 +304,7 @@ export const CANCEL_ON_ADVANCE: Partial<Record<string, AutomationType[]>> = {
   "Email / Profile Preparation": ["interested_follow_1", "interested_follow_2", "nurture_suggest"],
   "Strategy Call Proposed": ["interested_follow_1", "interested_follow_2", "nurture_suggest", "sales_profile_follow_1", "sales_profile_follow_2", "sales_profile_follow_3"],
   "Strategy Call Scheduled": ["interested_follow_1", "interested_follow_2", "nurture_suggest", "sales_profile_follow_1", "sales_profile_follow_2", "sales_profile_follow_3"],
-  Recruitment: ["call_research", "call_slides", "call_day", "call_notes", "call_talent_request"],
+  Recruitment: ["call_research", "call_slides", "call_day", "call_notes"],
   "Profiles Sent": ["recruitment_progress"],
   "Interview Scheduled": ["candidate_profile_follow_1", "candidate_profile_follow_2", "awaiting_client_review"],
   "Interview Complete": ["interview_day"],

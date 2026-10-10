@@ -6,6 +6,7 @@ import {
   daysBetweenCivil,
   isWeekend,
   previousFridayIfWeekend,
+  civilTimeInZoneToIso,
   todayInWorkflowZone,
   weekdayUtc,
 } from "./workflow-dates.ts";
@@ -48,4 +49,10 @@ test("America/New_York daylight-saving fall-back does not duplicate a civil day"
 
 test("today in the workflow zone is a YYYY-MM-DD civil date", () => {
   assert.match(todayInWorkflowZone(new Date("2026-03-08T06:30:00.000Z")), /^\d{4}-\d{2}-\d{2}$/);
+});
+
+test("Eastern civil times convert to UTC without shifting the business date", () => {
+  assert.equal(civilTimeInZoneToIso("2026-01-15", "10:00"), "2026-01-15T15:00:00.000Z");
+  assert.equal(civilTimeInZoneToIso("2026-07-15", "10:00"), "2026-07-15T14:00:00.000Z");
+  assert.equal(civilTimeInZoneToIso("2026-10-16", "00:30")?.startsWith("2026-10-16T04:30"), true);
 });

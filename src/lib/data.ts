@@ -492,7 +492,7 @@ export const getCommandCenter = cache(async () => {
       profilesInReview: opportunities.filter((item) => boardStage(item.stage) === PROFILE_SEND_STAGE).length,
       meetingsThisWeek: strategyCalls.filter((call) => call.callOn && call.callOn >= weekStart && call.callOn <= weekEnd).length,
       recruitmentRequests: recruitment.filter((item) => !["Candidate Selected", "No Suitable Candidate"].includes(item.status)).length,
-      profilesAwaiting: profileBatches.filter((batch) => !batch.clientResponse).length,
+      profilesAwaiting: profileBatches.filter((batch) => !batch.clientResponse && batch.profileCount > 0).length,
       interviews: interviews.filter((item) => ["Requested", "Scheduled", "Reschedule", "Additional Interview"].includes(item.status)).length,
       sowsPending: contracts.filter((item) => ["Preparing", "Sent", "Negotiating"].includes(item.status)).length,
       startsThisMonth:
@@ -841,7 +841,7 @@ export async function getOpportunity(id: string) {
   if (!isUuid(id)) return null;
   const { supabase } = await requireUser();
   const settings = await getSettings();
-  const first = await supabase.from("opportunities").select(`${OPPORTUNITY_SELECT}, leads(id, sendpilot_status, source, last_synced_at)`).eq("id", id).maybeSingle();
+  const first = await supabase.from("opportunities").select(`${OPPORTUNITY_SELECT}, leads(id, sendpilot_status, not_interested_outcome, source, last_synced_at)`).eq("id", id).maybeSingle();
   const loaded = missingAccountFlagColumn(first.error) || missingAutomationColumn(first.error)
     ? await supabase.from("opportunities").select(`${OPPORTUNITY_SELECT_FALLBACK}, leads(id, sendpilot_status, source, last_synced_at)`).eq("id", id).maybeSingle()
     : first;
@@ -893,6 +893,7 @@ export async function getOpportunity(id: string) {
     companyIndustry: str(company?.industry),
     companyWebsite: str(company?.website),
     sendpilotStatus: str(lead?.sendpilot_status) as SendPilotStatus | null,
+    notInterestedOutcome: notInterestedOutcome(str(lead?.not_interested_outcome)),
     sendpilotSource: str(lead?.source),
     lastSyncedAt: str(lead?.last_synced_at),
     today: todayInTimeZone(settings.businessTimezone),
@@ -1158,7 +1159,7 @@ export async function getAnalytics(filters: { startOn?: string | null } = {}) {
     supabase.from("leads").select("sendpilot_status").is("archived_at", null).limit(5000),
     historyQuery,
     supabase.from("recruitment_requests").select("id", { count: "exact", head: true }),
-    supabase.from("profile_batches").select("id", { count: "exact", head: true }),
+    supabase.from("profile_batches").select("id", { count: "exact", head: true }).gt("profile_count", 0),
     supabase.from("interviews").select("id", { count: "exact", head: true }),
     supabase.from("contracts").select("status"),
     supabase.from("clients").select("id", { count: "exact", head: true }),

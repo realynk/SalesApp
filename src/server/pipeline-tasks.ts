@@ -11,6 +11,7 @@ import {
   type AutomationTask,
   type AutomationType,
 } from "@/lib/pipeline-automation";
+import { writeFailureMessage } from "@/lib/migration-columns";
 import { addBusinessDays, todayInWorkflowZone } from "@/lib/workflow-dates";
 
 type Db = SupabaseClient;
@@ -51,6 +52,9 @@ export async function upsertAutomationTasks(supabase: Db, ownerId: string | null
       }
     } else {
       const inserted = await supabase.from("follow_ups").insert({ ...followPayload, status: "open" }).select("id").single();
+      if (inserted.error) {
+        return { error: writeFailureMessage(inserted.error, "The follow-up could not be saved.") };
+      }
       followUpId = inserted.data ? String((inserted.data as { id: string }).id) : null;
     }
 
@@ -80,12 +84,16 @@ export async function upsertAutomationTasks(supabase: Db, ownerId: string | null
         }).eq("id", String(taskRow.id));
       }
     } else {
-      await supabase.from("tasks").insert({ ...taskPayload, status: "open" });
+      const insertedTask = await supabase.from("tasks").insert({ ...taskPayload, status: "open" });
+      if (insertedTask.error) {
+        return { error: writeFailureMessage(insertedTask.error, "The task could not be saved.") };
+      }
     }
   }
   const opportunityIds = [...new Set(planned.map((item) => item.opportunityId).filter(Boolean))] as string[];
   for (const opportunityId of opportunityIds) {
-    await syncOpportunityNextAction(supabase, opportunityId);
+    const synced = await syncOpportunityNextAction(supabase, opportunityId);
+    if (synced?.error) return synced;
   }
 }
 
@@ -213,7 +221,9 @@ export async function afterFollowUpCompleted(
 export async function syncOpportunityNextAction(supabase: Db, opportunityId: string | null | undefined) {
   if (!opportunityId) return;
   const loaded = await supabase.from("opportunities").select("next_action_manual").eq("id", opportunityId).maybeSingle();
-  if (loaded.error && /next_action_manual/i.test(loaded.error.message ?? "")) return;
+  if (loaded.error && !/next_action_manual|PGRST204/i.test(`${loaded.error.code ?? ""} ${loaded.error.message ?? ""}`)) {
+    return { error: writeFailureMessage(loaded.error, "Next action could not be updated.") };
+  }
   const row = asRow(loaded.data);
   if (row?.next_action_manual === true) return;
   const follows = await supabase

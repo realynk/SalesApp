@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { controlClass, Field } from "@/components/bits";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { todayInWorkflowZone } from "@/lib/workflow-dates";
-import { saveInterviewOutcomeFromBoard } from "@/server/actions";
+import { loadBoardWorkContext, saveInterviewOutcomeFromBoard } from "@/server/actions";
 
 export function InterviewOutcomeDialog({
   draft,
@@ -18,6 +18,19 @@ export function InterviewOutcomeDialog({
 }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [selected, setSelected] = useState("no");
+  const [candidates, setCandidates] = useState<Array<{ id: string; name: string }>>([]);
+
+  useEffect(() => {
+    if (!draft?.opportunityId) return;
+    let cancelled = false;
+    void loadBoardWorkContext(draft.opportunityId).then((result) => {
+      if (!cancelled) setCandidates(result.candidates);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [draft]);
 
   async function handleSubmit(formData: FormData) {
     if (!draft) return;
@@ -45,11 +58,27 @@ export function InterviewOutcomeDialog({
         <form action={handleSubmit} className="grid gap-3">
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
           <Field label="Candidate selected?">
-            <select className={controlClass} name="selected" required defaultValue="no">
+            <select className={controlClass} name="selected" required value={selected} onChange={(event) => setSelected(event.target.value)}>
               <option value="no">No</option>
               <option value="yes">Yes</option>
             </select>
           </Field>
+          {selected === "yes" ? (
+            candidates.length > 0 ? (
+              <Field label="Selected candidate">
+                <select className={controlClass} name="candidate_id" required defaultValue="">
+                  <option value="" disabled>Choose the candidate</option>
+                  {candidates.map((candidate) => (
+                    <option key={candidate.id} value={candidate.id}>{candidate.name}</option>
+                  ))}
+                </select>
+              </Field>
+            ) : (
+              <Field label="Selected candidate">
+                <input className={controlClass} name="candidate_name" required placeholder="Full name" />
+              </Field>
+            )
+          ) : null}
           <Field label="Interview date">
             <input className={controlClass} name="interview_on" type="date" required defaultValue={todayInWorkflowZone()} />
           </Field>

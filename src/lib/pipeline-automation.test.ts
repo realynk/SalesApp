@@ -152,6 +152,12 @@ test("a later SendPilot tag or sales activity counts as a response", () => {
   assert.equal(leadHasResponded({ opportunityStage: "Email / Profile Preparation" }), true);
 });
 
+test("saving a recruitment draft does not cancel the send-talent-request reminder", () => {
+  const types = typesToCancelOnStage("Recruitment");
+  assert.equal(types.includes("call_talent_request"), false);
+  assert.ok(types.includes("call_notes"));
+});
+
 test("candidate selection cancels remaining interview follow-ups", () => {
   const types = typesToCancelOnStage("Candidate Selected");
   assert.ok(types.includes("interview_feedback_1"));

@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { controlClass, Field } from "@/components/bits";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { todayInWorkflowZone } from "@/lib/workflow-dates";
-import { recordCandidateProfilesSentFromBoard } from "@/server/actions";
+import { loadBoardWorkContext, recordCandidateProfilesSentFromBoard } from "@/server/actions";
 
 export function CandidateProfilesSentDialog({
   draft,
@@ -18,6 +18,18 @@ export function CandidateProfilesSentDialog({
 }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [candidates, setCandidates] = useState<Array<{ id: string; name: string }>>([]);
+
+  useEffect(() => {
+    if (!draft?.opportunityId) return;
+    let cancelled = false;
+    void loadBoardWorkContext(draft.opportunityId).then((result) => {
+      if (!cancelled) setCandidates(result.candidates);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [draft]);
 
   async function handleSubmit(formData: FormData) {
     if (!draft) return;
@@ -48,6 +60,21 @@ export function CandidateProfilesSentDialog({
           <Field label="Sent date">
             <input className={controlClass} name="sent_on" type="date" required defaultValue={todayInWorkflowZone()} />
           </Field>
+          {candidates.length > 0 ? (
+            <fieldset className="space-y-2">
+              <legend className="text-sm font-medium">Candidates sent</legend>
+              {candidates.map((candidate) => (
+                <label key={candidate.id} className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" name="candidate_id" value={candidate.id} />
+                  {candidate.name}
+                </label>
+              ))}
+            </fieldset>
+          ) : (
+            <Field label="How many profiles were sent?">
+              <input className={controlClass} name="profile_count" type="number" min="1" required defaultValue="1" />
+            </Field>
+          )}
           <DialogFooter>
             <Button type="button" variant="outline" disabled={pending} onClick={onCancel}>Cancel</Button>
             <Button type="submit" disabled={pending}>{pending ? "Saving…" : "Save"}</Button>

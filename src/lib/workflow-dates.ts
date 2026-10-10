@@ -64,6 +64,35 @@ export function previousFridayIfWeekend(iso: string) {
   return parsed;
 }
 
+/** Convert a civil date and clock time in America/New_York to a UTC ISO instant. */
+export function civilTimeInZoneToIso(isoDay: string, time: string, timeZone = WORKFLOW_TIMEZONE) {
+  const day = parseIsoDay(isoDay);
+  const match = time.trim().match(/^(\d{1,2}):(\d{2})/);
+  if (!day || !match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour > 23 || minute > 59) return null;
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
+  let utc = Date.UTC(day.year, day.month - 1, day.day, hour, minute, 0);
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const parts = Object.fromEntries(formatter.formatToParts(new Date(utc)).map((part) => [part.type, part.value]));
+    const actual = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), Number(parts.hour), Number(parts.minute));
+    const desired = Date.UTC(day.year, day.month - 1, day.day, hour, minute);
+    const delta = desired - actual;
+    if (delta === 0) break;
+    utc += delta;
+  }
+  return new Date(utc).toISOString();
+}
+
 export function daysBetweenCivil(from: string, to: string) {
   const start = parseIsoDay(from);
   const end = parseIsoDay(to);
