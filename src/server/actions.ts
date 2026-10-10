@@ -1659,7 +1659,6 @@ export async function saveLostFromBoard(formData: FormData): Promise<ActionState
 export async function saveSowFromBoard(formData: FormData): Promise<ActionState> {
   const kind = text(formData, "kind");
   const targetStart = dateField(formData, "target_start_on");
-  const notConfirmed = text(formData, "start_confirmed") === "no" || !targetStart;
   if (kind === "sow-signed") {
     const extra: Record<string, string> = {};
     const signedOn = dateField(formData, "sow_signed_on");
@@ -1676,7 +1675,7 @@ export async function saveSowFromBoard(formData: FormData): Promise<ActionState>
     return "error" in ensured ? ensured : { success: "SOW signed recorded." };
   }
   const extra: Record<string, string> = {};
-  if (!notConfirmed && targetStart) extra.target_start_on = targetStart;
+  if (targetStart) extra.target_start_on = targetStart;
   const ensured = await ensureOpportunityForBoard(
     text(formData, "lead_id"),
     optionalText(formData, "opportunity_id"),
