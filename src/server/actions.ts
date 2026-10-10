@@ -58,6 +58,7 @@ import { civilTimeInZoneToIso, todayInWorkflowZone } from "@/lib/workflow-dates"
 import {
   afterFollowUpCompleted,
   cancelAutomationTypes,
+  cancelInterestedAutomationForLead,
   cancelTypesForStage,
   completeAutomationType,
   completeLinkedTaskRecords,
@@ -381,10 +382,7 @@ export async function updateLeadStatus(_state: ActionState, formData: FormData):
     const created = await maybeAutoCreateInterestedOpportunity(supabase, userId, leadId);
     if (created.error) return { error: created.error };
   } else if (leadHasResponded({ sendpilotStatus: status })) {
-    await cancelAutomationTypes(supabase, {
-      leadId,
-      types: ["interested_follow_1", "interested_follow_2", "nurture_suggest"],
-    });
+    await cancelInterestedAutomationForLead(supabase, leadId);
   }
   refresh(`/leads/${leadId}`, "/leads", "/dashboard", "/reconciliation", "/opportunities", "/follow-ups");
   return { success: "Lead status saved." };

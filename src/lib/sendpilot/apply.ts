@@ -45,7 +45,7 @@ import {
 import { identitiesOverlap } from "./suppress";
 import { maybeAutoCreateInterestedOpportunity } from "@/lib/opportunity-start";
 import { leadHasResponded } from "@/lib/pipeline-automation";
-import { cancelAutomationTypes } from "@/server/pipeline-tasks";
+import { cancelInterestedAutomationForLead } from "@/server/pipeline-tasks";
 import { createAdminClient, supabaseServiceRoleKey } from "@/lib/supabase/admin";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -1245,10 +1245,7 @@ export async function applySendPilotWebhook(
       }
     }
     if (!lead.archived && leadHasResponded({ sendpilotStatus: status.applyNormalized ? status.normalized : null })) {
-      await cancelAutomationTypes(supabase, {
-        leadId: lead.leadId,
-        types: ["interested_follow_1", "interested_follow_2", "nurture_suggest"],
-      });
+      await cancelInterestedAutomationForLead(supabase, lead.leadId);
     }
 
     if (ids.email || ids.linkedinUrl || ids.title) {

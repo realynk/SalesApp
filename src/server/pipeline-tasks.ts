@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  automationKey,
   clientHasRespondedToProfiles,
   leadHasResponded,
   planAwaitingClientReview,
@@ -97,27 +98,97 @@ export async function upsertAutomationTasks(supabase: Db, ownerId: string | null
   }
 }
 
+export const LEAD_RESPONSE_AUTOMATION_TYPES: AutomationType[] = [
+  "interested_follow_1",
+  "interested_follow_2",
+  "nurture_suggest",
+];
+
+function scopedId(value: string | null | undefined) {
+  const id = String(value ?? "").trim();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? id : null;
+}
+
+function rowIds(value: unknown) {
+  return (Array.isArray(value) ? value : [])
+    .map((row) => String((row as { id?: string }).id ?? ""))
+    .filter((id) => Boolean(scopedId(id)));
+}
+
+async function cancelOpenAutomationRows(
+  supabase: Db,
+  table: "follow_ups" | "tasks",
+  patch: Record<string, unknown>,
+  types: AutomationType[],
+  column: "opportunity_id" | "lead_id" | "automation_key" | "follow_up_id",
+  values: string[],
+) {
+  if (values.length === 0) return;
+  let query = supabase.from(table).update(patch).eq("status", "open");
+  if (column === "automation_key" || column === "follow_up_id") {
+    query = query.in(column, values);
+  } else {
+    query = query.in("automation_type", types).in(column, values);
+  }
+  await query;
+}
+
 export async function cancelAutomationTypes(
   supabase: Db,
   input: { opportunityId?: string | null; leadId?: string | null; types: AutomationType[] },
 ) {
   if (input.types.length === 0) return;
-  let followQuery = supabase
-    .from("follow_ups")
-    .update({ status: "cancelled", completed_at: new Date().toISOString() })
-    .eq("status", "open")
-    .in("automation_type", input.types);
-  if (input.opportunityId) followQuery = followQuery.eq("opportunity_id", input.opportunityId);
-  else if (input.leadId) followQuery = followQuery.eq("lead_id", input.leadId);
-  await followQuery;
+  const opportunityId = scopedId(input.opportunityId);
+  const leadId = scopedId(input.leadId);
+  if (!opportunityId && !leadId) return;
 
-  let taskQuery = supabase
-    .from("tasks")
-    .update({ status: "cancelled" })
+  const followPatch = { status: "cancelled", completed_at: new Date().toISOString() };
+  const taskPatch = { status: "cancelled" };
+
+  if (opportunityId) {
+    await cancelOpenAutomationRows(supabase, "follow_ups", followPatch, input.types, "opportunity_id", [opportunityId]);
+    await cancelOpenAutomationRows(supabase, "tasks", taskPatch, input.types, "opportunity_id", [opportunityId]);
+    return;
+  }
+
+  const leadFollows = await supabase
+    .from("follow_ups")
+    .select("id")
     .eq("status", "open")
-    .in("automation_type", input.types);
-  if (input.opportunityId) taskQuery = taskQuery.eq("opportunity_id", input.opportunityId);
-  await taskQuery;
+    .in("automation_type", input.types)
+    .eq("lead_id", leadId);
+  const followIds = new Set(rowIds(leadFollows.data));
+
+  const opportunities = await supabase.from("opportunities").select("id").eq("lead_id", leadId);
+  const opportunityIds = rowIds(opportunities.data);
+  if (opportunityIds.length > 0) {
+    const opportunityFollows = await supabase
+      .from("follow_ups")
+      .select("id")
+      .eq("status", "open")
+      .in("automation_type", input.types)
+      .in("opportunity_id", opportunityIds);
+    for (const id of rowIds(opportunityFollows.data)) followIds.add(id);
+  }
+
+  await cancelOpenAutomationRows(supabase, "follow_ups", followPatch, input.types, "lead_id", [leadId as string]);
+  if (opportunityIds.length > 0) {
+    await cancelOpenAutomationRows(supabase, "follow_ups", followPatch, input.types, "opportunity_id", opportunityIds);
+    await cancelOpenAutomationRows(supabase, "tasks", taskPatch, input.types, "opportunity_id", opportunityIds);
+  }
+  await cancelOpenAutomationRows(
+    supabase,
+    "tasks",
+    taskPatch,
+    input.types,
+    "automation_key",
+    input.types.map((type) => automationKey(type, leadId as string)),
+  );
+  await cancelOpenAutomationRows(supabase, "tasks", taskPatch, input.types, "follow_up_id", [...followIds]);
+}
+
+export async function cancelInterestedAutomationForLead(supabase: Db, leadId: string | null | undefined) {
+  return cancelAutomationTypes(supabase, { leadId, types: LEAD_RESPONSE_AUTOMATION_TYPES });
 }
 
 export async function completeAutomationType(supabase: Db, opportunityId: string, type: AutomationType) {
