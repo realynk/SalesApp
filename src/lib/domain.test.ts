@@ -35,6 +35,19 @@ test("sales board counts match Client journey columns without listing cards", ()
       { leadId: "profile-only", stage: "Email / Profile Preparation" },
       { leadId: "booked", stage: "Strategy Call Proposed" },
       { leadId: "complete-alias", stage: "Requirements Captured" },
+      { leadId: "recruit", stage: "Recruitment" },
+      { leadId: "profiles-ready", stage: "Profiles Ready" },
+      { leadId: "profiles-sent", stage: "Profiles Sent" },
+      { leadId: "client-review", stage: "Client Review" },
+      { leadId: "interview", stage: "Interview Scheduled" },
+      { leadId: "selected", stage: "Candidate Selected" },
+      { leadId: "sow", stage: "SOW Sent" },
+      { leadId: "signed", stage: "SOW Signed" },
+      { leadId: "trial", stage: "Onboarding" },
+      { leadId: "started", stage: "Client Started" },
+      { leadId: "won", stage: "Won" },
+      { leadId: "lost", stage: "Lost" },
+      { leadId: "nurture", stage: "On Hold / Nurture" },
     ],
   });
   assert.deepEqual(
@@ -44,7 +57,18 @@ test("sales board counts match Client journey columns without listing cards", ()
       { label: "Sent Profiles to the client", count: 2, unit: "opportunity" },
       { label: "Booked Sales Call", count: 1, unit: "opportunity" },
       { label: "Sales Call Complete", count: 1, unit: "opportunity" },
+      { label: "Recruitment", count: 2, unit: "opportunity" },
+      { label: "Profiles Sent", count: 2, unit: "opportunity" },
+      { label: "Interview Scheduled", count: 1, unit: "opportunity" },
+      { label: "Interview Complete / Candidate Selected", count: 1, unit: "opportunity" },
+      { label: "SOW Prep / Sent", count: 1, unit: "opportunity" },
+      { label: "SOW Signed", count: 1, unit: "opportunity" },
+      { label: "Trial period", count: 1, unit: "opportunity" },
     ],
+  );
+  assert.equal(
+    rows.some((row) => ["Won", "Lost", "On Hold / Nurture", "Client Started"].includes(row.label)),
+    false,
   );
 });
 
