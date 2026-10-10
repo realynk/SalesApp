@@ -144,6 +144,20 @@ test("app layout and write surfaces gate executives in the UI", () => {
   assert.match(menu, /if \(!canWrite\) return null/);
 });
 
+test("pipeline automation migration adds columns without dropping RLS", () => {
+  const sql = readFileSync(join(root, "supabase/migrations/20261010180000_pipeline_automation_tasks.sql"), "utf8");
+  assert.match(sql, /automation_key/);
+  assert.match(sql, /follow_ups_automation_key_uidx/);
+  assert.match(sql, /target_start_on/);
+  assert.equal(/drop policy/i.test(sql), false);
+  assert.equal(/disable row level security/i.test(sql), false);
+});
+
+test("calendar Done uses the linked follow-up completion path", () => {
+  assert.match(actionsSource, /completeLinkedTaskRecords/);
+  assert.match(actionsSource, /afterFollowUpCompleted/);
+});
+
 test("SendPilot webhook apply path is unchanged by this foundation", () => {
   assert.equal(webhookApply.includes("canWriteCrm"), false);
   assert.equal(webhookApply.includes("requireWriter"), false);

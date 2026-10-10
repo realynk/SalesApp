@@ -53,7 +53,7 @@ export function SalesCallCompleteDialog({
           <DialogTitle>Sales call complete</DialogTitle>
           <DialogDescription>
             {draft
-              ? `After the call with ${draft.contactName} at ${draft.companyName}, these tasks are added to reminders.`
+              ? `After the call with ${draft.contactName} at ${draft.companyName}, add notes review and the talent request. These stay on reminders until you finish them.`
               : ""}
           </DialogDescription>
         </DialogHeader>
@@ -79,7 +79,7 @@ export function SalesCallCompleteDialog({
             <AccountFlagSelect defaultValue={draft?.accountFlag ?? null} />
           </Field>
           <Field label="Notes">
-            <textarea className={textareaClass} name="notes" placeholder="What to send, who to include on the GC, or anything recruitment needs" />
+            <textarea className={textareaClass} name="notes" placeholder="Anything recruitment should know. The talent request is not sent until you approve it." />
           </Field>
           <DialogFooter>
             <Button type="button" variant="outline" disabled={pending} onClick={onCancel}>Cancel</Button>

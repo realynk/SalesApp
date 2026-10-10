@@ -85,6 +85,7 @@ export type OpportunitySummary = {
   waitingOn: WaitingOn;
   nextAction: string | null;
   nextActionDate: string | null;
+  targetStartOn: string | null;
   lastActivityAt: string | null;
   lastActivitySummary: string | null;
   headcount: number | null;
@@ -127,6 +128,7 @@ function mapOpportunity(value: Row): OpportunitySummary {
     waitingOn: value.waiting_on as WaitingOn,
     nextAction: str(value.next_action),
     nextActionDate: str(value.next_action_date),
+    targetStartOn: str(value.target_start_on),
     lastActivityAt: str(value.last_activity_at),
     lastActivitySummary: str(value.last_activity_summary),
     headcount,
@@ -147,7 +149,7 @@ function mapOpportunity(value: Row): OpportunitySummary {
 }
 
 const OPPORTUNITY_SELECT = `
-  id, title, stage, status, risk_level, waiting_on, next_action, next_action_date,
+  id, title, stage, status, risk_level, waiting_on, next_action, next_action_date, target_start_on,
   last_activity_at, last_activity_summary, headcount, billing_rate, owner_id, lead_id,
   company_id, contact_id, nurture_reason, nurture_notes, lost_reason, notes, account_flag, created_at,
   companies(id, name, industry, timezone, website, notes),
@@ -186,7 +188,7 @@ export const getCommandCenter = cache(async () => {
   const [opportunityResult, followResult, batchResult, recruitmentResult, interviewResult, contractResult, callResult, leadResult, clientResult, notInterestedResult] =
     await Promise.all([
       supabase.from("opportunities").select(OPPORTUNITY_SELECT).limit(500),
-      supabase.from("follow_ups").select("id, opportunity_id, lead_id, title, due_on, status, reason, notes").eq("status", "open").limit(300),
+      loadAllOpenFollowUps(supabase),
       supabase.from("profile_batches").select("id, opportunity_id, sent_on, profile_count, client_response, follow_up_on").limit(300),
       supabase.from("recruitment_requests").select("id, opportunity_id, status, target_on, company_name, urgent").limit(300),
       supabase.from("interviews").select("id, opportunity_id, candidate_name, client_name, interview_at, status").limit(300),
@@ -203,7 +205,7 @@ export const getCommandCenter = cache(async () => {
         .limit(200),
     ]);
 
-  const loadedOpportunities = missingAccountFlagColumn(opportunityResult.error)
+  const loadedOpportunities = missingAccountFlagColumn(opportunityResult.error) || missingAutomationColumn(opportunityResult.error)
     ? await supabase.from("opportunities").select(OPPORTUNITY_SELECT_FALLBACK).limit(500)
     : opportunityResult;
   raiseIf(loadedOpportunities.error);
@@ -289,6 +291,9 @@ export const getCommandCenter = cache(async () => {
         title: str(item.title) ?? "Follow-up",
         dueOn: str(item.due_on) ?? today,
         status: "open" as const,
+        urgent: bool(item.urgent),
+        pendingSchedule: bool(item.pending_schedule),
+        automationType: str(item.automation_type),
         companyName:
           (opportunityId ? companyByOpportunity.get(opportunityId) : null) ??
           (leadId ? companyByLead.get(leadId) : null) ??
@@ -633,6 +638,38 @@ function missingAccountFlagColumn(error: { message?: string; code?: string } | n
   return Boolean(error && (error.code === "PGRST204" || /account_flag/i.test(error.message ?? "")));
 }
 
+function missingAutomationColumn(error: { message?: string; code?: string } | null) {
+  return Boolean(error && (error.code === "PGRST204" || /automation_key|automation_type|urgent|pending_schedule|target_start_on/i.test(error.message ?? "")));
+}
+
+const FOLLOW_UP_SELECT = "id, opportunity_id, lead_id, title, due_on, status, reason, notes, urgent, pending_schedule, automation_type";
+const FOLLOW_UP_SELECT_FALLBACK = "id, opportunity_id, lead_id, title, due_on, status, reason, notes";
+
+async function loadAllOpenFollowUps(supabase: Awaited<ReturnType<typeof requireUser>>["supabase"]) {
+  const pageSize = 500;
+  const collected: Row[] = [];
+  let from = 0;
+  let select = FOLLOW_UP_SELECT;
+  for (let page = 0; page < 20; page += 1) {
+    const result = await supabase
+      .from("follow_ups")
+      .select(select)
+      .eq("status", "open")
+      .order("due_on")
+      .range(from, from + pageSize - 1);
+    if (missingAutomationColumn(result.error) && select !== FOLLOW_UP_SELECT_FALLBACK) {
+      select = FOLLOW_UP_SELECT_FALLBACK;
+      continue;
+    }
+    if (result.error) return result;
+    const batch = rows(result.data);
+    collected.push(...batch);
+    if (batch.length < pageSize) return { data: collected, error: null };
+    from += pageSize;
+  }
+  return { data: collected, error: null };
+}
+
 export async function listSendPilotSourcesByLeadIds(leadIds: string[]): Promise<Map<string, SendPilotLeadSource[]>> {
   const ids = [...new Set(leadIds.filter((id) => isUuid(id)))];
   if (ids.length === 0) return new Map();
@@ -801,7 +838,7 @@ export async function getOpportunity(id: string) {
   const { supabase } = await requireUser();
   const settings = await getSettings();
   const first = await supabase.from("opportunities").select(`${OPPORTUNITY_SELECT}, leads(id, sendpilot_status, source, last_synced_at)`).eq("id", id).maybeSingle();
-  const loaded = missingAccountFlagColumn(first.error)
+  const loaded = missingAccountFlagColumn(first.error) || missingAutomationColumn(first.error)
     ? await supabase.from("opportunities").select(`${OPPORTUNITY_SELECT_FALLBACK}, leads(id, sendpilot_status, source, last_synced_at)`).eq("id", id).maybeSingle()
     : first;
   raiseIf(loaded.error);

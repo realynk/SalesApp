@@ -102,9 +102,8 @@ test("labels the profile-send stage and defaults check-backs from the call", () 
   assert.equal(stageLabel("Onboarding"), "Trial period");
   assert.equal(stageLabel("Won"), "Won");
   assert.deepEqual(salesCallCompleteTasks("2026-10-10"), [
-    { title: "Send the meeting notes", dueOn: "2026-10-10" },
-    { title: "Send the talent request to the recruitment team", dueOn: "2026-10-10" },
-    { title: "Create a GC in Google Chat / Space", dueOn: "2026-10-10" },
+    { title: "Review and Approve Meeting Notes", dueOn: "2026-10-10" },
+    { title: "Send Talent Request to Recruitment", dueOn: "2026-10-10" },
   ]);
   assert.equal(formatClock("14:30"), "2:30 PM");
   assert.equal(formatClock("09:05"), "9:05 AM");
@@ -291,6 +290,41 @@ test("attention subjects stay only when the lead is on the current list or clien
   );
 });
 
+test("week calendar keeps a call and same-day follow-ups visible together", () => {
+  const tasks = buildWeekTasks({
+    today: "2026-10-20",
+    staleAfterDays: 10,
+    profilesWaitingDays: 5,
+    approachingWindowDays: 3,
+    opportunities: [
+      {
+        id: "opp-1",
+        title: "Acme",
+        companyName: "Acme",
+        contactName: "Pat",
+        stage: "Strategy Call Proposed",
+        status: "active",
+        riskLevel: "low",
+        waitingOn: "client",
+        nextAction: "Sales call at 2:00 PM",
+        nextActionDate: "2026-10-20",
+        lastActivityOn: "2026-10-19",
+      },
+    ],
+    followUps: [
+      { id: "fu-a", opportunityId: "opp-1", leadId: "lead-1", title: "Research the Company", dueOn: "2026-10-20", status: "open", companyName: "Acme" },
+      { id: "fu-b", opportunityId: "opp-1", leadId: "lead-1", title: "Prepare Sales Slides", dueOn: "2026-10-20", status: "open", companyName: "Acme" },
+    ],
+    profileBatches: [],
+    recruitment: [],
+    interviews: [],
+    contracts: [],
+    strategyCalls: [{ opportunityId: "opp-1", companyName: "Acme", callOn: "2026-10-20", status: "Scheduled" }],
+    unmatchedInterested: [],
+  });
+  assert.equal(tasks.filter((task) => task.date === "2026-10-20").length, 4);
+});
+
 test("does not duplicate a next action that is already a follow-up", () => {
   const items = buildAttention({
     today: "2026-09-23",
@@ -418,12 +452,12 @@ test("places the week's calls, follow-ups, and SOW check-backs on their dates", 
   assert.equal(harbor?.title, "Hold the strategy call and capture requirements");
   assert.equal(harbor?.contact, "Priya Shah");
   assert.equal(tasks.find((task) => task.company === "BrightPath Mortgage" && task.kind === "sow")?.contact, "Daniel Ortiz");
-  assert.equal(tasks.filter((task) => task.id.startsWith("next-opp-north")).length, 0);
-  const northstar = tasks.find((task) => task.company === "Northstar Legal Group");
+  assert.ok(tasks.some((task) => task.id.startsWith("next-opp-north")));
+  const northstar = tasks.find((task) => task.followUpId === "fu-1");
   assert.equal(northstar?.kind, "follow_up");
-  assert.equal(northstar?.followUpId, "fu-1");
+  assert.equal(northstar?.company, "Northstar Legal Group");
   assert.equal(tasks.find((task) => task.company === "BrightPath Mortgage" && task.date === "2026-09-25")?.kind, "sow");
-  assert.equal(tasks.find((task) => task.kind === "interview")?.title, "Nora Feldman");
+  assert.equal(tasks.find((task) => task.kind === "interview")?.title, "Interview scheduled");
   assert.equal(tasks.find((task) => task.kind === "start")?.date, "2026-10-14");
 });
 
@@ -496,6 +530,46 @@ test("recent Not Interested transitions appear in Attention and historical ones 
   assert.equal(notInterested[0]?.title, "Lead marked Not Interested");
   assert.equal(notInterested[0]?.detail, "Marcus Dardin — Amistad Freight Inc. · Tagged Not Interested in SendPilot");
   assert.equal(notInterested[0]?.href, "/leads/lead-marcus");
+});
+
+test("attention surfaces urgent, pending-schedule, and review recommendations", () => {
+  const items = attentionBase({
+    followUps: [
+      {
+        id: "urgent-1",
+        opportunityId: "opp-1",
+        leadId: "lead-1",
+        title: "Communicated with HR",
+        dueOn: "2026-09-20",
+        status: "open",
+        companyName: "Acme",
+        urgent: true,
+      },
+      {
+        id: "pending-1",
+        opportunityId: "opp-1",
+        leadId: "lead-1",
+        title: "Client Check-In — First Shift",
+        dueOn: "2026-09-23",
+        status: "open",
+        companyName: "Acme",
+        pendingSchedule: true,
+      },
+      {
+        id: "nurture-1",
+        opportunityId: "opp-2",
+        leadId: "lead-2",
+        title: "Suggested action: Move to Nurture",
+        dueOn: "2026-09-23",
+        status: "open",
+        companyName: "Beta",
+        automationType: "nurture_suggest",
+      },
+    ],
+  });
+  assert.ok(items.some((item) => item.kind === "urgent_review" && item.sections.includes("needs")));
+  assert.ok(items.some((item) => item.kind === "pending_schedule"));
+  assert.ok(items.some((item) => item.kind === "suggest_nurture"));
 });
 
 test("View LinkedIn uses only the stored LinkedIn URL and does not invent one", () => {

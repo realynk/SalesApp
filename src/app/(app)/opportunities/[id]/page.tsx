@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { AccountFlagControl, FlagBadge } from "@/components/account-flag-field";
 import { controlClass, Field, PageHeader, SectionCard, StageBadge, textareaClass } from "@/components/bits";
 import { ActionForm, SubmitButton } from "@/components/forms";
+import { MeetingNotesPanel } from "@/components/meeting-notes-panel";
 import {
   OPPORTUNITY_STAGES,
   STAGE_PLAYBOOK,
@@ -16,6 +17,7 @@ import {
   completeFollowUp,
   createFollowUp,
   moveStage,
+  saveTargetStartDate,
   startClient,
 } from "@/server/actions";
 import { profileCanWrite, requireUser } from "@/server/session";
@@ -68,6 +70,10 @@ export default async function OpportunityPage({ params }: { params: Promise<{ id
             <Field label="Lost reason (only if moving to Lost)">
               <input className={controlClass} name="lost_reason" defaultValue={opportunity.lostReason ?? ""} />
             </Field>
+            <Field label="Target client start date (optional)">
+              <input className={controlClass} name="target_start_on" type="date" defaultValue={opportunity.targetStartOn ?? ""} />
+              <p className="mt-1 text-xs text-muted-foreground">Leave blank for Not confirmed yet. The stage can still move.</p>
+            </Field>
             <SubmitButton>Save stage and next action</SubmitButton>
           </ActionForm>
           ) : (
@@ -94,7 +100,9 @@ export default async function OpportunityPage({ params }: { params: Promise<{ id
               <li key={item.id} className="flex items-start justify-between gap-3 py-3">
                 <span>
                   <span className="font-medium">{item.title}</span>
-                  <p className="text-xs text-muted-foreground">Due {formatDate(item.dueOn)}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {item.notes === "Pending schedule" ? "Pending schedule" : item.notes === "Urgent — needs review" ? "Urgent — needs review" : `Due ${formatDate(item.dueOn)}`}
+                  </p>
                 </span>
                 {canWrite ? (
                 <form action={completeFollowUp}>
@@ -110,12 +118,38 @@ export default async function OpportunityPage({ params }: { params: Promise<{ id
           {doneTasks.length > 0 ? (
             <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
               {doneTasks.map((item) => (
-                <li key={item.id}>Done · {item.title} · {formatDate(item.dueOn)}</li>
+                <li key={item.id}>{item.status === "cancelled" ? "Canceled" : "Done"} · {item.title} · {formatDate(item.dueOn)}</li>
               ))}
             </ul>
           ) : null}
         </SectionCard>
       </div>
+      {opportunity.stage === "SOW Preparation" || opportunity.stage === "SOW Sent" || opportunity.stage === "SOW Negotiation" || opportunity.stage === "SOW Signed" ? (
+        <SectionCard title="Target client start date" description="Optional. Choose Not confirmed yet if the date is still unknown.">
+          {canWrite ? (
+            <ActionForm action={saveTargetStartDate} className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
+              <input type="hidden" name="opportunity_id" value={opportunity.id} />
+              <Field label="Target start">
+                <input className={controlClass} type="date" name="target_start_on" defaultValue={opportunity.targetStartOn ?? ""} />
+              </Field>
+              <Field label="Confirmed?">
+                <select className={controlClass} name="start_confirmed" defaultValue={opportunity.targetStartOn ? "yes" : "no"}>
+                  <option value="yes">Date entered</option>
+                  <option value="no">Not confirmed yet</option>
+                </select>
+              </Field>
+              <div className="flex items-end"><SubmitButton>Save start date</SubmitButton></div>
+            </ActionForm>
+          ) : (
+            <p className="text-sm">{opportunity.targetStartOn ? formatDate(opportunity.targetStartOn) : "Not confirmed yet"}</p>
+          )}
+        </SectionCard>
+      ) : null}
+      {opportunity.stage === "Strategy Call Scheduled" || opportunity.stage === "Strategy Call Complete" || opportunity.stage === "Requirements Captured" || opportunity.stage === "Recruitment" ? (
+        <SectionCard title="Meeting notes" description="Generate notes only after a Google Meet recording is available. You can still write them by hand.">
+          <MeetingNotesPanel clientName={opportunity.contactName} companyName={opportunity.companyName} />
+        </SectionCard>
+      ) : null}
       {opportunity.stage === "Client Started" || opportunity.stage === "Onboarding" || opportunity.stage === "Won" ? (
         <SectionCard title="Client start" description="Record the start date when they begin.">
           {opportunity.client ? (
