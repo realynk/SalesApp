@@ -4,30 +4,20 @@ import { useState } from "react";
 import { controlClass, Field } from "@/components/bits";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import type { AccountFlag } from "@/lib/domain";
-import { todayInWorkflowZone } from "@/lib/workflow-dates";
-import { saveBookedSalesCallFromBoard } from "@/server/actions";
+import { saveSowFromBoard } from "@/server/actions";
 
-export type BookedCallDraft = {
-  leadId: string;
-  opportunityId: string | null;
-  companyName: string;
-  contactName: string;
-  accountFlag: AccountFlag | null;
-};
-
-export function BookedCallDialog({
+export function SowTransitionDialog({
   draft,
   onCancel,
   onSaved,
 }: {
-  draft: BookedCallDraft | null;
+  draft: { kind: "sow-prep" | "sow-signed"; leadId: string; opportunityId: string | null; companyName: string } | null;
   onCancel: () => void;
   onSaved: () => void;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-  const today = todayInWorkflowZone();
+  const prep = draft?.kind === "sow-prep";
 
   async function handleSubmit(formData: FormData) {
     if (!draft) return;
@@ -35,9 +25,8 @@ export function BookedCallDialog({
     setError(null);
     formData.set("lead_id", draft.leadId);
     if (draft.opportunityId) formData.set("opportunity_id", draft.opportunityId);
-    formData.set("company_name", draft.companyName);
-    formData.set("client_name", draft.contactName);
-    const result = await saveBookedSalesCallFromBoard(formData);
+    formData.set("kind", draft.kind);
+    const result = await saveSowFromBoard(formData);
     setPending(false);
     if (result?.error) {
       setError(result.error);
@@ -50,19 +39,30 @@ export function BookedCallDialog({
     <Dialog open={Boolean(draft)} onOpenChange={(open) => { if (!open && !pending) onCancel(); }}>
       <DialogContent className="sm:max-w-md" showCloseButton={!pending}>
         <DialogHeader>
-          <DialogTitle>Booked sales call</DialogTitle>
+          <DialogTitle>{prep ? "SOW prep / sent" : "SOW signed"}</DialogTitle>
           <DialogDescription>
-            {draft ? `When is the meeting with ${draft.contactName} at ${draft.companyName}? Prep tasks and the meeting-day reminder are added automatically.` : ""}
+            {prep
+              ? "Target client start date is optional. Choose Not confirmed yet if it is still unknown."
+              : "Optional signed date. HR and onboarding tasks are created automatically."}
           </DialogDescription>
         </DialogHeader>
         <form action={handleSubmit} className="grid gap-3">
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
-          <Field label="Meeting date">
-            <input className={controlClass} name="call_on" type="date" required defaultValue={today} />
-          </Field>
-          <Field label="Meeting time">
-            <input className={controlClass} name="call_time" type="time" required defaultValue="10:00" />
-          </Field>
+          {prep ? (
+            <>
+              <Field label="Target start date">
+                <input className={controlClass} name="target_start_on" type="date" />
+              </Field>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" name="start_confirmed" value="no" defaultChecked />
+                Not confirmed yet
+              </label>
+            </>
+          ) : (
+            <Field label="Signed date (optional)">
+              <input className={controlClass} name="sow_signed_on" type="date" />
+            </Field>
+          )}
           <DialogFooter>
             <Button type="button" variant="outline" disabled={pending} onClick={onCancel}>Cancel</Button>
             <Button type="submit" disabled={pending}>{pending ? "Saving…" : "Save"}</Button>

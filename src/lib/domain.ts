@@ -332,9 +332,8 @@ export const BOOKED_CALL_STAGE: OpportunityStage = "Strategy Call Proposed";
 export const SALES_CALL_COMPLETE_STAGE: OpportunityStage = "Strategy Call Scheduled";
 
 export const SALES_CALL_COMPLETE_TASKS = [
-  "Send the meeting notes",
-  "Send the talent request to the recruitment team",
-  "Create a GC in Google Chat / Space",
+  "Review and Approve Meeting Notes",
+  "Send Talent Request to Recruitment",
 ] as const;
 
 export function salesCallCompleteTasks(callOn: string) {
@@ -405,6 +404,21 @@ export function salesBoardColumnCounts(input: {
 }
 
 export type SalesBoardColumnCount = ReturnType<typeof salesBoardColumnCounts>[number];
+
+export const LOST_REASONS = [
+  "Budget",
+  "No response",
+  "Chose another provider",
+  "No longer interested",
+  "Requirements changed",
+  "Timing",
+  "Other",
+] as const;
+
+/** Specific stored status, not the grouped board column label. */
+export function statusDetailLabel(stage: string) {
+  return stage;
+}
 
 export function stageLabel(stage: string) {
   if (stage === PROFILE_SEND_STAGE) return "Sent Profiles to the client";
@@ -665,6 +679,9 @@ export type AttentionInput = {
     status: "open" | "completed" | "cancelled";
     companyName: string;
     contactName?: string | null;
+    urgent?: boolean;
+    pendingSchedule?: boolean;
+    automationType?: string | null;
   }>;
   profileBatches: Array<{
     id: string;
@@ -783,9 +800,6 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
   const push = (task: WeekTask) => {
     tasks.push(task);
   };
-  const occupied = (opportunityId: string, date: string) =>
-    tasks.some((task) => task.date === date && opportunityIdFromHref(task.href) === opportunityId);
-
   for (const followUp of input.followUps) {
     if (followUp.status !== "open" || !followUp.dueOn) continue;
     push({
@@ -803,9 +817,19 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
     });
   }
 
+  const followUpKeys = new Set(
+    input.followUps
+      .filter((item) => item.status === "open" && item.opportunityId && item.dueOn)
+      .map((item) => `${item.opportunityId}:${item.dueOn}`),
+  );
+  const followUpKinds = input.followUps.filter((item) => item.status === "open");
+
   for (const call of input.strategyCalls) {
     if (!call.callOn || (call.status !== "Scheduled" && call.status !== "Proposed")) continue;
-    if (occupied(call.opportunityId, call.callOn)) continue;
+    const covered = followUpKinds.some((item) =>
+      item.opportunityId === call.opportunityId && item.dueOn === call.callOn && /sales call|strategy call/i.test(item.title),
+    );
+    if (covered) continue;
     const opportunity = opportunityById.get(call.opportunityId);
     const sameDayAction = opportunity?.nextActionDate === call.callOn ? opportunity.nextAction : null;
     push({
@@ -822,13 +846,16 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
 
   for (const interview of input.interviews) {
     if (!interview.interviewOn || !OPEN_INTERVIEW.has(interview.status)) continue;
-    if (occupied(interview.opportunityId, interview.interviewOn)) continue;
+    const covered = followUpKinds.some((item) =>
+      item.opportunityId === interview.opportunityId && item.dueOn === interview.interviewOn && /interview/i.test(item.title),
+    );
+    if (covered) continue;
     push({
       id: `interview-${interview.id}`,
       date: interview.interviewOn,
       kind: "interview",
       label: WEEK_TASK_LABEL.interview,
-      title: interview.candidateName,
+      title: "Interview scheduled",
       company: interview.companyName,
       contact: contactFor(interview.opportunityId, interview.companyName),
       href: `/opportunities/${interview.opportunityId}`,
@@ -837,7 +864,6 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
 
   for (const request of input.recruitment) {
     if (CLOSED_RECRUITMENT.has(request.status) || !request.targetOn) continue;
-    if (occupied(request.opportunityId, request.targetOn)) continue;
     push({
       id: `recruitment-${request.id}`,
       date: request.targetOn,
@@ -852,7 +878,10 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
 
   for (const batch of input.profileBatches) {
     if (batch.clientResponse || !batch.followUpOn) continue;
-    if (occupied(batch.opportunityId, batch.followUpOn)) continue;
+    const covered = followUpKinds.some((item) =>
+      item.opportunityId === batch.opportunityId && /candidate profile/i.test(item.title),
+    );
+    if (covered) continue;
     push({
       id: `profiles-${batch.id}`,
       date: batch.followUpOn,
@@ -867,7 +896,7 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
 
   for (const opportunity of input.opportunities) {
     if (!open.has(opportunity.status) || !opportunity.nextAction || !opportunity.nextActionDate) continue;
-    if (occupied(opportunity.id, opportunity.nextActionDate)) continue;
+    if (followUpKeys.has(`${opportunity.id}:${opportunity.nextActionDate}`)) continue;
     const kind = kindFromAction(opportunity.stage, opportunity.nextAction);
     push({
       id: `next-${opportunity.id}-${opportunity.nextActionDate}`,
@@ -896,7 +925,7 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
         href: `/opportunities/${contract.opportunityId}`,
       });
     }
-    if (contract.expectedStartOn && waitingOnSignature && !occupied(contract.opportunityId, contract.expectedStartOn)) {
+    if (contract.expectedStartOn && waitingOnSignature) {
       push({
         id: `start-${contract.opportunityId}`,
         date: contract.expectedStartOn,
@@ -923,6 +952,58 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
   for (const followUp of input.followUps) {
     if (followUp.status !== "open") continue;
     const href = followUp.opportunityId ? `/opportunities/${followUp.opportunityId}` : `/leads/${followUp.leadId}`;
+    if (followUp.pendingSchedule) {
+      items.push({
+        id: `follow-up-${followUp.id}`,
+        kind: "pending_schedule",
+        severity: "today",
+        title: followUp.title,
+        detail: `${followUp.companyName} · Pending schedule`,
+        href,
+        dueOn: followUp.dueOn,
+        sections: ["needs"],
+      });
+      continue;
+    }
+    if (followUp.urgent) {
+      items.push({
+        id: `follow-up-${followUp.id}`,
+        kind: "urgent_review",
+        severity: "overdue",
+        title: followUp.title,
+        detail: `${followUp.companyName} · Urgent — needs review`,
+        href,
+        dueOn: followUp.dueOn,
+        sections: ["needs", "at_risk"],
+      });
+      continue;
+    }
+    if (followUp.automationType === "nurture_suggest") {
+      items.push({
+        id: `follow-up-${followUp.id}`,
+        kind: "suggest_nurture",
+        severity: followUp.dueOn <= input.today ? "today" : "upcoming",
+        title: followUp.title,
+        detail: `${followUp.companyName} · recommendation only`,
+        href,
+        dueOn: followUp.dueOn,
+        sections: followUp.dueOn <= input.today ? ["needs", "today"] : ["upcoming"],
+      });
+      continue;
+    }
+    if (followUp.automationType === "awaiting_client_review" || followUp.automationType === "interview_review_7") {
+      items.push({
+        id: `follow-up-${followUp.id}`,
+        kind: followUp.automationType === "interview_review_7" ? "interview_review" : "awaiting_client_response",
+        severity: followUp.dueOn <= input.today ? "today" : "upcoming",
+        title: followUp.title,
+        detail: followUp.companyName,
+        href,
+        dueOn: followUp.dueOn,
+        sections: followUp.dueOn <= input.today ? ["needs", "waiting_client"] : ["upcoming", "waiting_client"],
+      });
+      continue;
+    }
     const delta = daysBetween(input.today, followUp.dueOn);
     if (delta < 0) {
       items.push({
@@ -1059,6 +1140,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
   }
 
   for (const batch of input.profileBatches) {
+    if ((batch.profileCount ?? 0) <= 0) continue;
     if (batch.clientResponse && batch.clientResponse.trim()) continue;
     const waiting = daysBetween(batch.sentOn, input.today);
     if (waiting >= input.profilesWaitingDays) {

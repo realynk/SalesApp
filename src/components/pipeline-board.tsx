@@ -19,14 +19,23 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { Flag, GripVertical } from "lucide-react";
-import { RISK_LEVELS, STAGE_PLAYBOOK, PROFILE_SEND_STAGE, BOOKED_CALL_STAGE, SALES_CALL_COMPLETE_STAGE, WAITING_ON, accountFlagIconClass, accountFlagLabel, boardStage, isHiddenBoardStage, stageLabel, type AccountFlag, type OpportunityStage } from "@/lib/domain";
+import { RISK_LEVELS, STAGE_PLAYBOOK, PROFILE_SEND_STAGE, BOOKED_CALL_STAGE, SALES_CALL_COMPLETE_STAGE, INTERVIEW_COMPLETE_STAGE, SOW_PREP_STAGE, WAITING_ON, accountFlagIconClass, accountFlagLabel, boardStage, isHiddenBoardStage, stageLabel, statusDetailLabel, type AccountFlag, type OpportunityStage } from "@/lib/domain";
 import { formatDate } from "@/lib/format";
+import { todayInWorkflowZone } from "@/lib/workflow-dates";
 import { dropLeadOnStage, dropOpportunityOnStage, setAccountFlagFromBoard } from "@/server/actions";
 import { AccountFlagButton } from "@/components/account-flag-field";
 import { sendPilotSourceIndicator, type SendPilotLeadSource } from "@/lib/sendpilot/lead-sources";
 import { BookedCallDialog } from "@/components/booked-call-dialog";
 import { ProfileSendDialog, type ProfileSendDraft } from "@/components/profile-send-dialog";
 import { SalesCallCompleteDialog } from "@/components/sales-call-complete-dialog";
+import { TalentRequestDialog } from "@/components/talent-request-dialog";
+import { CandidateProfilesSentDialog } from "@/components/candidate-profiles-sent-dialog";
+import { InterviewScheduledDialog } from "@/components/interview-scheduled-dialog";
+import { InterviewOutcomeDialog } from "@/components/interview-outcome-dialog";
+import { LostReasonDialog } from "@/components/lost-reason-dialog";
+import { SowTransitionDialog } from "@/components/sow-transition-dialog";
+import { NurtureDialog } from "@/components/nurture-dialog";
+import { ClientStartDialog } from "@/components/client-start-dialog";
 import { BoardScroller } from "@/components/board-scroller";
 import { useCanWriteCrm } from "@/components/workspace-access";
 
@@ -39,7 +48,7 @@ const COLUMN_TONE = [
   "border-t-[#155eef]",
 ];
 
-const BLOCKED_DROPS = new Set<OpportunityStage>(["Lost", "Client Started"]);
+const BLOCKED_DROPS = new Set<OpportunityStage>([]);
 
 export type BoardOpportunity = {
   id: string;
@@ -73,6 +82,7 @@ type BoardItem = {
   leadId: string;
   opportunityId: string | null;
   stage: OpportunityStage;
+  storedStage: OpportunityStage;
   companyName: string;
   contactName: string;
   nextAction: string | null;
@@ -98,6 +108,7 @@ function fromOpportunity(opportunity: BoardOpportunity): BoardItem {
     leadId: opportunity.leadId,
     opportunityId: opportunity.id,
     stage: boardStage(opportunity.stage),
+    storedStage: opportunity.stage,
     companyName: opportunity.companyName,
     contactName: opportunity.contactName,
     nextAction: opportunity.nextAction,
@@ -120,6 +131,7 @@ function fromLead(lead: BoardLead, opportunity?: BoardOpportunity): BoardItem {
     leadId: lead.id,
     opportunityId: null,
     stage: "Interested",
+    storedStage: "Interested",
     companyName: lead.companyName,
     contactName: lead.contactName,
     nextAction: lead.nextFollowUp?.title ?? "Drag onto a stage to start the client journey",
@@ -159,7 +171,20 @@ export function PipelineBoard({
   const [activeId, setActiveId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
-  const [prompt, setPrompt] = useState<{ kind: "profile-send" | "booked-call" | "sales-call-complete"; item: BoardItem; previous: BoardItem[] } | null>(null);
+  type PromptKind =
+    | "profile-send"
+    | "booked-call"
+    | "sales-call-complete"
+    | "recruitment"
+    | "candidate-profiles"
+    | "interview-scheduled"
+    | "interview-outcome"
+    | "lost"
+    | "sow-prep"
+    | "sow-signed"
+    | "nurture"
+    | "client-start";
+  const [prompt, setPrompt] = useState<{ kind: PromptKind; item: BoardItem; previous: BoardItem[] } | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -190,7 +215,7 @@ export function PipelineBoard({
     const formData = new FormData();
     formData.set("stage", stage);
     formData.set("next_action", item.nextAction && item.kind === "opportunity" ? item.nextAction : STAGE_PLAYBOOK[stage].nextAction);
-    formData.set("next_action_date", item.nextActionDate ?? new Date().toISOString().slice(0, 10));
+    formData.set("next_action_date", item.nextActionDate ?? todayInWorkflowZone());
     formData.set("waiting_on", (WAITING_ON as readonly string[]).includes(item.waitingOn) ? item.waitingOn : STAGE_PLAYBOOK[stage].waitingOn);
     formData.set("risk_level", (RISK_LEVELS as readonly string[]).includes(item.riskLevel) ? item.riskLevel : "low");
     if (item.kind === "opportunity" && item.opportunityId) {
@@ -240,26 +265,25 @@ export function PipelineBoard({
     const stage = event.over?.id ? String(event.over.id) as OpportunityStage : null;
     if (!item || !stage || item.stage === stage) return;
     if (isHiddenBoardStage(stage)) return;
-    if (BLOCKED_DROPS.has(stage)) {
-      setNotice(
-        stage === "Lost"
-          ? "Open the opportunity and add a lost reason before moving it to Lost."
-          : "Open the opportunity and use Client start so the start date and headcount are recorded.",
-      );
-      return;
-    }
     const previous = items;
     setItems(previous.map((entry) => (entry.id === item.id ? { ...entry, stage } : entry)));
-    if (stage === PROFILE_SEND_STAGE) {
-      setPrompt({ kind: "profile-send", item, previous });
-      return;
-    }
-    if (stage === BOOKED_CALL_STAGE) {
-      setPrompt({ kind: "booked-call", item, previous });
-      return;
-    }
-    if (stage === SALES_CALL_COMPLETE_STAGE) {
-      setPrompt({ kind: "sales-call-complete", item, previous });
+    const prompts: Record<string, PromptKind> = {
+      [PROFILE_SEND_STAGE]: "profile-send",
+      [BOOKED_CALL_STAGE]: "booked-call",
+      [SALES_CALL_COMPLETE_STAGE]: "sales-call-complete",
+      Recruitment: "recruitment",
+      "Profiles Sent": "candidate-profiles",
+      "Interview Scheduled": "interview-scheduled",
+      [INTERVIEW_COMPLETE_STAGE]: "interview-outcome",
+      Lost: "lost",
+      [SOW_PREP_STAGE]: "sow-prep",
+      "SOW Signed": "sow-signed",
+      "On Hold / Nurture": "nurture",
+      "Client Started": "client-start",
+    };
+    const kind = prompts[stage];
+    if (kind) {
+      setPrompt({ kind, item, previous });
       return;
     }
     void persistMove(item, stage, previous);
@@ -352,6 +376,46 @@ export function PipelineBoard({
           setPrompt(null);
           router.refresh();
         }}
+      />
+      <TalentRequestDialog
+        draft={prompt?.kind === "recruitment" ? prompt.item : null}
+        onCancel={() => { if (prompt) setItems(prompt.previous); setPrompt(null); }}
+        onSaved={() => { setPrompt(null); router.refresh(); }}
+      />
+      <CandidateProfilesSentDialog
+        draft={prompt?.kind === "candidate-profiles" ? prompt.item : null}
+        onCancel={() => { if (prompt) setItems(prompt.previous); setPrompt(null); }}
+        onSaved={() => { setPrompt(null); router.refresh(); }}
+      />
+      <InterviewScheduledDialog
+        draft={prompt?.kind === "interview-scheduled" ? prompt.item : null}
+        onCancel={() => { if (prompt) setItems(prompt.previous); setPrompt(null); }}
+        onSaved={() => { setPrompt(null); router.refresh(); }}
+      />
+      <InterviewOutcomeDialog
+        draft={prompt?.kind === "interview-outcome" ? prompt.item : null}
+        onCancel={() => { if (prompt) setItems(prompt.previous); setPrompt(null); }}
+        onSaved={() => { setPrompt(null); router.refresh(); }}
+      />
+      <LostReasonDialog
+        draft={prompt?.kind === "lost" ? prompt.item : null}
+        onCancel={() => { if (prompt) setItems(prompt.previous); setPrompt(null); }}
+        onSaved={() => { setPrompt(null); router.refresh(); }}
+      />
+      <SowTransitionDialog
+        draft={prompt?.kind === "sow-prep" || prompt?.kind === "sow-signed" ? { ...prompt.item, kind: prompt.kind } : null}
+        onCancel={() => { if (prompt) setItems(prompt.previous); setPrompt(null); }}
+        onSaved={() => { setPrompt(null); router.refresh(); }}
+      />
+      <NurtureDialog
+        draft={prompt?.kind === "nurture" ? prompt.item : null}
+        onCancel={() => { if (prompt) setItems(prompt.previous); setPrompt(null); }}
+        onSaved={() => { setPrompt(null); router.refresh(); }}
+      />
+      <ClientStartDialog
+        draft={prompt?.kind === "client-start" ? prompt.item : null}
+        onCancel={() => { if (prompt) setItems(prompt.previous); setPrompt(null); }}
+        onSaved={() => { setPrompt(null); router.refresh(); }}
       />
     </div>
   );
@@ -498,6 +562,7 @@ function CardHeading({ item }: { item: BoardItem }) {
 function CardMeta({ item }: { item: BoardItem }) {
   return (
     <dl className="mt-2 space-y-1 text-xs">
+      <CardField label="Status" value={statusDetailLabel(item.storedStage)} />
       <CardField label={item.kind === "lead" ? "Follow-up" : "Next action"} value={item.nextAction ?? "Set the next action"} />
       {item.nextActionDate ? <CardField label="Due" value={formatDate(item.nextActionDate)} /> : null}
     </dl>

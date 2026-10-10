@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChartColumn, FileUp, FolderSync, Handshake, LayoutDashboard, Menu, Search, Settings, Users } from "lucide-react";
+import { Bell, ChartColumn, FileUp, FolderSync, Handshake, LayoutDashboard, Menu, Search, Settings, Users } from "lucide-react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -13,6 +13,7 @@ import { useCanWriteCrm } from "@/components/workspace-access";
 
 const NAV_ICONS = {
   "/dashboard": LayoutDashboard,
+  "/notifications": Bell,
   "/opportunities": Handshake,
   "/reporting": ChartColumn,
   "/leads": Users,
@@ -23,14 +24,16 @@ const NAV_ICONS = {
 
 export function Shell({
   children,
+  attentionCount = 0,
 }: {
   children: ReactNode;
+  attentionCount?: number;
 }) {
   return (
     <div className="min-h-screen bg-background">
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-sidebar-border bg-sidebar lg:flex">
         <Brand />
-        <Nav />
+        <Nav attentionCount={attentionCount} />
         <SignOut className="mt-auto p-3" />
       </aside>
       <div className="lg:pl-64">
@@ -45,7 +48,7 @@ export function Shell({
               <SheetHeader>
                 <SheetTitle>Realynk</SheetTitle>
               </SheetHeader>
-              <Nav />
+              <Nav attentionCount={attentionCount} />
               <SignOut className="mt-4 px-3" />
             </SheetContent>
           </Sheet>
@@ -73,7 +76,7 @@ function Brand() {
   );
 }
 
-function Nav() {
+function Nav({ attentionCount = 0 }: { attentionCount?: number }) {
   const pathname = usePathname();
   const canWrite = useCanWriteCrm();
   return (
@@ -81,6 +84,7 @@ function Nav() {
       {navItemsForAccess(canWrite).map((item) => {
         const active = isNavActive(pathname, item.href);
         const Icon = NAV_ICONS[item.href];
+        const showCount = item.href === "/notifications" && attentionCount > 0;
         return (
           <Link
             key={item.href}
@@ -91,7 +95,12 @@ function Nav() {
             )}
           >
             <Icon className="size-4" />
-            {item.label}
+            <span className="min-w-0 flex-1">{item.label}</span>
+            {showCount ? (
+              <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold leading-none text-primary-foreground">
+                {attentionCount > 99 ? "99+" : attentionCount}
+              </span>
+            ) : null}
           </Link>
         );
       })}

@@ -144,6 +144,42 @@ test("app layout and write surfaces gate executives in the UI", () => {
   assert.match(menu, /if \(!canWrite\) return null/);
 });
 
+test("pipeline UX write actions stay behind requireWriter", () => {
+  assert.match(actionsSource, /export async function saveTalentRequestDraft[\s\S]*?requireWriter/);
+  assert.match(actionsSource, /export async function markTalentRequestSent[\s\S]*?requireWriter/);
+  assert.match(actionsSource, /export async function recordCandidateProfilesSentFromBoard[\s\S]*?requireWriter/);
+  assert.match(actionsSource, /export async function saveInterviewOutcomeFromBoard[\s\S]*?requireWriter/);
+  assert.match(actionsSource, /export async function clearNextActionOverride[\s\S]*?requireWriter/);
+  assert.match(actionsSource, /if \(error\) return \{ error: writeFailureMessage/);
+  assert.doesNotMatch(actionsSource, /if \(error && !\/talent_request_draft/);
+  assert.match(actionsSource, /already marked sent\. Follow-up dates were left unchanged/);
+  assert.match(actionsSource, /Name the selected candidate/);
+  assert.doesNotMatch(actionsSource, /profile_count: 0/);
+});
+
+test("pipeline UX migration adds columns without dropping RLS", () => {
+  const sql = readFileSync(join(root, "supabase/migrations/20261010200000_pipeline_ux.sql"), "utf8");
+  assert.match(sql, /next_action_manual/);
+  assert.match(sql, /talent_request_draft/);
+  assert.match(sql, /talent_request_sent_on/);
+  assert.equal(/drop policy/i.test(sql), false);
+  assert.equal(/disable row level security/i.test(sql), false);
+});
+
+test("pipeline automation migration adds columns without dropping RLS", () => {
+  const sql = readFileSync(join(root, "supabase/migrations/20261010180000_pipeline_automation_tasks.sql"), "utf8");
+  assert.match(sql, /automation_key/);
+  assert.match(sql, /follow_ups_automation_key_uidx/);
+  assert.match(sql, /target_start_on/);
+  assert.equal(/drop policy/i.test(sql), false);
+  assert.equal(/disable row level security/i.test(sql), false);
+});
+
+test("calendar Done uses the linked follow-up completion path", () => {
+  assert.match(actionsSource, /completeLinkedTaskRecords/);
+  assert.match(actionsSource, /afterFollowUpCompleted/);
+});
+
 test("SendPilot webhook apply path is unchanged by this foundation", () => {
   assert.equal(webhookApply.includes("canWriteCrm"), false);
   assert.equal(webhookApply.includes("requireWriter"), false);

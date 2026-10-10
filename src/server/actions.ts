@@ -21,12 +21,13 @@ import {
   BOOKED_CALL_STAGE,
   SALES_CALL_COMPLETE_STAGE,
   SALES_CALL_COMPLETE_TASKS,
-  profileSendCheckBacks,
+  INTERVIEW_COMPLETE_STAGE,
+  SOW_PREP_STAGE,
+  LOST_REASONS,
   formatClock,
   WAITING_ON,
-  addBusinessDays,
+  dateInTimeZone,
   stageRequiresNextAction,
-  todayInTimeZone,
   type ActivityType,
   type OpportunityStage,
   normalizeEmail,
@@ -35,7 +36,37 @@ import {
 import { importedSendPilotStatus, parseDuplicateTagging, taggingPatch } from "@/lib/sendpilot/review";
 import { bulkReviewEligible } from "@/lib/review-origin";
 import { actionError } from "@/lib/errors";
-import { getSettings } from "@/lib/data";
+import {
+  defaultRecruitmentTarget,
+  leadHasResponded,
+  planBookedCallTasks,
+  planCandidateProfileFollowUp,
+  planInterviewDay,
+  planInterviewFeedback,
+  planInterviewReview,
+  planNurtureCheckIns,
+  planRecruitmentProgress,
+  planSalesCallCompleteTasks,
+  planSalesProfileFollowUps,
+  planSignedSowTasks,
+  planSowConfirmStart,
+  planSowSignature,
+  planTrialPeriodTasks,
+} from "@/lib/pipeline-automation";
+import { resolvedProfileCount, writeFailureMessage } from "@/lib/migration-columns";
+import { civilTimeInZoneToIso, todayInWorkflowZone } from "@/lib/workflow-dates";
+import {
+  afterFollowUpCompleted,
+  cancelAutomationTypes,
+  cancelInterestedAutomationForLead,
+  cancelTypesForStage,
+  completeAutomationType,
+  completeLinkedTaskRecords,
+  opportunityLeadId,
+  syncOpportunityNextAction,
+  upsertAutomationTasks,
+} from "@/server/pipeline-tasks";
+import { buildTalentRequestEmail, type TalentFacts } from "@/lib/talent-request";
 import {
   createOpportunityForLead,
   maybeAutoCreateInterestedOpportunity,
@@ -350,6 +381,8 @@ export async function updateLeadStatus(_state: ActionState, formData: FormData):
   if (status === "Interested") {
     const created = await maybeAutoCreateInterestedOpportunity(supabase, userId, leadId);
     if (created.error) return { error: created.error };
+  } else if (leadHasResponded({ sendpilotStatus: status })) {
+    await cancelInterestedAutomationForLead(supabase, leadId);
   }
   refresh(`/leads/${leadId}`, "/leads", "/dashboard", "/reconciliation", "/opportunities", "/follow-ups");
   return { success: "Lead status saved." };
@@ -493,6 +526,50 @@ export async function moveStage(_state: ActionState, formData: FormData): Promis
     p_lost_reason: optionalText(formData, "lost_reason"),
   });
   if (error) return { error: actionError(error) };
+  const opportunity = await supabase.from("opportunities").select("lead_id, target_start_on").eq("id", id).maybeSingle();
+  const leadId = opportunity.data ? String((opportunity.data as { lead_id?: string }).lead_id ?? "") : "";
+  const targetStart = dateField(formData, "target_start_on")
+    ?? (opportunity.data ? String((opportunity.data as { target_start_on?: string | null }).target_start_on ?? "") || null : null);
+  if (dateField(formData, "target_start_on")) {
+    await supabase.from("opportunities").update({ target_start_on: dateField(formData, "target_start_on") }).eq("id", id);
+  }
+  const nurtureNotes = optionalText(formData, "nurture_notes");
+  if (nurtureNotes) {
+    await supabase.from("opportunities").update({ nurture_notes: nurtureNotes }).eq("id", id);
+  }
+  await cancelTypesForStage(supabase, { opportunityId: id, leadId: isUuid(leadId) ? leadId : null, stage });
+  const { userId } = await requireWriter();
+  if (stage === "On Hold / Nurture") {
+    await upsertAutomationTasks(supabase, userId, planNurtureCheckIns({
+      leadId: isUuid(leadId) ? leadId : id,
+      opportunityId: id,
+      movedOn: todayInWorkflowZone(),
+    }));
+  }
+  if (stage === "SOW Preparation" || stage === "SOW Sent") {
+    await upsertAutomationTasks(supabase, userId, planSowConfirmStart({ opportunityId: id, leadId: isUuid(leadId) ? leadId : null }));
+    if (targetStart) {
+      await upsertAutomationTasks(supabase, userId, planSowSignature({
+        opportunityId: id,
+        leadId: isUuid(leadId) ? leadId : null,
+        targetStartOn: targetStart,
+      }));
+    }
+  }
+  if (stage === "SOW Signed") {
+    await upsertAutomationTasks(supabase, userId, planSignedSowTasks({
+      opportunityId: id,
+      leadId: isUuid(leadId) ? leadId : null,
+      targetStartOn: targetStart,
+      signedOn: todayInWorkflowZone(),
+    }));
+  }
+  if (stage === "Onboarding") {
+    await upsertAutomationTasks(supabase, userId, planTrialPeriodTasks({
+      opportunityId: id,
+      leadId: isUuid(leadId) ? leadId : null,
+    }));
+  }
   refresh(`/opportunities/${id}`, "/dashboard", "/opportunities", "/reporting");
   return { success: `Moved to ${stage}. History was kept.` };
 }
@@ -558,8 +635,6 @@ export async function saveProfileSendFromBoard(formData: FormData): Promise<Acti
   if (!isUuid(leadId) || !email || !sentOn) {
     return { error: "Email and when the email/profiles were sent are required." };
   }
-  const { oneDay: checkOne, twoDays: checkTwo } = profileSendCheckBacks(callOn, sentOn);
-
   const { data: lead, error: leadError } = await supabase
     .from("leads")
     .select("id, contact_id, company_id, contacts(first_name, last_name, email), companies(name)")
@@ -571,8 +646,8 @@ export async function saveProfileSendFromBoard(formData: FormData): Promise<Acti
   if (emailError) return { error: actionError(emailError) };
 
   let opportunityId = optionalText(formData, "opportunity_id");
-  const nextAction = "Check back on the sent profiles";
-  const nextActionDate = checkOne <= checkTwo ? checkOne : checkTwo;
+  const nextAction = "First Profile Follow-Up";
+  const nextActionDate = planSalesProfileFollowUps({ opportunityId: opportunityId || leadId, leadId, sentOn })[0]?.dueOn ?? sentOn;
   if (opportunityId && isUuid(opportunityId)) {
     const moveData = new FormData();
     moveData.set("opportunity_id", opportunityId);
@@ -632,32 +707,16 @@ export async function saveProfileSendFromBoard(formData: FormData): Promise<Acti
     });
   }
 
-  const items = [
-    { due: checkOne, title: "Check back on the sent profiles (1 day from the call)" },
-    { due: checkTwo, title: "Check back on the sent profiles (2 days from the call)" },
-  ];
-  const { error: followError } = await supabase.from("follow_ups").insert(
-    items.map((item) => ({
-      opportunity_id: opportunityId,
-      lead_id: leadId,
-      owner_id: userId,
-      title: item.title,
-      due_on: item.due,
-      notes,
-    })),
-  );
-  if (followError) return { error: actionError(followError) };
-
-  const { error: taskError } = await supabase.from("tasks").insert(
-    items.map((item) => ({
-      opportunity_id: opportunityId,
-      owner_id: userId,
-      title: item.title,
-      details: notes ?? `Check back after the profiles sent on ${sentOn}`,
-      due_on: item.due,
-    })),
-  );
-  if (taskError) return { error: actionError(taskError) };
+  await cancelAutomationTypes(supabase, {
+    opportunityId,
+    leadId,
+    types: ["interested_follow_1", "interested_follow_2", "nurture_suggest"],
+  });
+  await upsertAutomationTasks(supabase, userId, planSalesProfileFollowUps({
+    opportunityId: opportunityId as string,
+    leadId,
+    sentOn,
+  }));
 
   const flagged = await writeAccountFlag(supabase, {
     leadId,
@@ -727,21 +786,19 @@ export async function saveBookedSalesCallFromBoard(formData: FormData): Promise<
     body: `${callOn} at ${clock}`,
     actor_id: userId,
   });
-  await supabase.from("follow_ups").insert({
-    opportunity_id: opportunityId,
-    lead_id: leadId,
-    owner_id: userId,
-    title,
-    due_on: callOn,
-    notes: `Booked sales call at ${clock}`,
+  await cancelAutomationTypes(supabase, {
+    opportunityId,
+    leadId,
+    types: ["interested_follow_1", "interested_follow_2", "nurture_suggest", "sales_profile_follow_1", "sales_profile_follow_2", "sales_profile_follow_3"],
   });
-  await supabase.from("tasks").insert({
-    opportunity_id: opportunityId,
-    owner_id: userId,
-    title,
-    details: `Booked sales call at ${clock}`,
-    due_on: callOn,
-  });
+  await upsertAutomationTasks(supabase, userId, planBookedCallTasks({
+    opportunityId: opportunityId as string,
+    leadId,
+    callOn,
+    clientName: optionalText(formData, "client_name"),
+    companyName: optionalText(formData, "company_name"),
+    callTime: clock,
+  }));
 
   const flagged = await writeAccountFlag(supabase, {
     leadId,
@@ -822,28 +879,16 @@ export async function saveSalesCallCompleteFromBoard(formData: FormData): Promis
     occurred_at: new Date(`${callOn}T12:00:00Z`).toISOString(),
   });
 
-  const { error: followError } = await supabase.from("follow_ups").insert(
-    items.map((item) => ({
-      opportunity_id: opportunityId,
-      lead_id: leadId,
-      owner_id: userId,
-      title: item.title,
-      due_on: item.due,
-      notes,
-    })),
-  );
-  if (followError) return { error: actionError(followError) };
-
-  const { error: taskError } = await supabase.from("tasks").insert(
-    items.map((item) => ({
-      opportunity_id: opportunityId,
-      owner_id: userId,
-      title: item.title,
-      details: notes ?? `After the sales call on ${callOn}`,
-      due_on: item.due,
-    })),
-  );
-  if (taskError) return { error: actionError(taskError) };
+  await cancelAutomationTypes(supabase, {
+    opportunityId,
+    leadId,
+    types: ["call_research", "call_slides", "call_day"],
+  });
+  await upsertAutomationTasks(supabase, userId, planSalesCallCompleteTasks({
+    opportunityId: opportunityId as string,
+    leadId,
+    callOn,
+  }));
 
   const flagged = await writeAccountFlag(supabase, {
     leadId,
@@ -853,7 +898,7 @@ export async function saveSalesCallCompleteFromBoard(formData: FormData): Promis
   if (flagged.error) return flagged;
 
   refresh("/opportunities", "/leads", "/dashboard", "/follow-ups", `/leads/${leadId}`, `/opportunities/${opportunityId}`);
-  return { success: "Sales call marked complete. The three tasks are on reminders and the week calendar." };
+  return { success: "Sales call marked complete. Review notes and the talent request are on reminders and the week calendar." };
 }
 
 export async function createFollowUp(_state: ActionState, formData: FormData): Promise<ActionState> {
@@ -863,7 +908,7 @@ export async function createFollowUp(_state: ActionState, formData: FormData): P
   const title = text(formData, "title");
   const dueOn = dateField(formData, "due_on");
   if ((!opportunityId && !leadId) || !title || !dueOn) return { error: "A follow-up needs a title and a due date." };
-  const { error } = await supabase.from("follow_ups").insert({
+  const { data: inserted, error } = await supabase.from("follow_ups").insert({
     opportunity_id: opportunityId,
     lead_id: leadId,
     owner_id: userId,
@@ -871,8 +916,20 @@ export async function createFollowUp(_state: ActionState, formData: FormData): P
     due_on: dueOn,
     reason: optionalText(formData, "reason"),
     notes: optionalText(formData, "notes"),
-  });
+  }).select("id").single();
   if (error) return { error: actionError(error) };
+  const followUpId = inserted ? String((inserted as { id: string }).id) : null;
+  if (opportunityId) {
+    await supabase.from("tasks").insert({
+      opportunity_id: opportunityId,
+      owner_id: userId,
+      title,
+      details: optionalText(formData, "notes"),
+      due_on: dueOn,
+      follow_up_id: followUpId,
+      status: "open",
+    });
+  }
   await supabase.from("activities").insert({
     opportunity_id: opportunityId,
     lead_id: leadId,
@@ -882,7 +939,7 @@ export async function createFollowUp(_state: ActionState, formData: FormData): P
     actor_id: userId,
   });
   if (opportunityId) {
-    await supabase.from("opportunities").update({ next_action: title, next_action_date: dueOn }).eq("id", opportunityId);
+    await syncOpportunityNextAction(supabase, opportunityId);
   }
   refresh(
     "/follow-ups",
@@ -900,8 +957,9 @@ export async function completeFollowUp(formData: FormData) {
   const opportunityId = optionalText(formData, "opportunity_id");
   const leadId = optionalText(formData, "lead_id");
   if (!isUuid(id)) return;
-  const { error } = await supabase.from("follow_ups").update({ status: "completed", completed_at: new Date().toISOString() }).eq("id", id);
-  if (error) redirect(`/dashboard?notice=${encodeURIComponent(actionError(error))}`);
+  await completeLinkedTaskRecords(supabase, id);
+  await afterFollowUpCompleted(supabase, userId, id);
+  if (opportunityId) await syncOpportunityNextAction(supabase, opportunityId);
   await supabase.from("activities").insert({
     opportunity_id: opportunityId,
     lead_id: leadId,
@@ -909,7 +967,7 @@ export async function completeFollowUp(formData: FormData) {
     title: "Follow-up completed",
     actor_id: userId,
   });
-  refresh("/follow-ups", "/dashboard", "/leads", opportunityId ? `/opportunities/${opportunityId}` : "/follow-ups", leadId ? `/leads/${leadId}` : "/leads");
+  refresh("/follow-ups", "/dashboard", "/notifications", "/leads", opportunityId ? `/opportunities/${opportunityId}` : "/follow-ups", leadId ? `/leads/${leadId}` : "/leads");
 }
 
 export async function saveStrategyCall(_state: ActionState, formData: FormData): Promise<ActionState> {
@@ -966,6 +1024,22 @@ export async function saveStrategyCall(_state: ActionState, formData: FormData):
   } else {
     await supabase.from("activities").insert({ opportunity_id: opportunityId, type: "record_updated", title: "Strategy call updated", actor_id: userId });
   }
+  const callOn = dateField(formData, "call_on");
+  const leadId = await opportunityLeadId(supabase, opportunityId);
+  if (status === "Scheduled" && callOn) {
+    await upsertAutomationTasks(supabase, userId, planBookedCallTasks({
+      opportunityId,
+      leadId,
+      callOn,
+      clientName: optionalText(formData, "client_name"),
+      companyName: optionalText(formData, "company_name"),
+      callTime: optionalText(formData, "schedule") ? formatClock(text(formData, "schedule")) : null,
+    }));
+  }
+  if (status === "Complete" && callOn) {
+    await cancelAutomationTypes(supabase, { opportunityId, types: ["call_research", "call_slides", "call_day"] });
+    await upsertAutomationTasks(supabase, userId, planSalesCallCompleteTasks({ opportunityId, leadId, callOn }));
+  }
   refresh(`/opportunities/${opportunityId}`, "/dashboard");
   return { success: "Strategy call saved." };
 }
@@ -991,10 +1065,9 @@ export async function sendToRecruitment(_state: ActionState, formData: FormData)
   if (!call && opp.stage !== "Requirements Captured" && opp.stage !== "Recruitment") {
     return { error: "Save the strategy call or move the opportunity to Requirements Captured before sending it to recruitment." };
   }
-  const settings = await getSettings();
-  const today = todayInTimeZone(settings.businessTimezone);
-  const customTarget = dateField(formData, "target_on");
-  const target = customTarget ?? addBusinessDays(today, settings.recruitmentTargetBusinessDays);
+  const requestedOn = dateField(formData, "sent_on") ?? todayInWorkflowZone();
+  const agreed = dateField(formData, "target_on") ?? (typeof callRow.start_date_target === "string" ? callRow.start_date_target : null);
+  const target = defaultRecruitmentTarget(requestedOn, agreed);
   const { error: insertError } = await supabase.from("recruitment_requests").insert({
     opportunity_id: opportunityId,
     strategy_call_id: call ? (call as { id: string }).id : null,
@@ -1017,6 +1090,10 @@ export async function sendToRecruitment(_state: ActionState, formData: FormData)
   });
   if (insertError) return { error: actionError(insertError) };
   await supabase.from("activities").insert({ opportunity_id: opportunityId, type: "recruitment_requested", title: "Sent to recruitment", body: `Target ${target}`, actor_id: userId });
+  const leadId = await opportunityLeadId(supabase, opportunityId);
+  await cancelAutomationTypes(supabase, { opportunityId, types: ["call_notes", "call_talent_request"] });
+  const planned = await upsertAutomationTasks(supabase, userId, planRecruitmentProgress({ opportunityId, leadId, requestedOn }));
+  if (planned?.error) return planned;
   const early = ["Interested", "Email / Profile Preparation", "Strategy Call Proposed", "Strategy Call Scheduled", "Strategy Call Complete", "Requirements Captured", "On Hold / Nurture"];
   if (early.includes(opp.stage)) {
     await supabase.rpc("update_opportunity_stage", {
@@ -1082,6 +1159,12 @@ export async function updateCandidate(_state: ActionState, formData: FormData): 
   }).eq("id", id);
   if (error) return { error: actionError(error) };
   await supabase.from("activities").insert({ opportunity_id: opportunityId, type: "record_updated", title: `Candidate status: ${status}`, actor_id: userId });
+  if (status === "Selected" && isUuid(opportunityId)) {
+    await cancelAutomationTypes(supabase, {
+      opportunityId,
+      types: ["interview_feedback_1", "interview_feedback_2", "interview_review_7"],
+    });
+  }
   refresh(`/recruitment/${requestId}`, `/opportunities/${opportunityId}`);
   return { success: "Candidate updated. Previous status stays in history." };
 }
@@ -1109,6 +1192,9 @@ export async function recordProfileBatch(_state: ActionState, formData: FormData
   if (linkError) return { error: actionError(linkError) };
   await supabase.from("candidates").update({ status: "Sent", date_sent_to_client: sentOn }).in("id", candidateIds);
   await supabase.from("activities").insert({ opportunity_id: opportunityId, type: "profile_sent", title: `${candidateIds.length} profiles sent`, body: optionalText(formData, "notes"), actor_id: userId, occurred_at: `${sentOn}T12:00:00Z` });
+  const leadId = await opportunityLeadId(supabase, opportunityId);
+  await cancelAutomationTypes(supabase, { opportunityId, types: ["recruitment_progress"] });
+  await upsertAutomationTasks(supabase, userId, planCandidateProfileFollowUp({ opportunityId, leadId, sentOn }));
   if (text(formData, "move_stage") === "yes") {
     await supabase.rpc("update_opportunity_stage", {
       p_opportunity_id: opportunityId,
@@ -1134,6 +1220,12 @@ export async function recordClientResponse(_state: ActionState, formData: FormDa
   const { error } = await supabase.from("profile_batches").update({ client_response: response }).eq("id", id);
   if (error) return { error: actionError(error) };
   await supabase.from("activities").insert({ opportunity_id: opportunityId, type: "client_response_received", title: "Client response received", body: response, actor_id: userId });
+  if (isUuid(opportunityId)) {
+    await cancelAutomationTypes(supabase, {
+      opportunityId,
+      types: ["candidate_profile_follow_1", "candidate_profile_follow_2", "awaiting_client_review"],
+    });
+  }
   refresh(`/opportunities/${opportunityId}`, "/dashboard");
   return { success: "Client response saved." };
 }
@@ -1148,21 +1240,28 @@ export async function saveInterview(_state: ActionState, formData: FormData): Pr
   }
   const interviewId = optionalText(formData, "interview_id");
   const when = text(formData, "interview_at");
+  const whenIso = when
+    ? (/^\d{4}-\d{2}-\d{2}T\d{1,2}:\d{2}/.test(when) && !when.endsWith("Z") && !/[+-]\d{2}:\d{2}$/.test(when)
+      ? civilTimeInZoneToIso(when.slice(0, 10), when.slice(11, 16))
+      : new Date(when).toISOString())
+    : null;
+  if (when && !whenIso) return { error: "Enter a valid interview date and time." };
   const payload = {
     opportunity_id: opportunityId,
     candidate_id: optionalText(formData, "candidate_id"),
     candidate_name: candidateName,
     client_name: optionalText(formData, "client_name"),
-    interview_at: when ? new Date(when).toISOString() : null,
+    interview_at: whenIso,
     status,
     client_feedback: optionalText(formData, "client_feedback"),
     next_action: optionalText(formData, "next_action"),
     notes: optionalText(formData, "notes"),
   };
-  const { error } = interviewId
-    ? await supabase.from("interviews").update(payload).eq("id", interviewId)
-    : await supabase.from("interviews").insert(payload);
-  if (error) return { error: actionError(error) };
+  const saved = interviewId
+    ? await supabase.from("interviews").update(payload).eq("id", interviewId).select("id").single()
+    : await supabase.from("interviews").insert(payload).select("id").single();
+  if (saved.error) return { error: actionError(saved.error) };
+  const savedId = String((saved.data as { id: string }).id);
   await supabase.from("activities").insert({
     opportunity_id: opportunityId,
     type: status === "Completed" ? "interview_completed" : "interview_scheduled",
@@ -1170,6 +1269,36 @@ export async function saveInterview(_state: ActionState, formData: FormData): Pr
     body: optionalText(formData, "client_feedback") ?? optionalText(formData, "notes"),
     actor_id: userId,
   });
+  const leadId = await opportunityLeadId(supabase, opportunityId);
+  const interviewOn = whenIso ? (dateInTimeZone(whenIso, "America/New_York") ?? todayInWorkflowZone()) : todayInWorkflowZone();
+  const interviewTime = when ? formatClock(when.slice(11, 16) || "12:00") : null;
+  const feedback = optionalText(formData, "client_feedback");
+  if (status === "Scheduled" || status === "Reschedule" || status === "Requested" || status === "Additional Interview") {
+    const planned = await upsertAutomationTasks(supabase, userId, planInterviewDay({
+      interviewId: savedId,
+      opportunityId,
+      leadId,
+      interviewOn,
+      clientName: optionalText(formData, "client_name"),
+      interviewTime,
+    }));
+    if (planned?.error) return planned;
+  }
+  if (status === "Completed") {
+    await cancelAutomationTypes(supabase, { opportunityId, types: ["interview_day"] });
+    if (feedback) {
+      await cancelAutomationTypes(supabase, {
+        opportunityId,
+        types: ["interview_feedback_1", "interview_feedback_2", "interview_review_7"],
+      });
+    } else {
+      const planned = await upsertAutomationTasks(supabase, userId, [
+        ...planInterviewFeedback({ interviewId: savedId, opportunityId, leadId, interviewOn }),
+        ...planInterviewReview({ interviewId: savedId, opportunityId, leadId, interviewOn }),
+      ]);
+      if (planned?.error) return planned;
+    }
+  }
   refresh(`/opportunities/${opportunityId}`, "/dashboard");
   return { success: "Interview saved." };
 }
@@ -1208,8 +1337,52 @@ export async function saveContract(_state: ActionState, formData: FormData): Pro
   } else if (status === "Signed" && previous !== "Signed") {
     await supabase.from("activities").insert({ opportunity_id: opportunityId, type: "sow_signed", title: "SOW signed", actor_id: userId });
   }
+  const leadId = await opportunityLeadId(supabase, opportunityId);
+  const targetStart = dateField(formData, "expected_start_on");
+  if (targetStart) {
+    await supabase.from("opportunities").update({ target_start_on: targetStart }).eq("id", opportunityId);
+  }
+  if (status === "Signed") {
+    await cancelAutomationTypes(supabase, { opportunityId, types: ["sow_signature", "sow_confirm_start"] });
+    await upsertAutomationTasks(supabase, userId, planSignedSowTasks({
+      opportunityId,
+      leadId,
+      targetStartOn: targetStart,
+      signedOn: dateField(formData, "sow_signed_on") ?? todayInWorkflowZone(),
+    }));
+  } else if (targetStart) {
+    await upsertAutomationTasks(supabase, userId, planSowSignature({ opportunityId, leadId, targetStartOn: targetStart }));
+  }
   refresh(`/opportunities/${opportunityId}`, "/dashboard", "/reporting");
   return { success: "SOW saved." };
+}
+
+export async function saveTargetStartDate(_state: ActionState, formData: FormData): Promise<ActionState> {
+  const { supabase, userId } = await requireWriter();
+  const opportunityId = text(formData, "opportunity_id");
+  const confirmed = text(formData, "start_confirmed") !== "no";
+  const targetStart = confirmed ? dateField(formData, "target_start_on") : null;
+  if (!isUuid(opportunityId)) return { error: "Opportunity not found." };
+  if (confirmed && !targetStart) return { error: "Enter a target start date, or choose Not confirmed yet." };
+  const { error } = await supabase.from("opportunities").update({ target_start_on: targetStart }).eq("id", opportunityId);
+  if (error) return { error: actionError(error) };
+  const leadId = await opportunityLeadId(supabase, opportunityId);
+  if (targetStart) {
+    await completeAutomationType(supabase, opportunityId, "sow_confirm_start");
+    await upsertAutomationTasks(supabase, userId, planSowSignature({ opportunityId, leadId, targetStartOn: targetStart }));
+    const contract = await supabase.from("contracts").select("status, sow_signed_on").eq("opportunity_id", opportunityId).maybeSingle();
+    const contractRow = contract.data as { status?: string; sow_signed_on?: string | null } | null;
+    if (contractRow?.status === "Signed") {
+      await upsertAutomationTasks(supabase, userId, planSignedSowTasks({
+        opportunityId,
+        leadId,
+        targetStartOn: targetStart,
+        signedOn: contractRow.sow_signed_on?.slice(0, 10) || todayInWorkflowZone(),
+      }));
+    }
+  }
+  refresh(`/opportunities/${opportunityId}`, "/dashboard");
+  return { success: targetStart ? "Target start date saved." : "Target start date left unconfirmed." };
 }
 
 export async function startClient(_state: ActionState, formData: FormData): Promise<ActionState> {
@@ -1231,6 +1404,431 @@ export async function startClient(_state: ActionState, formData: FormData): Prom
   if (error) return { error: actionError(error) };
   refresh(`/opportunities/${opportunityId}`, "/dashboard", "/reporting");
   return { success: "Client started." };
+}
+
+async function ensureOpportunityForBoard(
+  leadId: string,
+  opportunityId: string | null,
+  stage: OpportunityStage,
+  nextAction: string,
+  nextActionDate: string,
+  note?: string | null,
+  extra?: Record<string, string>,
+): Promise<{ error: string } | { id: string }> {
+  const moveData = new FormData();
+  moveData.set("stage", stage);
+  moveData.set("next_action", nextAction);
+  moveData.set("next_action_date", nextActionDate);
+  moveData.set("waiting_on", STAGE_PLAYBOOK[stage].waitingOn);
+  moveData.set("note", note ?? `Moved on the board to ${stage}`);
+  if (extra) {
+    for (const [key, value] of Object.entries(extra)) moveData.set(key, value);
+  }
+  if (opportunityId && isUuid(opportunityId)) {
+    moveData.set("opportunity_id", opportunityId);
+    const moved = await moveStage({}, moveData);
+    if (moved?.error) return { error: moved.error };
+    return { id: opportunityId };
+  }
+  moveData.set("lead_id", leadId);
+  const created = await dropLeadOnStage(moveData);
+  if (created?.error) return { error: created.error };
+  const { supabase } = await requireWriter();
+  const existing = await supabase.from("opportunities").select("id").eq("lead_id", leadId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  const id = existing.data ? String((existing.data as { id: string }).id) : "";
+  if (!isUuid(id)) return { error: "The opportunity could not be created." };
+  return { id };
+}
+
+async function latestInterviewId(opportunityId: string) {
+  const { supabase } = await requireWriter();
+  const loaded = await supabase.from("interviews").select("id").eq("opportunity_id", opportunityId).order("interview_at", { ascending: false }).limit(1).maybeSingle();
+  return loaded.data ? String((loaded.data as { id: string }).id) : null;
+}
+
+export async function loadBoardWorkContext(opportunityId: string | null) {
+  await requireUser();
+  if (!opportunityId || !isUuid(opportunityId)) return { candidates: [] as Array<{ id: string; name: string }>, interviewId: null as string | null, sentOn: null as string | null };
+  const { supabase } = await requireUser();
+  const [request, interview, opportunity] = await Promise.all([
+    supabase.from("recruitment_requests").select("id, candidates(id, name, status)").eq("opportunity_id", opportunityId).maybeSingle(),
+    supabase.from("interviews").select("id").eq("opportunity_id", opportunityId).order("interview_at", { ascending: false }).limit(1).maybeSingle(),
+    supabase.from("opportunities").select("talent_request_sent_on").eq("id", opportunityId).maybeSingle(),
+  ]);
+  const candidates = request.data
+    ? (((request.data as { candidates?: { id: string; name: string; status: string }[] }).candidates ?? []).map((item) => ({ id: item.id, name: item.name })))
+    : [];
+  return {
+    candidates,
+    interviewId: interview.data ? String((interview.data as { id: string }).id) : null,
+    sentOn: opportunity.data && !opportunity.error ? String((opportunity.data as { talent_request_sent_on?: string | null }).talent_request_sent_on ?? "") || null : null,
+  };
+}
+
+export async function loadTalentRequestDraft(leadId: string, opportunityId: string | null): Promise<
+  { error: string } | { body: string; missing: string[]; sentOn: string | null }
+> {
+  const { supabase } = await requireUser();
+  const oppId = opportunityId && isUuid(opportunityId) ? opportunityId : null;
+  const opportunity = oppId
+    ? await supabase.from("opportunities").select("id, notes, headcount, billing_rate, talent_request_draft, talent_request_sent_on, companies(name), contacts(first_name, last_name)").eq("id", oppId).maybeSingle()
+    : { data: null, error: null };
+  if (opportunity.error) return { error: writeFailureMessage(opportunity.error, "The talent request could not be loaded.") };
+  const call = oppId ? await supabase.from("strategy_calls").select("*").eq("opportunity_id", oppId).maybeSingle() : { data: null };
+  const notes = oppId
+    ? await supabase.from("notes").select("body").eq("opportunity_id", oppId).order("created_at", { ascending: false }).limit(5)
+    : { data: [] };
+  const lead = await supabase.from("leads").select("companies(name), contacts(first_name, last_name)").eq("id", leadId).maybeSingle();
+  const opp = opportunity.data as Record<string, unknown> | null;
+  const callRow = (call.data ?? {}) as Record<string, string | number | null>;
+  const company = Array.isArray(opp?.companies) ? (opp?.companies as { name?: string }[])[0] : opp?.companies as { name?: string } | undefined;
+  const contact = Array.isArray(opp?.contacts) ? (opp?.contacts as { first_name?: string; last_name?: string }[])[0] : opp?.contacts as { first_name?: string; last_name?: string } | undefined;
+  const leadCompany = Array.isArray((lead.data as { companies?: { name?: string } } | null)?.companies)
+    ? ((lead.data as { companies: { name?: string }[] }).companies[0])
+    : (lead.data as { companies?: { name?: string } } | null)?.companies;
+  const leadContact = Array.isArray((lead.data as { contacts?: { first_name?: string } } | null)?.contacts)
+    ? ((lead.data as { contacts: { first_name?: string; last_name?: string }[] }).contacts[0])
+    : (lead.data as { contacts?: { first_name?: string; last_name?: string } } | null)?.contacts;
+  const savedNotes = Array.isArray(notes.data) ? notes.data.map((item) => String((item as { body?: string }).body ?? "")).filter(Boolean).join("\n") : "";
+  const asText = (value: string | number | null | undefined) => (value == null || value === "" ? null : String(value));
+  const facts: TalentFacts = {
+    companyName: asText(callRow.company_name) || company?.name || leadCompany?.name || null,
+    clientName: asText(callRow.client_name) || [contact?.first_name, contact?.last_name].filter(Boolean).join(" ") || [leadContact?.first_name, leadContact?.last_name].filter(Boolean).join(" ") || null,
+    role: asText(callRow.preferred_virtual_staff || callRow.ideal_candidate),
+    headcount: typeof callRow.headcount_requirement === "number" ? callRow.headcount_requirement : (opp?.headcount as number | null) ?? null,
+    responsibilities: asText(callRow.tasks || callRow.reason_for_hiring) || savedNotes || asText(opp?.notes as string | null),
+    skills: asText(callRow.tools || callRow.ideal_candidate),
+    schedule: asText(callRow.schedule),
+    timezone: asText(callRow.timezone),
+    budget: asText(callRow.budget) || (callRow.client_billing_rate != null ? String(callRow.client_billing_rate) : null) || (opp?.billing_rate != null ? String(opp.billing_rate) : null),
+    experience: asText(callRow.ideal_candidate),
+    special: asText(callRow.special_requirements || callRow.deal_breakers),
+    startDate: asText(callRow.start_date_target),
+  };
+  const drafted = buildTalentRequestEmail(facts);
+  const stored = opp?.talent_request_draft ? String(opp.talent_request_draft) : drafted.body;
+  return {
+    body: stored,
+    missing: drafted.missing,
+    sentOn: opp?.talent_request_sent_on ? String(opp.talent_request_sent_on) : null,
+  };
+}
+
+export async function saveTalentRequestDraft(formData: FormData): Promise<ActionState> {
+  const { supabase, userId } = await requireWriter();
+  const leadId = text(formData, "lead_id");
+  const ensured = await ensureOpportunityForBoard(
+    leadId,
+    optionalText(formData, "opportunity_id"),
+    "Recruitment",
+    "Review the talent request draft",
+    todayInWorkflowZone(),
+    "Moved to Recruitment. Talent request is still a draft.",
+  );
+  if ("error" in ensured) return ensured;
+  const body = optionalText(formData, "draft_body") ?? "";
+  const { error } = await supabase.from("opportunities").update({ talent_request_draft: body }).eq("id", ensured.id);
+  if (error) return { error: writeFailureMessage(error, "The talent request draft could not be saved.") };
+  await supabase.from("activities").insert({
+    opportunity_id: ensured.id,
+    lead_id: leadId,
+    type: "record_updated",
+    title: "Talent request draft saved",
+    body,
+    actor_id: userId,
+  });
+  refresh(`/opportunities/${ensured.id}`, "/dashboard", "/opportunities");
+  return { success: "Draft saved. It is not marked sent." };
+}
+
+export async function markTalentRequestSent(formData: FormData): Promise<ActionState> {
+  const sentOn = dateField(formData, "sent_on") ?? todayInWorkflowZone();
+  const saved = await saveTalentRequestDraft(formData);
+  if (saved?.error) return saved;
+  const { supabase, userId } = await requireWriter();
+  const leadId = text(formData, "lead_id");
+  const opportunityId = optionalText(formData, "opportunity_id");
+  const loaded = opportunityId && isUuid(opportunityId)
+    ? { id: opportunityId }
+    : await (async () => {
+      const row = await supabase.from("opportunities").select("id").eq("lead_id", leadId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+      return { id: row.data ? String((row.data as { id: string }).id) : "" };
+    })();
+  if (!isUuid(loaded.id)) return { error: "Opportunity not found." };
+  const current = await supabase.from("opportunities").select("talent_request_sent_on").eq("id", loaded.id).maybeSingle();
+  if (current.error) return { error: writeFailureMessage(current.error, "The sent date could not be saved.") };
+  const alreadySent = Boolean((current.data as { talent_request_sent_on?: string | null } | null)?.talent_request_sent_on);
+  const existingRequest = await supabase.from("recruitment_requests").select("id").eq("opportunity_id", loaded.id).maybeSingle();
+  if (alreadySent || existingRequest.data) {
+    refresh(`/opportunities/${loaded.id}`, "/recruitment", "/dashboard");
+    return { success: "Talent request was already marked sent. Follow-up dates were left unchanged." };
+  }
+  const { error: sentError } = await supabase.from("opportunities").update({ talent_request_sent_on: sentOn }).eq("id", loaded.id);
+  if (sentError) return { error: writeFailureMessage(sentError, "The sent date could not be saved.") };
+  const sendData = new FormData();
+  sendData.set("opportunity_id", loaded.id);
+  sendData.set("sent_on", sentOn);
+  const sent = await sendToRecruitment({}, sendData);
+  if (sent?.error && !/already exists/i.test(sent.error)) {
+    await supabase.from("opportunities").update({ talent_request_sent_on: null }).eq("id", loaded.id);
+    return sent;
+  }
+  if (sent?.error) {
+    await cancelAutomationTypes(supabase, { opportunityId: loaded.id, types: ["call_notes", "call_talent_request"] });
+  }
+  await supabase.from("activities").insert({
+    opportunity_id: loaded.id,
+    type: "recruitment_requested",
+    title: "Talent request marked sent",
+    body: sentOn,
+    actor_id: userId,
+  });
+  refresh(`/opportunities/${loaded.id}`, "/recruitment", "/dashboard");
+  return { success: "Talent request marked sent. Recruitment follow-ups are on the calendar." };
+}
+
+export async function recordCandidateProfilesSentFromBoard(formData: FormData): Promise<ActionState> {
+  const { supabase, userId } = await requireWriter();
+  const sentOn = dateField(formData, "sent_on");
+  const leadId = text(formData, "lead_id");
+  const candidateIds = formData.getAll("candidate_id").map(String).filter(isUuid);
+  const profileCount = resolvedProfileCount(candidateIds, optionalText(formData, "profile_count"));
+  if (!sentOn) return { error: "When were the candidate profiles sent to the client?" };
+  if (profileCount < 1) return { error: "Select at least one candidate or enter how many profiles were sent." };
+  const ensured = await ensureOpportunityForBoard(
+    leadId,
+    optionalText(formData, "opportunity_id"),
+    "Profiles Sent",
+    "Follow Up on Candidate Profiles",
+    sentOn,
+    "Candidate profiles sent to the client",
+  );
+  if ("error" in ensured) return ensured;
+  const request = await supabase.from("recruitment_requests").select("id").eq("opportunity_id", ensured.id).maybeSingle();
+  const existing = await supabase
+    .from("profile_batches")
+    .select("id, sent_on, profile_count")
+    .eq("opportunity_id", ensured.id)
+    .order("sent_on", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (existing.error) return { error: actionError(existing.error) };
+  const existingId = existing.data ? String((existing.data as { id: string }).id) : null;
+  if (existingId) {
+    const { error } = await supabase.from("profile_batches").update({
+      sent_on: sentOn,
+      profile_count: profileCount,
+      notes: "Candidate profiles sent after recruitment",
+    }).eq("id", existingId);
+    if (error) return { error: actionError(error) };
+  } else {
+    const { error } = await supabase.from("profile_batches").insert({
+      opportunity_id: ensured.id,
+      recruitment_request_id: request.data ? String((request.data as { id: string }).id) : null,
+      sent_on: sentOn,
+      profile_count: profileCount,
+      notes: "Candidate profiles sent after recruitment",
+      created_by: userId,
+    });
+    if (error) return { error: actionError(error) };
+    await supabase.from("activities").insert({
+      opportunity_id: ensured.id,
+      lead_id: leadId,
+      type: "candidate_profile_sent",
+      title: "Candidate profiles sent",
+      body: `${profileCount} · ${sentOn}`,
+      actor_id: userId,
+    });
+  }
+  if (candidateIds.length > 0) {
+    await supabase.from("candidates").update({ status: "Sent", date_sent_to_client: sentOn }).in("id", candidateIds);
+  }
+  const oppLeadId = await opportunityLeadId(supabase, ensured.id);
+  await cancelAutomationTypes(supabase, { opportunityId: ensured.id, types: ["recruitment_progress"] });
+  const planned = await upsertAutomationTasks(supabase, userId, planCandidateProfileFollowUp({ opportunityId: ensured.id, leadId: oppLeadId, sentOn }));
+  if (planned?.error) return planned;
+  refresh(`/opportunities/${ensured.id}`, "/dashboard", "/opportunities");
+  return { success: "Candidate profile send recorded. Follow-ups use the sent date." };
+}
+
+export async function saveInterviewFromBoard(formData: FormData): Promise<ActionState> {
+  const interviewOn = dateField(formData, "interview_on");
+  const interviewTime = text(formData, "interview_time");
+  if (!interviewOn || !/^\d{1,2}:\d{2}/.test(interviewTime)) return { error: "Enter the interview date and time." };
+  const ensured = await ensureOpportunityForBoard(
+    text(formData, "lead_id"),
+    optionalText(formData, "opportunity_id"),
+    "Interview Scheduled",
+    "Interview scheduled",
+    interviewOn,
+    "Interview scheduled",
+  );
+  if ("error" in ensured) return ensured;
+  const next = new FormData();
+  next.set("opportunity_id", ensured.id);
+  next.set("status", "Scheduled");
+  next.set("candidate_name", optionalText(formData, "candidate_name") ?? "Interview");
+  next.set("client_name", optionalText(formData, "client_name") ?? "");
+  next.set("interview_at", `${interviewOn}T${interviewTime}`);
+  const existingId = await latestInterviewId(ensured.id);
+  if (existingId) next.set("interview_id", existingId);
+  return saveInterview({}, next);
+}
+
+export async function saveInterviewOutcomeFromBoard(formData: FormData): Promise<ActionState> {
+  const selected = text(formData, "selected") === "yes";
+  const interviewOn = dateField(formData, "interview_on") ?? todayInWorkflowZone();
+  const candidateId = optionalText(formData, "candidate_id");
+  let candidateName = optionalText(formData, "candidate_name");
+  if (selected && !candidateId && !candidateName) {
+    return { error: "Name the selected candidate." };
+  }
+  const stage = selected ? "Candidate Selected" : INTERVIEW_COMPLETE_STAGE;
+  const ensured = await ensureOpportunityForBoard(
+    text(formData, "lead_id"),
+    optionalText(formData, "opportunity_id"),
+    stage,
+    selected ? "Start the SOW with the selected candidate and rate" : "Collect client feedback and the next step",
+    interviewOn,
+    selected ? "Client selected a candidate" : "Interview completed. Awaiting client feedback.",
+  );
+  if ("error" in ensured) return ensured;
+  if (selected && candidateId && !candidateName) {
+    const { supabase } = await requireWriter();
+    const loaded = await supabase.from("candidates").select("name").eq("id", candidateId).maybeSingle();
+    candidateName = loaded.data ? String((loaded.data as { name?: string }).name ?? "") : candidateName;
+  }
+  const next = new FormData();
+  next.set("opportunity_id", ensured.id);
+  next.set("status", "Completed");
+  next.set("candidate_name", candidateName ?? "Interview");
+  next.set("client_name", optionalText(formData, "client_name") ?? "");
+  next.set("interview_at", `${interviewOn}T12:00`);
+  const existingId = await latestInterviewId(ensured.id);
+  if (existingId) next.set("interview_id", existingId);
+  if (candidateId) next.set("candidate_id", candidateId);
+  if (selected) next.set("client_feedback", "Candidate selected");
+  const saved = await saveInterview({}, next);
+  if (saved?.error) return saved;
+  if (selected && candidateId) {
+    const { supabase } = await requireWriter();
+    const request = await supabase.from("recruitment_requests").select("id").eq("opportunity_id", ensured.id).maybeSingle();
+    const requestId = request.data ? String((request.data as { id: string }).id) : "";
+    if (requestId) {
+      const update = new FormData();
+      update.set("candidate_id", candidateId);
+      update.set("status", "Selected");
+      update.set("opportunity_id", ensured.id);
+      update.set("recruitment_id", requestId);
+      await updateCandidate({}, update);
+    }
+  }
+  return { success: selected ? "Candidate selection recorded." : "Interview marked complete. Feedback follow-ups are scheduled." };
+}
+
+export async function saveLostFromBoard(formData: FormData): Promise<ActionState> {
+  const reason = text(formData, "lost_reason");
+  if (!(LOST_REASONS as readonly string[]).includes(reason)) return { error: "Choose why this opportunity was lost." };
+  const note = optionalText(formData, "note");
+  return ensureOpportunityForBoard(
+    text(formData, "lead_id"),
+    optionalText(formData, "opportunity_id"),
+    "Lost",
+    "Record why it was lost",
+    todayInWorkflowZone(),
+    note ?? reason,
+    { lost_reason: note ? `${reason}. ${note}` : reason },
+  ).then((result) => ("error" in result ? result : { success: "Marked lost." }));
+}
+
+export async function saveSowFromBoard(formData: FormData): Promise<ActionState> {
+  const kind = text(formData, "kind");
+  const targetStart = dateField(formData, "target_start_on");
+  if (kind === "sow-signed") {
+    const extra: Record<string, string> = {};
+    const signedOn = dateField(formData, "sow_signed_on");
+    if (targetStart) extra.target_start_on = targetStart;
+    const ensured = await ensureOpportunityForBoard(
+      text(formData, "lead_id"),
+      optionalText(formData, "opportunity_id"),
+      "SOW Signed",
+      "Schedule onboarding and the start date",
+      signedOn ?? todayInWorkflowZone(),
+      signedOn ? `SOW signed ${signedOn}` : "SOW signed",
+      extra,
+    );
+    return "error" in ensured ? ensured : { success: "SOW signed recorded." };
+  }
+  const extra: Record<string, string> = {};
+  if (targetStart) extra.target_start_on = targetStart;
+  const ensured = await ensureOpportunityForBoard(
+    text(formData, "lead_id"),
+    optionalText(formData, "opportunity_id"),
+    SOW_PREP_STAGE,
+    "Finish the SOW and send it to the client",
+    todayInWorkflowZone(),
+    "Moved to SOW prep / sent",
+    extra,
+  );
+  return "error" in ensured ? ensured : { success: "SOW stage saved." };
+}
+
+export async function saveNurtureFromBoard(formData: FormData): Promise<ActionState> {
+  const note = optionalText(formData, "note");
+  return ensureOpportunityForBoard(
+    text(formData, "lead_id"),
+    optionalText(formData, "opportunity_id"),
+    "On Hold / Nurture",
+    "Set the date to revisit this client",
+    todayInWorkflowZone(),
+    note ?? "Moved to nurture",
+    note ? { nurture_notes: note } : undefined,
+  ).then((result) => ("error" in result ? result : { success: "Moved to nurture." }));
+}
+
+export async function saveClientStartFromBoard(formData: FormData): Promise<ActionState> {
+  const ensured = await ensureOpportunityForBoard(
+    text(formData, "lead_id"),
+    optionalText(formData, "opportunity_id"),
+    "Onboarding",
+    "Complete onboarding and confirm the start",
+    todayInWorkflowZone(),
+    "Preparing client start",
+  );
+  if ("error" in ensured) return ensured;
+  const start = new FormData();
+  start.set("opportunity_id", ensured.id);
+  start.set("start_date", text(formData, "start_date"));
+  start.set("number_of_vas", text(formData, "number_of_vas"));
+  return startClient({}, start);
+}
+
+export async function saveNextActionOverride(_state: ActionState, formData: FormData): Promise<ActionState> {
+  const { supabase } = await requireWriter();
+  const opportunityId = text(formData, "opportunity_id");
+  const title = text(formData, "next_action");
+  const dueOn = dateField(formData, "next_action_date");
+  if (!isUuid(opportunityId) || !title) return { error: "Enter a next action." };
+  const { error } = await supabase.from("opportunities").update({
+    next_action: title,
+    next_action_date: dueOn,
+    next_action_manual: true,
+  }).eq("id", opportunityId);
+  if (error) return { error: writeFailureMessage(error, "The next action could not be saved.") };
+  refresh(`/opportunities/${opportunityId}`, "/dashboard", "/opportunities");
+  return { success: "Next action is set manually until you clear it." };
+}
+
+export async function clearNextActionOverride(_state: ActionState, formData: FormData): Promise<ActionState> {
+  const { supabase } = await requireWriter();
+  const opportunityId = text(formData, "opportunity_id");
+  if (!isUuid(opportunityId)) return { error: "Opportunity not found." };
+  const { error } = await supabase.from("opportunities").update({ next_action_manual: false }).eq("id", opportunityId);
+  if (error) return { error: writeFailureMessage(error, "The next-action override could not be cleared.") };
+  const synced = await syncOpportunityNextAction(supabase, opportunityId);
+  if (synced?.error) return synced;
+  refresh(`/opportunities/${opportunityId}`, "/dashboard", "/opportunities");
+  return { success: "Next action is following the earliest open task again." };
 }
 
 export async function addNote(_state: ActionState, formData: FormData): Promise<ActionState> {
@@ -1279,14 +1877,19 @@ export async function addTask(_state: ActionState, formData: FormData): Promise<
   const { data: opportunity } = await supabase.from("opportunities").select("lead_id").eq("id", opportunityId).maybeSingle();
   const leadId = opportunity ? String((opportunity as { lead_id?: string }).lead_id ?? "") : "";
   if (dueOn) {
-    await supabase.from("follow_ups").insert({
+    const follow = await supabase.from("follow_ups").insert({
       opportunity_id: opportunityId,
       lead_id: isUuid(leadId) ? leadId : null,
       owner_id: userId,
       title,
       due_on: dueOn,
       notes: optionalText(formData, "details"),
-    });
+    }).select("id").single();
+    const followUpId = follow.data ? String((follow.data as { id: string }).id) : null;
+    if (followUpId) {
+      await supabase.from("tasks").update({ follow_up_id: followUpId }).eq("opportunity_id", opportunityId).eq("title", title).eq("status", "open");
+    }
+    await syncOpportunityNextAction(supabase, opportunityId);
   }
   refresh(`/opportunities/${opportunityId}`, "/dashboard", "/follow-ups");
   return { success: "Task added. It will show on the week calendar if it has a due date." };

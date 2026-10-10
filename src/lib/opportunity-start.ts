@@ -4,15 +4,14 @@ import {
   STAGE_PLAYBOOK,
   WAITING_ON,
   accountFlag,
-  addBusinessDays,
-  todayInTimeZone,
 } from "@/lib/domain";
 import { actionError } from "@/lib/errors";
 import { planInterestedOpportunityCreate } from "@/lib/opportunity-auto-create";
+import { planInterestedFollowUps, planNurtureCheckIns } from "@/lib/pipeline-automation";
+import { addBusinessDays, todayInWorkflowZone } from "@/lib/workflow-dates";
+import { upsertAutomationTasks } from "@/server/pipeline-tasks";
 import { dateField, optionalNumber, optionalText, text } from "@/server/form";
 import type { SupabaseClient } from "@supabase/supabase-js";
-
-const DEFAULT_TIMEZONE = "America/New_York";
 
 type OpportunityWriteResult = { id: string } | { error: string };
 
@@ -22,12 +21,6 @@ export type AutoCreateInterestedResult = {
   skipped?: string;
   error?: string;
 };
-
-async function businessTimezone(supabase: SupabaseClient) {
-  const { data } = await supabase.from("app_settings").select("business_timezone").eq("id", 1).maybeSingle();
-  const timezone = data && typeof data === "object" ? String((data as { business_timezone?: string | null }).business_timezone ?? "") : "";
-  return timezone.trim() || DEFAULT_TIMEZONE;
-}
 
 export async function createOpportunityForLead(
   supabase: SupabaseClient,
@@ -97,20 +90,16 @@ export async function createOpportunityForLead(
     actor_id: userId,
   });
   if (nurture) {
-    await supabase.from("follow_ups").insert({
-      opportunity_id: opportunityId,
-      lead_id: leadId,
-      owner_id: userId,
-      title: nextAction,
-      due_on: nextActionDate,
-      reason: optionalText(formData, "nurture_reason"),
-      notes: optionalText(formData, "nurture_notes"),
-    });
+    await upsertAutomationTasks(
+      supabase,
+      userId,
+      planNurtureCheckIns({ leadId, opportunityId, movedOn: todayInWorkflowZone() }),
+    );
     await supabase.from("activities").insert({
       opportunity_id: opportunityId,
       lead_id: leadId,
       type: "follow_up_created",
-      title: "Nurture follow-up created",
+      title: "Nurture check-ins created",
       body: optionalText(formData, "nurture_notes"),
       actor_id: userId,
     });
@@ -123,12 +112,11 @@ export async function startOpportunityForLead(
   userId: string | null,
   leadId: string,
 ): Promise<OpportunityWriteResult> {
-  const timezone = await businessTimezone(supabase);
   const formData = new FormData();
   formData.set("stage", "Interested");
-  formData.set("next_action", STAGE_PLAYBOOK.Interested.nextAction);
+  formData.set("next_action", "First LinkedIn Follow-Up");
   formData.set("waiting_on", STAGE_PLAYBOOK.Interested.waitingOn);
-  formData.set("next_action_date", addBusinessDays(todayInTimeZone(timezone), 2));
+  formData.set("next_action_date", addBusinessDays(todayInWorkflowZone(), 3));
   return createOpportunityForLead(supabase, userId, leadId, formData);
 }
 
@@ -165,6 +153,15 @@ export async function maybeAutoCreateInterestedOpportunity(
     if (/already exists|duplicate/i.test(created.error)) return { created: false, skipped: "duplicate" };
     return { created: false, error: created.error };
   }
+  await upsertAutomationTasks(
+    supabase,
+    userId,
+    planInterestedFollowUps({
+      leadId,
+      opportunityId: created.id,
+      interestedOn: todayInWorkflowZone(),
+    }),
+  );
   return { created: true, id: created.id };
 }
 
