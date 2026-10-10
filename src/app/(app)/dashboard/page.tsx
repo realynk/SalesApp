@@ -102,14 +102,15 @@ function SalesBoardCountTable({ rows }: { rows: SalesBoardColumnCount[] }) {
           Open board
         </Link>
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-max min-w-full text-left text-sm">
+      <div>
+        <table className="w-full table-fixed text-left">
           <thead>
             <tr>
               {rows.map((row, index) => (
                 <th
                   key={row.stage}
-                  className={`min-w-[9.5rem] max-w-[11rem] border-t-4 px-3 py-3 text-sm font-bold leading-5 ${SALES_BOARD_TONES[index % SALES_BOARD_TONES.length]}`}
+                  title={row.label}
+                  className={`border-t-4 px-1 py-2 align-bottom text-[11px] font-semibold leading-tight ${SALES_BOARD_TONES[index % SALES_BOARD_TONES.length]}`}
                 >
                   {row.label}
                 </th>
@@ -119,16 +120,16 @@ function SalesBoardCountTable({ rows }: { rows: SalesBoardColumnCount[] }) {
           <tbody>
             <tr className="border-t border-border">
               {rows.map((row) => (
-                <td key={row.stage} className="px-3 py-3 align-top">
-                  <p className="font-mono text-2xl tabular-nums">{row.count}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
+                <td key={row.stage} className="px-1 py-2 align-top">
+                  <p className="font-mono text-lg tabular-nums leading-none">{row.count}</p>
+                  <p className="mt-1 text-[10px] leading-tight text-muted-foreground">
                     {row.unit === "lead"
                       ? row.count === 1
                         ? "lead"
                         : "leads"
                       : row.count === 1
-                        ? "opportunity"
-                        : "opportunities"}
+                        ? "opp"
+                        : "opps"}
                   </p>
                 </td>
               ))}
