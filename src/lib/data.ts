@@ -102,6 +102,8 @@ export type OpportunitySummary = {
   nurtureNotes: string | null;
   lostReason: string | null;
   accountFlag: AccountFlag | null;
+  nextActionManual: boolean;
+  talentRequestSentOn: string | null;
 };
 
 const DEFAULT_SETTINGS: Settings = {
@@ -145,11 +147,13 @@ function mapOpportunity(value: Row): OpportunitySummary {
     nurtureNotes: str(value.nurture_notes),
     lostReason: str(value.lost_reason),
     accountFlag: accountFlag(str(value.account_flag)),
+    nextActionManual: bool(value.next_action_manual),
+    talentRequestSentOn: str(value.talent_request_sent_on),
   };
 }
 
 const OPPORTUNITY_SELECT = `
-  id, title, stage, status, risk_level, waiting_on, next_action, next_action_date, target_start_on,
+  id, title, stage, status, risk_level, waiting_on, next_action, next_action_date, target_start_on, next_action_manual, talent_request_draft, talent_request_sent_on,
   last_activity_at, last_activity_summary, headcount, billing_rate, owner_id, lead_id,
   company_id, contact_id, nurture_reason, nurture_notes, lost_reason, notes, account_flag, created_at,
   companies(id, name, industry, timezone, website, notes),
@@ -639,7 +643,7 @@ function missingAccountFlagColumn(error: { message?: string; code?: string } | n
 }
 
 function missingAutomationColumn(error: { message?: string; code?: string } | null) {
-  return Boolean(error && (error.code === "PGRST204" || /automation_key|automation_type|urgent|pending_schedule|target_start_on/i.test(error.message ?? "")));
+  return Boolean(error && (error.code === "PGRST204" || /automation_key|automation_type|urgent|pending_schedule|target_start_on|next_action_manual|talent_request/i.test(error.message ?? "")));
 }
 
 const FOLLOW_UP_SELECT = "id, opportunity_id, lead_id, title, due_on, status, reason, notes, urgent, pending_schedule, automation_type";
@@ -879,9 +883,15 @@ export async function getOpportunity(id: string) {
     }),
   );
 
+  const company = row((loaded.data as Row).companies);
+  const contact = row((loaded.data as Row).contacts);
   return {
     ...summary,
     notesText: str((loaded.data as Row).notes),
+    phone: str(contact?.phone),
+    linkedInUrl: str(contact?.linkedin_url),
+    companyIndustry: str(company?.industry),
+    companyWebsite: str(company?.website),
     sendpilotStatus: str(lead?.sendpilot_status) as SendPilotStatus | null,
     sendpilotSource: str(lead?.source),
     lastSyncedAt: str(lead?.last_synced_at),

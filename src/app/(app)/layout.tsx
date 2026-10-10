@@ -4,6 +4,7 @@ import { Shell } from "@/components/shell";
 import { WorkspaceAccessProvider } from "@/components/workspace-access";
 import { getCommandCenter } from "@/lib/data";
 import { AppDataError } from "@/lib/errors";
+import { attentionBadgeCount } from "@/lib/nav";
 import { signOut } from "@/server/actions";
 import { profileCanWrite, requireUser } from "@/server/session";
 
@@ -23,8 +24,10 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     );
   }
 
+  let attentionCount = 0;
   try {
-    await getCommandCenter();
+    const center = await getCommandCenter();
+    attentionCount = attentionBadgeCount(center.attention);
   } catch (error) {
     if (error instanceof AppDataError) return <DataError message={error.message} />;
     throw error;
@@ -32,7 +35,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <WorkspaceAccessProvider canWrite={profileCanWrite(session.profile)}>
-      <Shell>
+      <Shell attentionCount={attentionCount}>
         {children}
       </Shell>
     </WorkspaceAccessProvider>

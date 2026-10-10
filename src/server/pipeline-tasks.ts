@@ -83,6 +83,10 @@ export async function upsertAutomationTasks(supabase: Db, ownerId: string | null
       await supabase.from("tasks").insert({ ...taskPayload, status: "open" });
     }
   }
+  const opportunityIds = [...new Set(planned.map((item) => item.opportunityId).filter(Boolean))] as string[];
+  for (const opportunityId of opportunityIds) {
+    await syncOpportunityNextAction(supabase, opportunityId);
+  }
 }
 
 export async function cancelAutomationTypes(
@@ -203,6 +207,42 @@ export async function afterFollowUpCompleted(
         firstCompletedOn: completedOn,
       }));
     }
+  }
+}
+
+export async function syncOpportunityNextAction(supabase: Db, opportunityId: string | null | undefined) {
+  if (!opportunityId) return;
+  const loaded = await supabase.from("opportunities").select("next_action_manual").eq("id", opportunityId).maybeSingle();
+  if (loaded.error && /next_action_manual/i.test(loaded.error.message ?? "")) return;
+  const row = asRow(loaded.data);
+  if (row?.next_action_manual === true) return;
+  const follows = await supabase
+    .from("follow_ups")
+    .select("title, due_on")
+    .eq("opportunity_id", opportunityId)
+    .eq("status", "open")
+    .order("due_on")
+    .limit(1);
+  const first = Array.isArray(follows.data) ? follows.data[0] : null;
+  if (first) {
+    await supabase.from("opportunities").update({
+      next_action: String((first as { title?: string }).title ?? "Next action"),
+      next_action_date: String((first as { due_on?: string }).due_on ?? ""),
+    }).eq("id", opportunityId);
+    return;
+  }
+  const current = await supabase.from("opportunities").select("next_action").eq("id", opportunityId).maybeSingle();
+  const title = current.data ? String((current.data as { next_action?: string | null }).next_action ?? "") : "";
+  if (!title) return;
+  const closed = await supabase
+    .from("follow_ups")
+    .select("id")
+    .eq("opportunity_id", opportunityId)
+    .eq("title", title)
+    .in("status", ["completed", "cancelled"])
+    .limit(1);
+  if (Array.isArray(closed.data) && closed.data.length > 0) {
+    await supabase.from("opportunities").update({ next_action: null, next_action_date: null }).eq("id", opportunityId);
   }
 }
 

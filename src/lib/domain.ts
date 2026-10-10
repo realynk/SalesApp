@@ -405,6 +405,21 @@ export function salesBoardColumnCounts(input: {
 
 export type SalesBoardColumnCount = ReturnType<typeof salesBoardColumnCounts>[number];
 
+export const LOST_REASONS = [
+  "Budget",
+  "No response",
+  "Chose another provider",
+  "No longer interested",
+  "Requirements changed",
+  "Timing",
+  "Other",
+] as const;
+
+/** Specific stored status, not the grouped board column label. */
+export function statusDetailLabel(stage: string) {
+  return stage;
+}
+
 export function stageLabel(stage: string) {
   if (stage === PROFILE_SEND_STAGE) return "Sent Profiles to the client";
   if (stage === BOOKED_CALL_STAGE) return "Booked Sales Call";
@@ -802,8 +817,19 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
     });
   }
 
+  const followUpKeys = new Set(
+    input.followUps
+      .filter((item) => item.status === "open" && item.opportunityId && item.dueOn)
+      .map((item) => `${item.opportunityId}:${item.dueOn}`),
+  );
+  const followUpKinds = input.followUps.filter((item) => item.status === "open");
+
   for (const call of input.strategyCalls) {
     if (!call.callOn || (call.status !== "Scheduled" && call.status !== "Proposed")) continue;
+    const covered = followUpKinds.some((item) =>
+      item.opportunityId === call.opportunityId && item.dueOn === call.callOn && /sales call|strategy call/i.test(item.title),
+    );
+    if (covered) continue;
     const opportunity = opportunityById.get(call.opportunityId);
     const sameDayAction = opportunity?.nextActionDate === call.callOn ? opportunity.nextAction : null;
     push({
@@ -820,6 +846,10 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
 
   for (const interview of input.interviews) {
     if (!interview.interviewOn || !OPEN_INTERVIEW.has(interview.status)) continue;
+    const covered = followUpKinds.some((item) =>
+      item.opportunityId === interview.opportunityId && item.dueOn === interview.interviewOn && /interview/i.test(item.title),
+    );
+    if (covered) continue;
     push({
       id: `interview-${interview.id}`,
       date: interview.interviewOn,
@@ -848,6 +878,10 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
 
   for (const batch of input.profileBatches) {
     if (batch.clientResponse || !batch.followUpOn) continue;
+    const covered = followUpKinds.some((item) =>
+      item.opportunityId === batch.opportunityId && /candidate profile/i.test(item.title),
+    );
+    if (covered) continue;
     push({
       id: `profiles-${batch.id}`,
       date: batch.followUpOn,
@@ -862,6 +896,7 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
 
   for (const opportunity of input.opportunities) {
     if (!open.has(opportunity.status) || !opportunity.nextAction || !opportunity.nextActionDate) continue;
+    if (followUpKeys.has(`${opportunity.id}:${opportunity.nextActionDate}`)) continue;
     const kind = kindFromAction(opportunity.stage, opportunity.nextAction);
     push({
       id: `next-${opportunity.id}-${opportunity.nextActionDate}`,

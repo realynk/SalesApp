@@ -1,33 +1,23 @@
 "use client";
 
 import { useState } from "react";
-import { controlClass, Field, textareaClass } from "@/components/bits";
+import { controlClass, Field } from "@/components/bits";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import type { AccountFlag } from "@/lib/domain";
 import { todayInWorkflowZone } from "@/lib/workflow-dates";
-import { saveSalesCallCompleteFromBoard } from "@/server/actions";
+import { saveClientStartFromBoard } from "@/server/actions";
 
-export type SalesCallCompleteDraft = {
-  leadId: string;
-  opportunityId: string | null;
-  companyName: string;
-  contactName: string;
-  accountFlag: AccountFlag | null;
-};
-
-export function SalesCallCompleteDialog({
+export function ClientStartDialog({
   draft,
   onCancel,
   onSaved,
 }: {
-  draft: SalesCallCompleteDraft | null;
+  draft: { leadId: string; opportunityId: string | null; companyName: string } | null;
   onCancel: () => void;
   onSaved: () => void;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-  const today = todayInWorkflowZone();
 
   async function handleSubmit(formData: FormData) {
     if (!draft) return;
@@ -35,9 +25,7 @@ export function SalesCallCompleteDialog({
     setError(null);
     formData.set("lead_id", draft.leadId);
     if (draft.opportunityId) formData.set("opportunity_id", draft.opportunityId);
-    formData.set("company_name", draft.companyName);
-    formData.set("client_name", draft.contactName);
-    const result = await saveSalesCallCompleteFromBoard(formData);
+    const result = await saveClientStartFromBoard(formData);
     setPending(false);
     if (result?.error) {
       setError(result.error);
@@ -48,22 +36,18 @@ export function SalesCallCompleteDialog({
 
   return (
     <Dialog open={Boolean(draft)} onOpenChange={(open) => { if (!open && !pending) onCancel(); }}>
-      <DialogContent className="sm:max-w-lg" showCloseButton={!pending}>
+      <DialogContent className="sm:max-w-md" showCloseButton={!pending}>
         <DialogHeader>
-          <DialogTitle>Sales call complete</DialogTitle>
-          <DialogDescription>
-            {draft
-              ? `After the call with ${draft.contactName} at ${draft.companyName}, notes review and the talent request are scheduled for the call date. The request is not sent until you approve it.`
-              : ""}
-          </DialogDescription>
+          <DialogTitle>Client started</DialogTitle>
+          <DialogDescription>Start date and VA count are required.</DialogDescription>
         </DialogHeader>
         <form action={handleSubmit} className="grid gap-3">
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
-          <Field label="When the call happened">
-            <input className={controlClass} name="call_on" type="date" required defaultValue={today} />
+          <Field label="Actual start date">
+            <input className={controlClass} name="start_date" type="date" required defaultValue={todayInWorkflowZone()} />
           </Field>
-          <Field label="Meeting notes (optional)">
-            <textarea className={textareaClass} name="notes" placeholder="Requirements, headcount, schedule, or anything recruitment should know" />
+          <Field label="Number of VAs">
+            <input className={controlClass} name="number_of_vas" type="number" min="1" required defaultValue="1" />
           </Field>
           <DialogFooter>
             <Button type="button" variant="outline" disabled={pending} onClick={onCancel}>Cancel</Button>

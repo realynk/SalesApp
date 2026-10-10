@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { AccountFlagSelect } from "@/components/account-flag-field";
 import { controlClass, Field, textareaClass } from "@/components/bits";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { AccountFlag } from "@/lib/domain";
+import { todayInWorkflowZone } from "@/lib/workflow-dates";
 import { saveProfileSendFromBoard } from "@/server/actions";
 
 export type ProfileSendDraft = {
@@ -26,7 +26,7 @@ export function ProfileSendDialog({
   onCancel: () => void;
   onSaved: () => void;
 }) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayInWorkflowZone();
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -51,33 +51,30 @@ export function ProfileSendDialog({
     <Dialog open={Boolean(draft)} onOpenChange={(open) => { if (!open && !pending) onCancel(); }}>
       <DialogContent className="sm:max-w-lg" showCloseButton={!pending}>
         <DialogHeader>
-          <DialogTitle>Sent profiles to the client</DialogTitle>
+          <DialogTitle>Sent sales profiles to the client</DialogTitle>
           <DialogDescription>
             {draft
-              ? `${draft.contactName} at ${draft.companyName}. Check-backs 1 and 2 days from the call are added as tasks.`
+              ? `${draft.contactName} at ${draft.companyName}. This is the first sales/VA introduction, not candidate profiles. Follow-ups are scheduled 3, 5, and 7 business days after the send date.`
               : ""}
           </DialogDescription>
         </DialogHeader>
         <form action={handleSubmit} className="grid gap-3">
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
-          <Field label="Client email they provided">
+          <Field label="Client email">
             <input className={controlClass} name="client_email" type="email" required defaultValue={draft?.email ?? ""} placeholder="name@client.com" />
           </Field>
-          <Field label="When was the email/profiles sent?">
+          <Field label="When were the sales profiles sent?">
             <input className={controlClass} name="profile_sent_on" type="date" required defaultValue={today} />
           </Field>
-          <Field label="Initial proposal call date">
+          <Field label="Proposal call date (optional)">
             <input className={controlClass} name="call_on" type="date" />
           </Field>
-          <Field label="Flag">
-            <AccountFlagSelect defaultValue={draft?.accountFlag ?? null} />
-          </Field>
-          <Field label="Notes">
-            <textarea className={textareaClass} name="notes" placeholder="What you sent, what they asked for, or what to confirm on the call" />
+          <Field label="Notes (optional)">
+            <textarea className={textareaClass} name="notes" placeholder="What you sent or what to confirm later" />
           </Field>
           <DialogFooter>
             <Button type="button" variant="outline" disabled={pending} onClick={onCancel}>Cancel</Button>
-            <Button type="submit" disabled={pending}>{pending ? "Saving…" : "Save and add tasks"}</Button>
+            <Button type="submit" disabled={pending}>{pending ? "Saving…" : "Save"}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

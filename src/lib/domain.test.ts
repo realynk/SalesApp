@@ -19,6 +19,7 @@ import {
   profileSendCheckBacks,
   salesCallCompleteTasks,
   stageLabel,
+  statusDetailLabel,
   salesBoardColumnCounts,
   storedLinkedInHref,
   potentialArr,
@@ -78,6 +79,10 @@ test("labels the profile-send stage and defaults check-backs from the call", () 
   assert.equal(stageLabel("Strategy Call Scheduled"), "Sales Call Complete");
   assert.equal(stageLabel("Strategy Call Complete"), "Sales Call Complete");
   assert.equal(stageLabel("Requirements Captured"), "Sales Call Complete");
+  assert.equal(statusDetailLabel("SOW Negotiation"), "SOW Negotiation");
+  assert.equal(stageLabel("SOW Negotiation"), "SOW Prep / Sent");
+  assert.equal(statusDetailLabel("Candidate Selected"), "Candidate Selected");
+  assert.equal(stageLabel("Candidate Selected"), "Interview Complete / Candidate Selected");
   assert.equal(stageLabel("Recruitment"), "Recruitment");
   assert.equal(boardStage("Requirements Captured"), "Strategy Call Scheduled");
   assert.equal(boardStage("Profiles Ready"), "Recruitment");
@@ -322,7 +327,9 @@ test("week calendar keeps a call and same-day follow-ups visible together", () =
     strategyCalls: [{ opportunityId: "opp-1", companyName: "Acme", callOn: "2026-10-20", status: "Scheduled" }],
     unmatchedInterested: [],
   });
-  assert.equal(tasks.filter((task) => task.date === "2026-10-20").length, 4);
+  assert.equal(tasks.filter((task) => task.date === "2026-10-20").length, 3);
+  assert.equal(tasks.filter((task) => task.date === "2026-10-20" && task.kind === "follow_up").length, 2);
+  assert.ok(tasks.some((task) => task.date === "2026-10-20" && task.kind === "strategy_call"));
 });
 
 test("does not duplicate a next action that is already a follow-up", () => {
@@ -452,7 +459,7 @@ test("places the week's calls, follow-ups, and SOW check-backs on their dates", 
   assert.equal(harbor?.title, "Hold the strategy call and capture requirements");
   assert.equal(harbor?.contact, "Priya Shah");
   assert.equal(tasks.find((task) => task.company === "BrightPath Mortgage" && task.kind === "sow")?.contact, "Daniel Ortiz");
-  assert.ok(tasks.some((task) => task.id.startsWith("next-opp-north")));
+  assert.equal(tasks.some((task) => task.id.startsWith("next-opp-north")), false);
   const northstar = tasks.find((task) => task.followUpId === "fu-1");
   assert.equal(northstar?.kind, "follow_up");
   assert.equal(northstar?.company, "Northstar Legal Group");
