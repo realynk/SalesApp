@@ -374,13 +374,10 @@ export function boardStage(stage: OpportunityStage): OpportunityStage {
 
 export const BOARD_STAGES = OPPORTUNITY_STAGES.filter((stage) => !isHiddenBoardStage(stage));
 
-/** First four Client journey columns: Interested through Sales Call Complete. */
-export const SALES_BOARD_COUNT_STAGES = [
-  "Interested",
-  PROFILE_SEND_STAGE,
-  BOOKED_CALL_STAGE,
-  SALES_CALL_COMPLETE_STAGE,
-] as const satisfies readonly OpportunityStage[];
+const SALES_BOARD_COUNT_EXCLUDED = new Set<OpportunityStage>(["Won", "Lost", "On Hold / Nurture", "Client Started"]);
+
+/** Client journey columns from Interested through Trial period. */
+export const SALES_BOARD_COUNT_STAGES = BOARD_STAGES.filter((stage) => !SALES_BOARD_COUNT_EXCLUDED.has(stage));
 
 export function salesBoardColumnCounts(input: {
   opportunities: Array<{ leadId: string; stage: string }>;

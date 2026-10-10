@@ -79,7 +79,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   );
 }
 
-const SALES_BOARD_TONES = ["border-t-[#f97066]", "border-t-[#7a5af8]", "border-t-[#12b76a]", "border-t-[#3538cd]"];
+const SALES_BOARD_TONES = [
+  "border-t-[#f97066]",
+  "border-t-[#7a5af8]",
+  "border-t-[#12b76a]",
+  "border-t-[#3538cd]",
+  "border-t-[#ef6820]",
+  "border-t-[#155eef]",
+];
 
 function SalesBoardCountTable({ rows }: { rows: SalesBoardColumnCount[] }) {
   return (
@@ -88,7 +95,7 @@ function SalesBoardCountTable({ rows }: { rows: SalesBoardColumnCount[] }) {
         <div>
           <h2 className="text-sm font-semibold">Client journey now</h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            How many are on each of the first four board columns right now. Cards stay on Client journey.
+            Current counts from Interested through Trial period. Won, Lost, Nurture, and Client Started are omitted. Cards stay on Client journey.
           </p>
         </div>
         <Link href="/opportunities" className="text-sm font-medium text-primary hover:underline">
@@ -96,13 +103,13 @@ function SalesBoardCountTable({ rows }: { rows: SalesBoardColumnCount[] }) {
         </Link>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[36rem] text-left text-sm">
+        <table className="w-max min-w-full text-left text-sm">
           <thead>
             <tr>
               {rows.map((row, index) => (
                 <th
                   key={row.stage}
-                  className={`border-t-4 px-4 py-3 text-sm font-bold leading-5 ${SALES_BOARD_TONES[index] ?? "border-t-border"}`}
+                  className={`min-w-[9.5rem] max-w-[11rem] border-t-4 px-3 py-3 text-sm font-bold leading-5 ${SALES_BOARD_TONES[index % SALES_BOARD_TONES.length]}`}
                 >
                   {row.label}
                 </th>
@@ -112,7 +119,7 @@ function SalesBoardCountTable({ rows }: { rows: SalesBoardColumnCount[] }) {
           <tbody>
             <tr className="border-t border-border">
               {rows.map((row) => (
-                <td key={row.stage} className="px-4 py-3 align-top">
+                <td key={row.stage} className="px-3 py-3 align-top">
                   <p className="font-mono text-2xl tabular-nums">{row.count}</p>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {row.unit === "lead"
