@@ -42,10 +42,13 @@ test("Live Sales Call surfaces capture availability and omit interview preferenc
   const form = readFileSync(join(root, "src/components/live-sales-call-form.tsx"), "utf8");
   const talent = readFileSync(join(root, "src/lib/talent-request.ts"), "utf8");
   assert.match(dialog, /Candidate Interview Availability/);
+  assert.match(dialog, /Loading saved call/);
   assert.match(dialog, /online by default/);
   assert.doesNotMatch(dialog, /Interview Preference/);
   assert.doesNotMatch(dialog, /in-person/);
   assert.match(form, /Save draft/);
+  assert.match(form, /Saving draft/);
+  assert.match(form, /Loading saved call/);
   assert.match(form, /Mark sales call complete/);
   assert.match(form, /INTERVIEW_AVAILABILITY_LABEL/);
   assert.match(form, /Preferred dates, times, and timezone/);

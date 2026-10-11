@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Loader2 } from "lucide-react";
 import { controlClass, Field, textareaClass } from "@/components/bits";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,6 +13,15 @@ import {
   type LiveSalesCallValues,
 } from "@/lib/live-sales-call";
 import { saveLiveSalesCallDraft, saveSalesCallCompleteFromBoard } from "@/server/actions";
+
+function BusyStatus({ label }: { label: string }) {
+  return (
+    <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status" aria-live="polite">
+      <Loader2 className="size-4 animate-spin" aria-hidden />
+      {label}
+    </p>
+  );
+}
 
 export function LiveSalesCallForm({
   canWrite,
@@ -32,7 +42,16 @@ export function LiveSalesCallForm({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pending, setPending] = useState<"draft" | "complete" | null>(null);
+  const [refreshing, startRefresh] = useTransition();
   const complete = liveSalesCallIsComplete(initial.status);
+  const busy = Boolean(pending) || refreshing;
+  const busyLabel = pending === "draft"
+    ? "Saving draft…"
+    : pending === "complete"
+      ? "Marking the call complete…"
+      : refreshing
+        ? "Loading saved call…"
+        : null;
 
   function fill(formData: FormData) {
     formData.set("lead_id", leadId);
@@ -47,13 +66,16 @@ export function LiveSalesCallForm({
     setNotice(null);
     fill(formData);
     const result = await saveLiveSalesCallDraft(formData);
-    setPending(null);
     if (result?.error) {
+      setPending(null);
       setError(result.error);
       return;
     }
     setNotice(result?.success ?? "Draft saved.");
-    router.refresh();
+    setPending(null);
+    startRefresh(() => {
+      router.refresh();
+    });
   }
 
   async function markComplete(formData: FormData) {
@@ -68,13 +90,16 @@ export function LiveSalesCallForm({
       return;
     }
     const result = await saveSalesCallCompleteFromBoard(formData);
-    setPending(null);
     if (result?.error) {
+      setPending(null);
       setError(result.error);
       return;
     }
     setNotice(result?.success ?? "Sales call marked complete.");
-    router.refresh();
+    setPending(null);
+    startRefresh(() => {
+      router.refresh();
+    });
   }
 
   return (
@@ -86,9 +111,10 @@ export function LiveSalesCallForm({
       </p>
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
       {notice ? <p className="text-sm text-primary">{notice}</p> : null}
-      <form action={canWrite && !complete ? markComplete : saveDraft} className="grid gap-3 md:grid-cols-2">
+      {busyLabel ? <BusyStatus label={busyLabel} /> : null}
+      <form action={canWrite && !complete ? markComplete : saveDraft} aria-busy={busy} className="grid gap-3 md:grid-cols-2">
         <Field label="Call date">
-          <input className={controlClass} name="call_on" type="date" defaultValue={initial.callOn} disabled={!canWrite} />
+          <input className={controlClass} name="call_on" type="date" defaultValue={initial.callOn} disabled={!canWrite || busy} />
         </Field>
         {LIVE_SALES_CALL_FIELDS.map((field) => {
           const value = initial[field.key];
@@ -103,7 +129,7 @@ export function LiveSalesCallForm({
                     name={field.name}
                     defaultValue={value}
                     rows={field.key === "interviewAvailability" || field.key === "notes" ? 3 : 2}
-                    disabled={!canWrite}
+                    disabled={!canWrite || busy}
                     placeholder={field.key === "interviewAvailability" ? "Preferred dates, times, and timezone" : undefined}
                   />
                 ) : (
@@ -112,7 +138,7 @@ export function LiveSalesCallForm({
                     name={field.name}
                     type={field.kind === "date" ? "date" : field.kind === "number" ? "number" : "text"}
                     defaultValue={value}
-                    disabled={!canWrite}
+                    disabled={!canWrite || busy}
                     step={field.kind === "number" ? "any" : undefined}
                   />
                 )}
@@ -125,12 +151,12 @@ export function LiveSalesCallForm({
         })}
         {canWrite ? (
           <div className="flex flex-wrap gap-2 md:col-span-2">
-            <Button type="submit" formAction={saveDraft} variant="outline" disabled={Boolean(pending)}>
-              {pending === "draft" ? "Saving…" : complete ? "Save updates" : "Save draft"}
+            <Button type="submit" formAction={saveDraft} variant="outline" disabled={busy}>
+              {pending === "draft" ? "Saving draft…" : complete ? "Save updates" : "Save draft"}
             </Button>
             {complete ? null : (
-              <Button type="submit" disabled={Boolean(pending)}>
-                {pending === "complete" ? "Saving…" : "Mark sales call complete"}
+              <Button type="submit" disabled={busy}>
+                {pending === "complete" ? "Marking complete…" : "Mark sales call complete"}
               </Button>
             )}
           </div>
