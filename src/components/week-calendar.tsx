@@ -1,9 +1,7 @@
 import Link from "next/link";
 import { format, parseISO } from "date-fns";
 import { Button } from "@/components/ui/button";
-import { canMarkFollowUpDone } from "@/lib/attention-queue";
 import { addDays, weekStartMonday, type WeekTask } from "@/lib/domain";
-import { completeFollowUp } from "@/server/actions";
 
 function weekHref(week: string, notice?: string, current = false) {
   const params = new URLSearchParams();
@@ -18,7 +16,6 @@ export function WeekCalendar({
   week,
   tasks,
   notice,
-  canWrite = true,
 }: {
   today: string;
   week?: string;
@@ -38,7 +35,7 @@ export function WeekCalendar({
         <div>
           <h2 className="text-sm font-bold">Week of {format(parseISO(start), "MMM d")}</h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            Strategy calls, follow-ups, interviews, recruitment targets, profile check-backs, and SOW dates through {format(parseISO(end), "MMM d")}.
+            This week’s schedule through {format(parseISO(end), "MMM d")}. Mark work done on Attention.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -68,7 +65,7 @@ export function WeekCalendar({
                   {items.length === 0 ? <li className="text-xs text-muted-foreground">Nothing due</li> : null}
                   {items.map((task) => (
                     <li key={task.id}>
-                      <TaskChip task={task} overdue={task.date < today} canWrite={canWrite} />
+                      <TaskChip task={task} overdue={task.date < today} />
                     </li>
                   ))}
                 </ul>
@@ -84,24 +81,12 @@ export function WeekCalendar({
   );
 }
 
-function TaskChip({ task, overdue, canWrite }: { task: WeekTask; overdue: boolean; canWrite: boolean }) {
+function TaskChip({ task, overdue }: { task: WeekTask; overdue: boolean }) {
   return (
-    <div className="rounded-lg border border-border bg-card px-2 py-1.5 hover:border-primary">
-      <Link href={task.href} className="block">
-        <p className={`text-[11px] font-medium uppercase ${overdue ? "text-destructive" : "text-primary"}`}>{overdue ? `${task.label} · overdue` : task.label}</p>
-        <p className="mt-0.5 text-xs font-medium leading-4 text-foreground">{task.title}</p>
-        <p className="text-[11px] text-muted-foreground">{task.contact}</p>
-      </Link>
-      {canWrite && task.followUpId && canMarkFollowUpDone(task.automationType) ? (
-        <form action={completeFollowUp} className="mt-1.5">
-          <input type="hidden" name="follow_up_id" value={task.followUpId} />
-          {task.opportunityId ? <input type="hidden" name="opportunity_id" value={task.opportunityId} /> : null}
-          {task.leadId ? <input type="hidden" name="lead_id" value={task.leadId} /> : null}
-          <Button type="submit" variant="outline" size="xs" className="h-6 px-2 text-[11px]">
-            Done
-          </Button>
-        </form>
-      ) : null}
-    </div>
+    <Link href={task.href} className="block rounded-lg border border-border bg-card px-2 py-1.5 hover:border-primary">
+      <p className={`text-[11px] font-medium uppercase ${overdue ? "text-destructive" : "text-primary"}`}>{overdue ? `${task.label} · overdue` : task.label}</p>
+      <p className="mt-0.5 text-xs font-medium leading-4 text-foreground">{task.title}</p>
+      <p className="text-[11px] text-muted-foreground">{task.contact}</p>
+    </Link>
   );
 }

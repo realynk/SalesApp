@@ -48,8 +48,7 @@ export function canMarkFollowUpDone(automationType?: string | null) {
 }
 
 export function attentionViewForDue(today: string, dueOn: string | null, pendingSchedule = false): Exclude<AttentionView, "completed"> {
-  if (pendingSchedule) return dueOn && dueOn < today ? "overdue" : "today";
-  if (!dueOn) return "today";
+  if (!dueOn) return pendingSchedule ? "upcoming" : "today";
   if (dueOn < today) return "overdue";
   if (dueOn === today) return "today";
   return "upcoming";
@@ -91,7 +90,9 @@ function coveredByFollowUp(
   signal: AttentionItem,
   followUps: QueueFollowUp[],
 ) {
-  const opportunityId = signal.href.startsWith("/opportunities/") ? signal.href.slice("/opportunities/".length).split("?")[0] : null;
+  const opportunityId =
+    signal.opportunityId ||
+    (signal.href.startsWith("/opportunities/") ? signal.href.slice("/opportunities/".length).split("?")[0] : null);
   const open = followUps.filter((item) => item.status === "open");
   if (signal.kind.startsWith("next_action") && opportunityId) {
     return open.some((item) => item.opportunityId === opportunityId);

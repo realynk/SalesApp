@@ -200,6 +200,93 @@ test("a follow-up covers the matching interview and profile signals", () => {
   assert.equal(queue.some((item) => item.id === "interview-int-1"), false);
 });
 
+test("pending-schedule follow-ups use their due date instead of Due today", () => {
+  const queue = buildAttentionQueue({
+    today: "2026-10-10",
+    attention: [],
+    followUps: [
+      {
+        id: "fu-pend",
+        opportunityId: "opp-1",
+        leadId: "lead-1",
+        title: "Onboarding Preparation",
+        dueOn: "2026-10-20",
+        status: "open",
+        companyName: "Acme",
+        pendingSchedule: true,
+        automationType: "onboarding_prep",
+      },
+    ],
+  });
+  assert.equal(queue[0]?.view, "upcoming");
+  assert.equal(attentionQueueCounts(queue).today, 0);
+});
+
+test("recruitment follow-up suppresses the recruitment alert for the same opportunity", () => {
+  const attention = buildAttention({
+    today: "2026-10-10",
+    staleAfterDays: 10,
+    profilesWaitingDays: 5,
+    approachingWindowDays: 7,
+    opportunities: [
+      {
+        id: "opp-1",
+        title: "Acme",
+        companyName: "Acme",
+        stage: "Recruitment",
+        status: "active",
+        riskLevel: "low",
+        waitingOn: "recruitment",
+        nextAction: "Recruitment Progress Check",
+        nextActionDate: "2026-10-08",
+        lastActivityOn: "2026-10-08",
+      },
+    ],
+    followUps: [
+      {
+        id: "fu-rec",
+        opportunityId: "opp-1",
+        leadId: "lead-1",
+        title: "Recruitment Progress Check",
+        dueOn: "2026-10-08",
+        status: "open",
+        companyName: "Acme",
+        automationType: "recruitment_progress",
+      },
+    ],
+    profileBatches: [],
+    recruitment: [{ id: "req-1", opportunityId: "opp-1", companyName: "Acme", status: "Sourcing", targetOn: "2026-10-08" }],
+    interviews: [],
+    contracts: [],
+    strategyCalls: [],
+    unmatchedInterested: [],
+  });
+  const queue = buildAttentionQueue({
+    today: "2026-10-10",
+    attention,
+    followUps: [
+      {
+        id: "fu-rec",
+        opportunityId: "opp-1",
+        leadId: "lead-1",
+        title: "Recruitment Progress Check",
+        dueOn: "2026-10-08",
+        status: "open",
+        companyName: "Acme",
+        automationType: "recruitment_progress",
+      },
+    ],
+  });
+  assert.equal(queue.filter((item) => item.followUpId === "fu-rec").length, 1);
+  assert.equal(queue.some((item) => item.id === "recruitment-req-1"), false);
+});
+
+test("week calendar is planning-only and does not complete work", () => {
+  const calendar = readFileSync(join(root, "src/components/week-calendar.tsx"), "utf8");
+  assert.equal(calendar.includes("completeFollowUp"), false);
+  assert.match(calendar, /Mark work done on Attention/);
+});
+
 test("write actions stay behind requireWriter and do not unscoped-cancel", () => {
   const actions = readFileSync(join(root, "src/server/actions.ts"), "utf8");
   const tasks = readFileSync(join(root, "src/server/pipeline-tasks.ts"), "utf8");

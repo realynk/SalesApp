@@ -634,6 +634,8 @@ export type AttentionItem = {
   href: string;
   dueOn: string | null;
   sections: AttentionSection[];
+  opportunityId?: string | null;
+  leadId?: string | null;
 };
 
 type AttentionOpportunity = {
@@ -1171,6 +1173,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
         detail: `${request.status} · target was ${request.targetOn}`,
         href: `/recruitment/${request.id}`,
         dueOn: request.targetOn,
+        opportunityId: request.opportunityId,
         sections: ["needs", "waiting_recruitment", "at_risk"],
       });
     } else if (withinWindow(input.today, request.targetOn, input.approachingWindowDays)) {
@@ -1182,6 +1185,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
         detail: `${request.status} · target ${request.targetOn}`,
         href: `/recruitment/${request.id}`,
         dueOn: request.targetOn,
+        opportunityId: request.opportunityId,
         sections: delta === 0 ? ["today", "waiting_recruitment"] : ["upcoming", "waiting_recruitment"],
       });
     }

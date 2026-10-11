@@ -89,7 +89,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             </div>
           </section>
           <SalesBoardCountTable rows={center.salesBoardCounts} />
-          <WeekCalendar today={center.today} week={firstParam(query.week)} tasks={weekTasks} notice={firstParam(query.notice)} canWrite={canWrite} />
+          <WeekCalendar today={center.today} week={firstParam(query.week)} tasks={weekTasks} notice={firstParam(query.notice)} />
         </>
       )}
     </div>
