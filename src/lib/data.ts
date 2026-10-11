@@ -28,7 +28,7 @@ import {
   type WaitingOn,
 } from "@/lib/domain";
 import { raiseIf } from "@/lib/errors";
-import { fullName } from "@/lib/format";
+import { personDisplayName } from "@/lib/lead-display";
 import { inReportingRange, reportingStartOn, type ReportingDuration } from "@/lib/reporting-duration";
 import { reviewRecordOrigin, type ReviewOrigin } from "@/lib/review-origin";
 import { mapSendPilotLeadSources, type SendPilotLeadSource } from "@/lib/sendpilot/lead-sources";
@@ -142,7 +142,12 @@ function mapOpportunity(value: Row): OpportunitySummary {
     companyId: String(value.company_id),
     companyName: str(company?.name) ?? "Unknown company",
     contactId: String(value.contact_id),
-    contactName: fullName(str(contact?.first_name), str(contact?.last_name)),
+    contactName: personDisplayName({
+      firstName: str(contact?.first_name),
+      lastName: str(contact?.last_name),
+      email: str(contact?.email),
+      companyName: str(company?.name),
+    }),
     email: str(contact?.email),
     nurtureReason: str(value.nurture_reason),
     nurtureNotes: str(value.nurture_notes),
@@ -284,7 +289,15 @@ export const getCommandCenter = cache(async () => {
     const name = str(company?.name);
     if (name) companyByLead.set(String(item.id), name);
     const contact = row(item.contacts);
-    contactByLead.set(String(item.id), fullName(str(contact?.first_name), str(contact?.last_name)));
+    contactByLead.set(
+      String(item.id),
+      personDisplayName({
+        firstName: str(contact?.first_name),
+        lastName: str(contact?.last_name),
+        email: str(contact?.email),
+        companyName: str(company?.name),
+      }),
+    );
   }
 
   const mapCenterFollowUp = (item: Row, status: "open" | "completed") => {
@@ -413,7 +426,11 @@ export const getCommandCenter = cache(async () => {
       const company = row(lead.companies);
       return {
         leadId: String(lead.id),
-        name: fullName(str(contact?.first_name), str(contact?.last_name)),
+        name: personDisplayName({
+          firstName: str(contact?.first_name),
+          lastName: str(contact?.last_name),
+          companyName: str(company?.name),
+        }),
         companyName: str(company?.name) ?? "Unknown company",
       };
     });
@@ -432,7 +449,11 @@ export const getCommandCenter = cache(async () => {
         return [{
           activityId: String(item.id),
           leadId,
-          name: fullName(str(contact?.first_name), str(contact?.last_name)),
+          name: personDisplayName({
+            firstName: str(contact?.first_name),
+            lastName: str(contact?.last_name),
+            companyName: str(company?.name) ?? companyByLead.get(leadId),
+          }),
           companyName: str(company?.name) ?? companyByLead.get(leadId) ?? "Unknown company",
           occurredOn: dateInTimeZone(str(item.occurred_at), settings.businessTimezone) ?? today,
         }];
@@ -604,7 +625,12 @@ export async function listLeads(filters: { q?: string; status?: string; review?:
       return {
         id: String(item.id),
         companyName: str(company?.name) ?? "Unknown company",
-        contactName: fullName(str(contact?.first_name), str(contact?.last_name)),
+        contactName: personDisplayName({
+          firstName: str(contact?.first_name),
+          lastName: str(contact?.last_name),
+          email: str(contact?.email),
+          companyName: str(company?.name),
+        }),
         email: str(contact?.email),
         phone: str(contact?.phone),
         linkedinUrl: str(contact?.linkedin_url),
@@ -821,7 +847,12 @@ export async function getLead(id: string) {
     },
     contact: {
       id: str(contact?.id),
-      name: fullName(str(contact?.first_name), str(contact?.last_name)),
+      name: personDisplayName({
+        firstName: str(contact?.first_name),
+        lastName: str(contact?.last_name),
+        email: str(contact?.email),
+        companyName: str(company?.name),
+      }),
       email: str(contact?.email),
       phone: str(contact?.phone),
       linkedinUrl: str(contact?.linkedin_url),
@@ -1147,7 +1178,12 @@ export async function getReconciliation() {
       const existing: ExistingReviewLead = {
         leadId: String(item.id),
         contactId: String(item.contact_id),
-        contactName: fullName(str(contact?.first_name), str(contact?.last_name)),
+        contactName: personDisplayName({
+          firstName: str(contact?.first_name),
+          lastName: str(contact?.last_name),
+          email: str(contact?.email),
+          companyName: str(company?.name),
+        }),
         companyName: str(company?.name) ?? "Unknown company",
         email: str(contact?.email),
         sendpilotStatus: str(item.sendpilot_status),

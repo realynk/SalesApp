@@ -1,4 +1,5 @@
 import type { AttentionItem } from "@/lib/domain";
+import { personDisplayName } from "@/lib/lead-display";
 
 export const ATTENTION_VIEWS = ["overdue", "today", "upcoming", "completed"] as const;
 export type AttentionView = (typeof ATTENTION_VIEWS)[number];
@@ -17,7 +18,7 @@ export type AttentionQueueItem = {
   opportunityId: string | null;
   leadId: string | null;
   title: string;
-  companyName: string;
+  subjectLabel: string;
   dueOn: string | null;
   completedAt: string | null;
   view: AttentionView;
@@ -74,7 +75,7 @@ function followUpQueueItem(item: QueueFollowUp, today: string): AttentionQueueIt
     opportunityId: item.opportunityId,
     leadId: item.leadId,
     title: item.title,
-    companyName: item.companyName,
+    subjectLabel: personDisplayName({ fullName: item.contactName, companyName: item.companyName }),
     dueOn: item.dueOn,
     completedAt: item.completedAt ?? null,
     view,
@@ -141,7 +142,7 @@ function signalQueueItem(item: AttentionItem): AttentionQueueItem {
     opportunityId,
     leadId,
     title: item.title,
-    companyName: item.detail,
+    subjectLabel: item.detail,
     dueOn: item.dueOn,
     completedAt: null,
     view,

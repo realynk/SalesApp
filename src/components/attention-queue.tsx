@@ -68,8 +68,8 @@ export function AttentionQueueList({
               <p className="text-sm font-medium">{item.title}</p>
               <PriorityMark priority={item.priority} />
             </div>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {item.companyName}
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">
+              {item.subjectLabel}
               {item.dueOn ? ` · ${item.view === "completed" ? "Due" : "Due"} ${formatDate(item.dueOn)}` : ""}
               {item.completedAt ? ` · Completed ${formatDate(item.completedAt.slice(0, 10))}` : ""}
             </p>

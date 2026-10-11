@@ -108,8 +108,8 @@ export default async function OpportunitiesPage({ searchParams }: { searchParams
           rows={opportunities.map((opportunity) => ({
             id: opportunity.id,
             href: `/opportunities/${opportunity.id}`,
-            name: opportunity.companyName,
-            company: opportunity.contactName,
+            name: opportunity.contactName,
+            company: opportunity.companyName,
             flag: opportunity.accountFlag,
             stage: opportunity.stage,
             next: opportunity.nextAction ?? "Missing",
@@ -134,7 +134,7 @@ function SimpleTable({
       <table className="w-full min-w-[760px] text-left text-sm">
         <thead className="text-xs tracking-wide text-muted-foreground uppercase">
           <tr>
-            <th className="px-4 py-3">Account</th>
+            <th className="px-4 py-3">Lead</th>
             <th className="px-4 py-3">Flag</th>
             <th className="px-4 py-3">Where</th>
             <th className="px-4 py-3">Next task</th>
