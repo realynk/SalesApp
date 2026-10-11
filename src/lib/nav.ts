@@ -13,10 +13,8 @@ export function navItemsForAccess(canWrite: boolean) {
   return NAV_ITEMS.filter((item) => canWrite || !item.writerOnly);
 }
 
-const ACTIONABLE_ATTENTION = new Set(["needs", "today", "waiting_client", "waiting_recruitment", "at_risk"]);
-
 export function attentionBadgeCount(items: Array<{ sections: readonly string[] }>) {
-  return items.filter((item) => item.sections.some((section) => ACTIONABLE_ATTENTION.has(section))).length;
+  return items.filter((item) => item.sections.some((section) => section === "needs" || section === "today")).length;
 }
 
 export function isNavActive(pathname: string, href: string) {

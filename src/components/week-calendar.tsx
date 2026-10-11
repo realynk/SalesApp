@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { format, parseISO } from "date-fns";
 import { Button } from "@/components/ui/button";
+import { canMarkFollowUpDone } from "@/lib/attention-queue";
 import { addDays, weekStartMonday, type WeekTask } from "@/lib/domain";
 import { completeFollowUp } from "@/server/actions";
 
@@ -91,7 +92,7 @@ function TaskChip({ task, overdue, canWrite }: { task: WeekTask; overdue: boolea
         <p className="mt-0.5 text-xs font-medium leading-4 text-foreground">{task.title}</p>
         <p className="text-[11px] text-muted-foreground">{task.contact}</p>
       </Link>
-      {canWrite && task.followUpId ? (
+      {canWrite && task.followUpId && canMarkFollowUpDone(task.automationType) ? (
         <form action={completeFollowUp} className="mt-1.5">
           <input type="hidden" name="follow_up_id" value={task.followUpId} />
           {task.opportunityId ? <input type="hidden" name="opportunity_id" value={task.opportunityId} /> : null}

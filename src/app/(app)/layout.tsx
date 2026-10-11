@@ -4,7 +4,7 @@ import { Shell } from "@/components/shell";
 import { WorkspaceAccessProvider } from "@/components/workspace-access";
 import { getCommandCenter } from "@/lib/data";
 import { AppDataError } from "@/lib/errors";
-import { attentionBadgeCount } from "@/lib/nav";
+import { attentionBadgeFromQueue } from "@/lib/attention-queue";
 import { signOut } from "@/server/actions";
 import { profileCanWrite, requireUser } from "@/server/session";
 
@@ -27,7 +27,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   let attentionCount = 0;
   try {
     const center = await getCommandCenter();
-    attentionCount = attentionBadgeCount(center.attention);
+    attentionCount = attentionBadgeFromQueue(center.queueCounts);
   } catch (error) {
     if (error instanceof AppDataError) return <DataError message={error.message} />;
     throw error;

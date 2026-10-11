@@ -752,6 +752,7 @@ export type WeekTask = {
   followUpId?: string;
   opportunityId?: string | null;
   leadId?: string | null;
+  automationType?: string | null;
 };
 
 const WEEK_TASK_LABEL: Record<WeekTaskKind, string> = {
@@ -814,6 +815,7 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
       followUpId: followUp.id,
       opportunityId: followUp.opportunityId,
       leadId: followUp.leadId,
+      automationType: followUp.automationType,
     });
   }
 
