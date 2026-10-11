@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { controlClass, Field, textareaClass } from "@/components/bits";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { AccountFlag } from "@/lib/domain";
+import { emptyLiveSalesCallValues } from "@/lib/live-sales-call";
 import { todayInWorkflowZone } from "@/lib/workflow-dates";
-import { saveSalesCallCompleteFromBoard } from "@/server/actions";
+import { loadLiveSalesCall, saveSalesCallCompleteFromBoard } from "@/server/actions";
 
 export type SalesCallCompleteDraft = {
   leadId: string;
@@ -27,7 +28,21 @@ export function SalesCallCompleteDialog({
 }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [saved, setSaved] = useState(emptyLiveSalesCallValues());
   const today = todayInWorkflowZone();
+
+  useEffect(() => {
+    const opportunityId = draft?.opportunityId;
+    if (!opportunityId) return;
+    let cancelled = false;
+    void loadLiveSalesCall(opportunityId).then((result) => {
+      if (cancelled || "error" in result) return;
+      setSaved(result.values);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [draft?.opportunityId]);
 
   async function handleSubmit(formData: FormData) {
     if (!draft) return;
@@ -60,11 +75,33 @@ export function SalesCallCompleteDialog({
         <form action={handleSubmit} className="grid gap-3">
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
           <Field label="When the call happened">
-            <input className={controlClass} name="call_on" type="date" required defaultValue={today} />
+            <input className={controlClass} name="call_on" type="date" required defaultValue={saved.callOn || today} />
+          </Field>
+          <Field label="Candidate Interview Availability">
+            <textarea
+              className={textareaClass}
+              name="interview_availability"
+              placeholder="Preferred dates, times, and timezone"
+              rows={3}
+              defaultValue={saved.interviewAvailability}
+              key={`availability-${saved.interviewAvailability}`}
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Preferred dates, times, and timezone for interviewing VA candidates. Interviews are online by default.
+            </p>
           </Field>
           <Field label="Meeting notes (optional)">
-            <textarea className={textareaClass} name="notes" placeholder="Requirements, headcount, schedule, or anything recruitment should know" />
+            <textarea
+              className={textareaClass}
+              name="notes"
+              placeholder="Requirements, headcount, schedule, or anything recruitment should know"
+              defaultValue={saved.notes}
+              key={`notes-${saved.notes}`}
+            />
           </Field>
+          <p className="text-xs text-muted-foreground">
+            Prefer capturing the full requirements on the live sales call form. Completing here marks the call done and moves the pipeline.
+          </p>
           <DialogFooter>
             <Button type="button" variant="outline" disabled={pending} onClick={onCancel}>Cancel</Button>
             <Button type="submit" disabled={pending}>{pending ? "Saving…" : "Save"}</Button>

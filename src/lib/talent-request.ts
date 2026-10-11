@@ -11,6 +11,7 @@ export type TalentFacts = {
   experience?: string | null;
   special?: string | null;
   startDate?: string | null;
+  interviewAvailability?: string | null;
 };
 
 const LABELS: Array<[keyof TalentFacts, string]> = [
@@ -26,6 +27,7 @@ const LABELS: Array<[keyof TalentFacts, string]> = [
   ["experience", "Preferred experience"],
   ["special", "Special requirements"],
   ["startDate", "Target start date"],
+  ["interviewAvailability", "Candidate Interview Availability"],
 ];
 
 function present(value: string | number | null | undefined) {
@@ -60,6 +62,7 @@ export function buildTalentRequestEmail(facts: TalentFacts) {
     line("Preferred experience", facts.experience),
     line("Special requirements", facts.special),
     line("Target start date", facts.startDate),
+    line("Candidate Interview Availability", facts.interviewAvailability),
     "",
     missing.length > 0
       ? `Still needed before this is complete:\n${missing.map((item) => `- ${item}`).join("\n")}`

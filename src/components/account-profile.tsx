@@ -11,6 +11,8 @@ import { resolveNextAction } from "@/lib/next-action";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { SENDPILOT_UNIBOX_LINK } from "@/lib/sendpilot/app-links";
 import { storedLinkedInHref } from "@/lib/domain";
+import { LiveSalesCallForm } from "@/components/live-sales-call-form";
+import { emptyLiveSalesCallValues, INTERVIEW_AVAILABILITY_LABEL, splitLiveSalesCallNotes, type LiveSalesCallValues } from "@/lib/live-sales-call";
 import {
   addNote,
   clearNextActionOverride,
@@ -59,6 +61,7 @@ export function AccountProfile({
   lostReason,
   talentRequestSentOn,
   strategyNotes,
+  liveSalesCall,
   recruitmentStatus,
   contractStatus,
   targetStartOn,
@@ -94,6 +97,7 @@ export function AccountProfile({
   lostReason?: string | null;
   talentRequestSentOn?: string | null;
   strategyNotes?: string | null;
+  liveSalesCall?: LiveSalesCallValues;
   recruitmentStatus?: string | null;
   contractStatus?: string | null;
   targetStartOn?: string | null;
@@ -117,6 +121,7 @@ export function AccountProfile({
   });
   const linkedInHref = storedLinkedInHref(linkedInUrl ?? null);
   const column = stage ? boardStage(stage as never) : null;
+  const liveCallNotes = splitLiveSalesCallNotes(strategyNotes);
 
   return (
     <div className="space-y-6">
@@ -191,26 +196,43 @@ export function AccountProfile({
       </nav>
 
       {currentTab === "overview" ? (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <SectionCard title="Now" description="What needs attention for this account.">
-            <ul className="space-y-2 text-sm">
-              {openTasks.slice(0, 5).map((item) => (
-                <li key={item.id}>
-                  <span className="font-medium">{item.title}</span>
-                  <span className="text-muted-foreground"> · {formatDate(item.dueOn)}</span>
-                </li>
-              ))}
-              {openTasks.length === 0 ? <li className="text-muted-foreground">No open tasks.</li> : null}
-            </ul>
-          </SectionCard>
-          <SectionCard title="Recent activity">
-            <ul className="space-y-2 text-sm">
-              {activities.slice(0, 6).map((item) => (
-                <li key={item.id}>{item.title}<span className="text-xs text-muted-foreground"> · {formatDateTime(item.occurredAt)}</span></li>
-              ))}
-              {activities.length === 0 ? <li className="text-muted-foreground">Nothing logged yet.</li> : null}
-            </ul>
-          </SectionCard>
+        <div className="space-y-4">
+          <div className="grid gap-4 lg:grid-cols-2">
+            <SectionCard title="Now" description="What needs attention for this account.">
+              <ul className="space-y-2 text-sm">
+                {openTasks.slice(0, 5).map((item) => (
+                  <li key={item.id}>
+                    <span className="font-medium">{item.title}</span>
+                    <span className="text-muted-foreground"> · {formatDate(item.dueOn)}</span>
+                  </li>
+                ))}
+                {openTasks.length === 0 ? <li className="text-muted-foreground">No open tasks.</li> : null}
+              </ul>
+            </SectionCard>
+            <SectionCard title="Recent activity">
+              <ul className="space-y-2 text-sm">
+                {activities.slice(0, 6).map((item) => (
+                  <li key={item.id}>{item.title}<span className="text-xs text-muted-foreground"> · {formatDateTime(item.occurredAt)}</span></li>
+                ))}
+                {activities.length === 0 ? <li className="text-muted-foreground">Nothing logged yet.</li> : null}
+              </ul>
+            </SectionCard>
+          </div>
+          {opportunityId ? (
+            <SectionCard
+              title="Live sales call"
+              description="Open this during the call. Saving a draft does not complete the call or move the pipeline."
+            >
+              <LiveSalesCallForm
+                canWrite={canWrite}
+                leadId={leadId}
+                opportunityId={opportunityId}
+                companyName={companyName}
+                contactName={contactName}
+                initial={liveSalesCall ?? emptyLiveSalesCallValues()}
+              />
+            </SectionCard>
+          ) : null}
         </div>
       ) : null}
 
@@ -283,6 +305,21 @@ export function AccountProfile({
               <WorkActions leadId={leadId} opportunityId={opportunityId} companyName={companyName} contactName={contactName} />
             </SectionCard>
           ) : null}
+          {opportunityId ? (
+            <SectionCard
+              title="Live sales call"
+              description="Open this during the call. Saving a draft does not complete the call or move the pipeline."
+            >
+              <LiveSalesCallForm
+                canWrite={canWrite}
+                leadId={leadId}
+                opportunityId={opportunityId}
+                companyName={companyName}
+                contactName={contactName}
+                initial={liveSalesCall ?? emptyLiveSalesCallValues()}
+              />
+            </SectionCard>
+          ) : null}
           {stage === "Strategy Call Scheduled" || stage === "Strategy Call Complete" || stage === "Requirements Captured" || stage === "Recruitment" ? (
             <SectionCard title="Meeting notes">
               <MeetingNotesPanel clientName={contactName} companyName={companyName} />
@@ -307,7 +344,14 @@ export function AccountProfile({
 
       {currentTab === "notes" ? (
         <SectionCard title="Notes">
-          {strategyNotes ? <p className="mb-4 whitespace-pre-wrap text-sm">{strategyNotes}</p> : null}
+          {liveCallNotes.interviewAvailability ? (
+            <div className="mb-4">
+              <p className="text-xs font-medium uppercase text-muted-foreground">{INTERVIEW_AVAILABILITY_LABEL}</p>
+              <p className="mt-1 whitespace-pre-wrap text-sm">{liveCallNotes.interviewAvailability}</p>
+              <p className="mt-1 text-xs text-muted-foreground">Interviews are online by default.</p>
+            </div>
+          ) : null}
+          {liveCallNotes.notes ? <p className="mb-4 whitespace-pre-wrap text-sm">{liveCallNotes.notes}</p> : null}
           {canWrite ? (
             <ActionForm action={addNote} className="space-y-3">
               {opportunityId ? <input type="hidden" name="opportunity_id" value={opportunityId} /> : null}
