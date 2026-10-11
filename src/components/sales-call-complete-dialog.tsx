@@ -62,6 +62,17 @@ export function SalesCallCompleteDialog({
           <Field label="When the call happened">
             <input className={controlClass} name="call_on" type="date" required defaultValue={today} />
           </Field>
+          <Field label="Candidate Interview Availability">
+            <textarea
+              className={textareaClass}
+              name="interview_availability"
+              placeholder="Preferred dates, times, and timezone"
+              rows={3}
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Preferred dates, times, and timezone for interviewing VA candidates. Interviews are online by default.
+            </p>
+          </Field>
           <Field label="Meeting notes (optional)">
             <textarea className={textareaClass} name="notes" placeholder="Requirements, headcount, schedule, or anything recruitment should know" />
           </Field>

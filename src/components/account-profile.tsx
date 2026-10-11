@@ -11,6 +11,7 @@ import { resolveNextAction } from "@/lib/next-action";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { SENDPILOT_UNIBOX_LINK } from "@/lib/sendpilot/app-links";
 import { storedLinkedInHref } from "@/lib/domain";
+import { INTERVIEW_AVAILABILITY_LABEL, splitLiveSalesCallNotes } from "@/lib/live-sales-call";
 import {
   addNote,
   clearNextActionOverride,
@@ -117,6 +118,7 @@ export function AccountProfile({
   });
   const linkedInHref = storedLinkedInHref(linkedInUrl ?? null);
   const column = stage ? boardStage(stage as never) : null;
+  const liveCallNotes = splitLiveSalesCallNotes(strategyNotes);
 
   return (
     <div className="space-y-6">
@@ -307,7 +309,14 @@ export function AccountProfile({
 
       {currentTab === "notes" ? (
         <SectionCard title="Notes">
-          {strategyNotes ? <p className="mb-4 whitespace-pre-wrap text-sm">{strategyNotes}</p> : null}
+          {liveCallNotes.interviewAvailability ? (
+            <div className="mb-4">
+              <p className="text-xs font-medium uppercase text-muted-foreground">{INTERVIEW_AVAILABILITY_LABEL}</p>
+              <p className="mt-1 whitespace-pre-wrap text-sm">{liveCallNotes.interviewAvailability}</p>
+              <p className="mt-1 text-xs text-muted-foreground">Interviews are online by default.</p>
+            </div>
+          ) : null}
+          {liveCallNotes.notes ? <p className="mb-4 whitespace-pre-wrap text-sm">{liveCallNotes.notes}</p> : null}
           {canWrite ? (
             <ActionForm action={addNote} className="space-y-3">
               {opportunityId ? <input type="hidden" name="opportunity_id" value={opportunityId} /> : null}

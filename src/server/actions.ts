@@ -68,6 +68,7 @@ import {
   syncOpportunityNextAction,
   upsertAutomationTasks,
 } from "@/server/pipeline-tasks";
+import { joinLiveSalesCallNotes, splitLiveSalesCallNotes } from "@/lib/live-sales-call";
 import { buildTalentRequestEmail, type TalentFacts } from "@/lib/talent-request";
 import {
   createOpportunityForLead,
@@ -862,7 +863,7 @@ export async function saveSalesCallCompleteFromBoard(formData: FormData): Promis
     company_name: optionalText(formData, "company_name"),
     client_name: optionalText(formData, "client_name"),
     status: "Complete",
-    notes: notes ?? `Sales call completed on ${callOn}`,
+    notes: joinLiveSalesCallNotes(notes, optionalText(formData, "interview_availability")) || `Sales call completed on ${callOn}`,
     tasks: items.map((item) => item.title).join("\n"),
   };
   const { data: existingCall } = await supabase.from("strategy_calls").select("id").eq("opportunity_id", opportunityId).maybeSingle();
@@ -1037,7 +1038,7 @@ export async function saveStrategyCall(_state: ActionState, formData: FormData):
     employment_type: optionalText(formData, "employment_type"),
     timezone: optionalText(formData, "timezone"),
     special_requirements: optionalText(formData, "special_requirements"),
-    notes: optionalText(formData, "notes"),
+    notes: joinLiveSalesCallNotes(optionalText(formData, "notes"), optionalText(formData, "interview_availability")),
   };
   const { data: existing } = await supabase.from("strategy_calls").select("id, status").eq("opportunity_id", opportunityId).maybeSingle();
   const { error } = existing
@@ -1535,6 +1536,7 @@ export async function loadTalentRequestDraft(leadId: string, opportunityId: stri
     experience: asText(callRow.ideal_candidate),
     special: asText(callRow.special_requirements || callRow.deal_breakers),
     startDate: asText(callRow.start_date_target),
+    interviewAvailability: splitLiveSalesCallNotes(asText(callRow.notes)).interviewAvailability || null,
   };
   const drafted = buildTalentRequestEmail(facts);
   const stored = opp?.talent_request_draft ? String(opp.talent_request_draft) : drafted.body;

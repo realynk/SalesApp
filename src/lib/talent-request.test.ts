@@ -13,6 +13,7 @@ test("talent request does not invent missing client details", () => {
   assert.match(drafted.body, /Number of VAs: 2/);
   assert.match(drafted.body, /VA role: \[Not in SalesApp yet\]/);
   assert.ok(drafted.missing.includes("VA role"));
+  assert.ok(drafted.missing.includes("Candidate Interview Availability"));
   assert.equal(missingTalentFields({ companyName: "Harbor & Co." }).includes("Client / company"), false);
 });
 
@@ -30,7 +31,10 @@ test("complete facts produce no missing list items in the checklist", () => {
     experience: "2 years",
     special: "NDA",
     startDate: "2026-11-01",
+    interviewAvailability: "Tue/Thu 2-4pm America/New_York",
   });
   assert.deepEqual(drafted.missing, []);
   assert.doesNotMatch(drafted.body, /\[Not in SalesApp yet\]/);
+  assert.match(drafted.body, /Candidate Interview Availability: Tue\/Thu 2-4pm America\/New_York/);
+  assert.doesNotMatch(drafted.body, /Interview Preference/);
 });
