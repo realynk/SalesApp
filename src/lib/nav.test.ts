@@ -24,7 +24,7 @@ test("Attention badge counts actionable items only", () => {
     attentionBadgeCount([
       { sections: ["needs"] },
       { sections: ["upcoming"] },
-      { sections: ["waiting_recruitment", "upcoming"] },
+      { sections: ["today"] },
       { sections: ["stale"] },
     ]),
     2,

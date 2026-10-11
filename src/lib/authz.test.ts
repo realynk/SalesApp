@@ -150,6 +150,8 @@ test("pipeline UX write actions stay behind requireWriter", () => {
   assert.match(actionsSource, /export async function recordCandidateProfilesSentFromBoard[\s\S]*?requireWriter/);
   assert.match(actionsSource, /export async function saveInterviewOutcomeFromBoard[\s\S]*?requireWriter/);
   assert.match(actionsSource, /export async function clearNextActionOverride[\s\S]*?requireWriter/);
+  assert.match(actionsSource, /export async function reopenFollowUp[\s\S]*?requireWriter/);
+  assert.match(actionsSource, /export async function completeFollowUp[\s\S]*?requireWriter/);
   assert.match(actionsSource, /if \(error\) return \{ error: writeFailureMessage/);
   assert.doesNotMatch(actionsSource, /if \(error && !\/talent_request_draft/);
   assert.match(actionsSource, /already marked sent\. Follow-up dates were left unchanged/);
@@ -163,6 +165,14 @@ test("pipeline UX migration adds columns without dropping RLS", () => {
   assert.match(sql, /talent_request_draft/);
   assert.match(sql, /talent_request_sent_on/);
   assert.equal(/drop policy/i.test(sql), false);
+  assert.equal(/disable row level security/i.test(sql), false);
+});
+
+test("follow-up completed_by migration is additive", () => {
+  const sql = readFileSync(join(root, "supabase/migrations/20261011010000_follow_up_completed_by.sql"), "utf8");
+  assert.match(sql, /completed_by/);
+  assert.match(sql, /add column if not exists/);
+  assert.equal(/drop /i.test(sql), false);
   assert.equal(/disable row level security/i.test(sql), false);
 });
 

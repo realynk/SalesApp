@@ -6,6 +6,7 @@ import { MeetingNotesPanel } from "@/components/meeting-notes-panel";
 import { Button } from "@/components/ui/button";
 import { SendPilotStatusControl } from "@/components/sendpilot-status-field";
 import { SALES_BOARD_COUNT_STAGES, OPPORTUNITY_STAGES, STAGE_PLAYBOOK, boardStage, stageLabel, statusDetailLabel } from "@/lib/domain";
+import { canMarkFollowUpDone } from "@/lib/attention-queue";
 import { resolveNextAction } from "@/lib/next-action";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { SENDPILOT_UNIBOX_LINK } from "@/lib/sendpilot/app-links";
@@ -15,6 +16,7 @@ import {
   clearNextActionOverride,
   completeFollowUp,
   createFollowUp,
+  reopenFollowUp,
   moveStage,
   saveNextActionOverride,
   startClient,
@@ -29,7 +31,7 @@ const TABS = [
   ["details", "Details"],
 ] as const;
 
-type FollowUp = { id: string; title: string; dueOn: string; status: string; notes?: string | null };
+type FollowUp = { id: string; title: string; dueOn: string; status: string; notes?: string | null; automationType?: string | null };
 
 export function AccountProfile({
   canWrite,
@@ -231,21 +233,29 @@ export function AccountProfile({
                     <span className="font-medium">{item.title}</span>
                     <p className="text-xs text-muted-foreground">{item.notes === "Pending schedule" ? "Pending schedule" : `Due ${formatDate(item.dueOn)}`}</p>
                   </span>
-                  {canWrite ? (
+                  {canWrite && canMarkFollowUpDone(item.automationType) ? (
                     <form action={completeFollowUp}>
                       <input type="hidden" name="follow_up_id" value={item.id} />
                       {opportunityId ? <input type="hidden" name="opportunity_id" value={opportunityId} /> : null}
                       <input type="hidden" name="lead_id" value={leadId} />
-                      <SubmitButton variant="outline">Done</SubmitButton>
+                      <SubmitButton variant="outline">Mark Done</SubmitButton>
                     </form>
                   ) : null}
                 </li>
               ))}
             </ul>
             {closedTasks.length > 0 ? (
-              <ul className="mt-3 space-y-1 text-xs text-muted-foreground">
+              <ul className="mt-3 space-y-2 text-xs text-muted-foreground">
                 {closedTasks.map((item) => (
-                  <li key={item.id}>{item.status === "cancelled" ? "Canceled" : "Done"} · {item.title} · {formatDate(item.dueOn)}</li>
+                  <li key={item.id} className="flex items-center justify-between gap-2">
+                    <span>{item.status === "cancelled" ? "Canceled" : "Done"} · {item.title} · {formatDate(item.dueOn)}</span>
+                    {canWrite && item.status === "completed" ? (
+                      <form action={reopenFollowUp}>
+                        <input type="hidden" name="follow_up_id" value={item.id} />
+                        <SubmitButton variant="outline">Reopen</SubmitButton>
+                      </form>
+                    ) : null}
+                  </li>
                 ))}
               </ul>
             ) : null}

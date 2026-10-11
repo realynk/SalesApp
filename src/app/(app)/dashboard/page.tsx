@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { AttentionList, EmptyState, KpiCard, Notice, PageHeader, SectionCard } from "@/components/bits";
+import { EmptyState, KpiCard, Notice, PageHeader } from "@/components/bits";
 import { WeekCalendar } from "@/components/week-calendar";
 import { Button } from "@/components/ui/button";
+import { commandCenterPriorities } from "@/lib/attention-queue";
 import { buildWeekTasks, type SalesBoardColumnCount } from "@/lib/domain";
 import { getCommandCenter } from "@/lib/data";
 import { firstParam } from "@/lib/format";
@@ -26,23 +27,22 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     strategyCalls: center.schedule.strategyCalls,
     unmatchedInterested: [],
   });
-  const needs = center.attention.filter((item) => item.sections.includes("needs")).slice(0, 10);
   const empty = center.opportunities.length === 0 && !center.settings.sampleLoadedAt;
+  const priorities = commandCenterPriorities(center.queueCounts);
 
   return (
     <div className="space-y-6">
       <PageHeader
         eyebrow="Command Center"
-        title="What do I do next?"
-        description="Reminders and this week’s tasks. Use Client journey to see where each lead sits."
+        title="Operations overview"
+        description="Counts and this week’s calendar. Open Attention to work the queue."
         actions={
           <Button asChild>
-            <Link href="/opportunities">Open client journey</Link>
+            <Link href="/notifications">Open Attention</Link>
           </Button>
         }
       />
       <Notice message={firstParam(query.notice)} />
-      {empty ? null : <SalesBoardCountTable rows={center.salesBoardCounts} />}
       {empty ? (
         <EmptyState
           title="No leads yet"
@@ -60,21 +60,38 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             ) : undefined
           }
         />
-      ) : null}
-      {empty ? null : <WeekCalendar today={center.today} week={firstParam(query.week)} tasks={weekTasks} notice={firstParam(query.notice)} canWrite={canWrite} />}
-      <div className="grid gap-3 sm:grid-cols-3">
-        <KpiCard label="Tagged Interested" value={String(center.kpis.interestedLeads)} detail={`${center.kpis.interestedWithoutOpportunity} still on Interested`} />
-        <KpiCard label="Sent profiles" value={String(center.kpis.profilesInReview)} />
-        <KpiCard label="Meetings this week" value={String(center.kpis.meetingsThisWeek)} />
-      </div>
-      <SectionCard
-        collapsible
-        title="Needs attention"
-        description="Overdue tasks and Interested leads that have not moved yet."
-        action={needs.length > 0 ? <span className="text-xs tabular-nums text-muted-foreground">{needs.length}</span> : undefined}
-      >
-        <AttentionList items={needs} empty="Nothing overdue right now." />
-      </SectionCard>
+      ) : (
+        <>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <KpiCard label="Active leads" value={String(center.kpis.activeLeads)} />
+            <KpiCard label="Open opportunities" value={String(center.kpis.activeOpportunities)} />
+            <KpiCard label="Due today" value={String(center.kpis.dueToday)} />
+            <KpiCard label="Overdue actions" value={String(center.kpis.overdueActions)} />
+          </div>
+          <section className="rounded-xl border border-border bg-card p-4">
+            <div className="mb-3 flex items-end justify-between gap-2">
+              <div>
+                <h2 className="text-sm font-semibold">Priority</h2>
+                <p className="mt-1 text-xs text-muted-foreground">Open Attention filtered to that queue.</p>
+              </div>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-3">
+              {priorities.map((item) => (
+                <Link
+                  key={item.key}
+                  href={item.href}
+                  className="rounded-lg border border-border px-3 py-2 hover:bg-accent/40"
+                >
+                  <p className="text-xs text-muted-foreground">{item.label}</p>
+                  <p className="mt-1 font-mono text-xl tabular-nums leading-none">{item.count}</p>
+                </Link>
+              ))}
+            </div>
+          </section>
+          <SalesBoardCountTable rows={center.salesBoardCounts} />
+          <WeekCalendar today={center.today} week={firstParam(query.week)} tasks={weekTasks} notice={firstParam(query.notice)} />
+        </>
+      )}
     </div>
   );
 }
@@ -93,9 +110,9 @@ function SalesBoardCountTable({ rows }: { rows: SalesBoardColumnCount[] }) {
     <section className="overflow-hidden rounded-xl border border-border bg-card">
       <div className="flex flex-wrap items-end justify-between gap-2 border-b border-border px-4 py-3">
         <div>
-          <h2 className="text-sm font-semibold">Client journey now</h2>
+          <h2 className="text-sm font-semibold">Pipeline snapshot</h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            Current counts from Interested through Trial period. Won, Lost, Nurture, and Client Started are omitted. Cards stay on Client journey.
+            Current counts from Interested through Trial period. Cards stay on Client journey.
           </p>
         </div>
         <Link href="/opportunities" className="text-sm font-medium text-primary hover:underline">

@@ -634,6 +634,8 @@ export type AttentionItem = {
   href: string;
   dueOn: string | null;
   sections: AttentionSection[];
+  opportunityId?: string | null;
+  leadId?: string | null;
 };
 
 type AttentionOpportunity = {
@@ -752,6 +754,7 @@ export type WeekTask = {
   followUpId?: string;
   opportunityId?: string | null;
   leadId?: string | null;
+  automationType?: string | null;
 };
 
 const WEEK_TASK_LABEL: Record<WeekTaskKind, string> = {
@@ -814,6 +817,7 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
       followUpId: followUp.id,
       opportunityId: followUp.opportunityId,
       leadId: followUp.leadId,
+      automationType: followUp.automationType,
     });
   }
 
@@ -1169,6 +1173,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
         detail: `${request.status} · target was ${request.targetOn}`,
         href: `/recruitment/${request.id}`,
         dueOn: request.targetOn,
+        opportunityId: request.opportunityId,
         sections: ["needs", "waiting_recruitment", "at_risk"],
       });
     } else if (withinWindow(input.today, request.targetOn, input.approachingWindowDays)) {
@@ -1180,6 +1185,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
         detail: `${request.status} · target ${request.targetOn}`,
         href: `/recruitment/${request.id}`,
         dueOn: request.targetOn,
+        opportunityId: request.opportunityId,
         sections: delta === 0 ? ["today", "waiting_recruitment"] : ["upcoming", "waiting_recruitment"],
       });
     }

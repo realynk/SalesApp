@@ -203,13 +203,40 @@ export async function completeAutomationType(supabase: Db, opportunityId: string
   }
 }
 
-export async function completeLinkedTaskRecords(supabase: Db, followUpId: string) {
-  await supabase.from("follow_ups").update({ status: "completed", completed_at: new Date().toISOString() }).eq("id", followUpId);
+export async function completeLinkedTaskRecords(supabase: Db, followUpId: string, userId?: string | null) {
+  const completedAt = new Date().toISOString();
+  let updated = await supabase.from("follow_ups").update({
+    status: "completed",
+    completed_at: completedAt,
+    completed_by: userId ?? null,
+  }).eq("id", followUpId);
+  if (updated.error && /completed_by|PGRST204/i.test(`${updated.error.code ?? ""} ${updated.error.message ?? ""}`)) {
+    updated = await supabase.from("follow_ups").update({ status: "completed", completed_at: completedAt }).eq("id", followUpId);
+  }
+  if (updated.error) return { error: writeFailureMessage(updated.error, "The follow-up could not be completed.") };
   await supabase.from("tasks").update({ status: "done" }).eq("follow_up_id", followUpId).eq("status", "open");
   const follow = await supabase.from("follow_ups").select("automation_key").eq("id", followUpId).maybeSingle();
   const key = follow.data ? String((follow.data as { automation_key?: string | null }).automation_key ?? "") : "";
   if (key) {
     await supabase.from("tasks").update({ status: "done" }).eq("automation_key", key).eq("status", "open");
+  }
+}
+
+export async function reopenLinkedTaskRecords(supabase: Db, followUpId: string) {
+  let updated = await supabase.from("follow_ups").update({
+    status: "open",
+    completed_at: null,
+    completed_by: null,
+  }).eq("id", followUpId).eq("status", "completed");
+  if (updated.error && /completed_by|PGRST204/i.test(`${updated.error.code ?? ""} ${updated.error.message ?? ""}`)) {
+    updated = await supabase.from("follow_ups").update({ status: "open", completed_at: null }).eq("id", followUpId).eq("status", "completed");
+  }
+  if (updated.error) return { error: writeFailureMessage(updated.error, "The follow-up could not be reopened.") };
+  await supabase.from("tasks").update({ status: "open" }).eq("follow_up_id", followUpId).in("status", ["done"]);
+  const follow = await supabase.from("follow_ups").select("automation_key").eq("id", followUpId).maybeSingle();
+  const key = follow.data ? String((follow.data as { automation_key?: string | null }).automation_key ?? "") : "";
+  if (key) {
+    await supabase.from("tasks").update({ status: "open" }).eq("automation_key", key).eq("status", "done");
   }
 }
 

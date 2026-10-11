@@ -33,6 +33,7 @@ import { inReportingRange, reportingStartOn, type ReportingDuration } from "@/li
 import { reviewRecordOrigin, type ReviewOrigin } from "@/lib/review-origin";
 import { mapSendPilotLeadSources, type SendPilotLeadSource } from "@/lib/sendpilot/lead-sources";
 import { backfillMissingInterestedOpportunities } from "@/lib/opportunity-start";
+import { attentionQueueCounts, buildAttentionQueue } from "@/lib/attention-queue";
 import { canWriteCrm } from "@/lib/authz";
 import { requireUser } from "@/server/session";
 
@@ -189,10 +190,11 @@ export const getCommandCenter = cache(async () => {
   const { supabase, profile } = await requireUser();
   const settings = await getSettings();
   const today = todayInTimeZone(settings.businessTimezone);
-  const [opportunityResult, followResult, batchResult, recruitmentResult, interviewResult, contractResult, callResult, leadResult, clientResult, notInterestedResult] =
+  const [opportunityResult, followResult, completedFollowResult, batchResult, recruitmentResult, interviewResult, contractResult, callResult, leadResult, clientResult, notInterestedResult] =
     await Promise.all([
       supabase.from("opportunities").select(OPPORTUNITY_SELECT).limit(500),
       loadAllOpenFollowUps(supabase),
+      loadRecentCompletedFollowUps(supabase),
       supabase.from("profile_batches").select("id, opportunity_id, sent_on, profile_count, client_response, follow_up_on").limit(300),
       supabase.from("recruitment_requests").select("id, opportunity_id, status, target_on, company_name, urgent").limit(300),
       supabase.from("interviews").select("id, opportunity_id, candidate_name, client_name, interview_at, status").limit(300),
@@ -214,6 +216,7 @@ export const getCommandCenter = cache(async () => {
     : opportunityResult;
   raiseIf(loadedOpportunities.error);
   raiseIf(followResult.error);
+  raiseIf(completedFollowResult.error);
   raiseIf(batchResult.error);
   raiseIf(recruitmentResult.error);
   raiseIf(interviewResult.error);
@@ -284,40 +287,42 @@ export const getCommandCenter = cache(async () => {
     contactByLead.set(String(item.id), fullName(str(contact?.first_name), str(contact?.last_name)));
   }
 
-  const followUps = rows(followResult.data)
-    .map((item) => {
-      const opportunityId = str(item.opportunity_id);
-      const leadId = str(item.lead_id);
-      return {
-        id: String(item.id),
-        opportunityId,
-        leadId,
-        title: str(item.title) ?? "Follow-up",
-        dueOn: str(item.due_on) ?? today,
-        status: "open" as const,
-        urgent: bool(item.urgent),
-        pendingSchedule: bool(item.pending_schedule),
-        automationType: str(item.automation_type),
-        companyName:
-          (opportunityId ? companyByOpportunity.get(opportunityId) : null) ??
-          (leadId ? companyByLead.get(leadId) : null) ??
-          "Follow-up",
-        contactName:
-          (opportunityId ? contactByOpportunity.get(opportunityId) : null) ??
-          (leadId ? contactByLead.get(leadId) : null) ??
-          null,
-      };
-    })
-    .filter((item) => {
-      if (item.leadId && archivedIds.has(item.leadId)) return false;
-      if (item.opportunityId && archivedOpportunityIds.has(item.opportunityId)) return false;
-      return belongsToCurrentLeadOrJourney({
-        leadId: item.leadId,
-        opportunityId: item.opportunityId,
-        currentLeadIds,
-        opportunityLeadIds,
-      });
+  const mapCenterFollowUp = (item: Row, status: "open" | "completed") => {
+    const opportunityId = str(item.opportunity_id);
+    const leadId = str(item.lead_id);
+    return {
+      id: String(item.id),
+      opportunityId,
+      leadId,
+      title: str(item.title) ?? "Follow-up",
+      dueOn: str(item.due_on) ?? today,
+      status,
+      urgent: bool(item.urgent),
+      pendingSchedule: bool(item.pending_schedule),
+      automationType: str(item.automation_type),
+      completedAt: str(item.completed_at),
+      companyName:
+        (opportunityId ? companyByOpportunity.get(opportunityId) : null) ??
+        (leadId ? companyByLead.get(leadId) : null) ??
+        "Follow-up",
+      contactName:
+        (opportunityId ? contactByOpportunity.get(opportunityId) : null) ??
+        (leadId ? contactByLead.get(leadId) : null) ??
+        null,
+    };
+  };
+  const keepFollowUp = (item: { leadId: string | null; opportunityId: string | null }) => {
+    if (item.leadId && archivedIds.has(item.leadId)) return false;
+    if (item.opportunityId && archivedOpportunityIds.has(item.opportunityId)) return false;
+    return belongsToCurrentLeadOrJourney({
+      leadId: item.leadId,
+      opportunityId: item.opportunityId,
+      currentLeadIds,
+      opportunityLeadIds,
     });
+  };
+  const followUps = rows(followResult.data).map((item) => mapCenterFollowUp(item, "open")).filter(keepFollowUp);
+  const completedFollowUps = rows(completedFollowResult.data).map((item) => mapCenterFollowUp(item, "completed")).filter(keepFollowUp);
 
   const profileBatches = rows(batchResult.data)
     .map((item) => ({
@@ -460,6 +465,8 @@ export const getCommandCenter = cache(async () => {
     unmatchedInterested,
     recentNotInterested,
   });
+  const queue = buildAttentionQueue({ today, attention, followUps, completedFollowUps });
+  const queueCounts = attentionQueueCounts(queue);
 
   const weekStart = startOfWeek(today);
   const weekEnd = addDaysLocal(weekStart, 6);
@@ -482,10 +489,15 @@ export const getCommandCenter = cache(async () => {
     settings,
     today,
     attention,
+    queue,
+    queueCounts,
     opportunities,
     salesBoardCounts,
     kpis: {
+      activeLeads: currentLeadIds.size,
       activeOpportunities: activeCount,
+      overdueActions: queueCounts.overdue,
+      dueToday: queueCounts.today,
       nurture: opportunities.filter((item) => item.status === "nurture").length,
       interestedLeads: rows(loadedLeads.data).length,
       interestedWithoutOpportunity: unmatchedInterested.length,
@@ -643,11 +655,12 @@ function missingAccountFlagColumn(error: { message?: string; code?: string } | n
 }
 
 function missingAutomationColumn(error: { message?: string; code?: string } | null) {
-  return Boolean(error && (error.code === "PGRST204" || /automation_key|automation_type|urgent|pending_schedule|target_start_on|next_action_manual|talent_request/i.test(error.message ?? "")));
+  return Boolean(error && (error.code === "PGRST204" || /automation_key|automation_type|urgent|pending_schedule|target_start_on|next_action_manual|talent_request|completed_by/i.test(error.message ?? "")));
 }
 
-const FOLLOW_UP_SELECT = "id, opportunity_id, lead_id, title, due_on, status, reason, notes, urgent, pending_schedule, automation_type";
+const FOLLOW_UP_SELECT = "id, opportunity_id, lead_id, title, due_on, status, reason, notes, urgent, pending_schedule, automation_type, completed_at, completed_by";
 const FOLLOW_UP_SELECT_FALLBACK = "id, opportunity_id, lead_id, title, due_on, status, reason, notes";
+const FOLLOW_UP_SELECT_COMPLETED = "id, opportunity_id, lead_id, title, due_on, status, reason, notes, urgent, pending_schedule, automation_type, completed_at";
 
 async function loadAllOpenFollowUps(supabase: Awaited<ReturnType<typeof requireUser>>["supabase"]) {
   const pageSize = 500;
@@ -661,8 +674,16 @@ async function loadAllOpenFollowUps(supabase: Awaited<ReturnType<typeof requireU
       .eq("status", "open")
       .order("due_on")
       .range(from, from + pageSize - 1);
+    if (result.error && /completed_by/i.test(`${result.error.code ?? ""} ${result.error.message ?? ""}`) && select === FOLLOW_UP_SELECT) {
+      select = FOLLOW_UP_SELECT_COMPLETED;
+      collected.length = 0;
+      from = 0;
+      continue;
+    }
     if (missingAutomationColumn(result.error) && select !== FOLLOW_UP_SELECT_FALLBACK) {
       select = FOLLOW_UP_SELECT_FALLBACK;
+      collected.length = 0;
+      from = 0;
       continue;
     }
     if (result.error) return result;
@@ -672,6 +693,28 @@ async function loadAllOpenFollowUps(supabase: Awaited<ReturnType<typeof requireU
     from += pageSize;
   }
   return { data: collected, error: null };
+}
+
+async function loadRecentCompletedFollowUps(supabase: Awaited<ReturnType<typeof requireUser>>["supabase"]) {
+  let select = FOLLOW_UP_SELECT;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const result = await supabase
+      .from("follow_ups")
+      .select(select)
+      .eq("status", "completed")
+      .order("completed_at", { ascending: false })
+      .limit(80);
+    if (result.error && /completed_by|PGRST204/i.test(`${result.error.code ?? ""} ${result.error.message ?? ""}`) && select === FOLLOW_UP_SELECT) {
+      select = FOLLOW_UP_SELECT_COMPLETED;
+      continue;
+    }
+    if (missingAutomationColumn(result.error) && select !== FOLLOW_UP_SELECT_FALLBACK) {
+      select = FOLLOW_UP_SELECT_FALLBACK;
+      continue;
+    }
+    return result;
+  }
+  return { data: [], error: null };
 }
 
 export async function listSendPilotSourcesByLeadIds(leadIds: string[]): Promise<Map<string, SendPilotLeadSource[]>> {
@@ -749,7 +792,7 @@ export async function getLead(id: string) {
   const [activities, opportunityResult, followUps, notes] = await Promise.all([
     supabase.from("activities").select("id, type, title, body, occurred_at").eq("lead_id", id).order("occurred_at", { ascending: false }).limit(100),
     supabase.from("opportunities").select("id, stage, status, title, next_action, next_action_date").eq("lead_id", id).order("created_at", { ascending: false }).limit(5),
-    supabase.from("follow_ups").select("id, title, due_on, status, reason, notes, completed_at").eq("lead_id", id).order("due_on"),
+    supabase.from("follow_ups").select("id, title, due_on, status, reason, notes, completed_at, automation_type").eq("lead_id", id).order("due_on"),
     supabase.from("notes").select("id, body, created_at").eq("lead_id", id).order("created_at", { ascending: false }),
   ]);
   raiseIf(activities.error);
@@ -801,6 +844,7 @@ export async function getLead(id: string) {
       reason: str(item.reason),
       notes: str(item.notes),
       completedAt: str(item.completed_at),
+      automationType: str(item.automation_type),
     })),
     notes: rows(notes.data).map((item) => ({ id: String(item.id), body: str(item.body) ?? "", createdAt: str(item.created_at) })),
   };
@@ -852,7 +896,7 @@ export async function getOpportunity(id: string) {
   const [activities, history, followUps, strategy, recruitment, batches, interviews, contract, client, notes, documents, tasks] = await Promise.all([
     supabase.from("activities").select("id, type, title, body, occurred_at").or(`opportunity_id.eq.${id},lead_id.eq.${summary.leadId}`).order("occurred_at", { ascending: false }).limit(200),
     supabase.from("pipeline_stage_history").select("id, previous_stage, new_stage, changed_at, note").eq("opportunity_id", id).order("changed_at", { ascending: false }),
-    supabase.from("follow_ups").select("id, title, due_on, status, reason, notes, completed_at").eq("opportunity_id", id).order("due_on"),
+    supabase.from("follow_ups").select("id, title, due_on, status, reason, notes, completed_at, automation_type").eq("opportunity_id", id).order("due_on"),
     supabase.from("strategy_calls").select("*").eq("opportunity_id", id).maybeSingle(),
     supabase.from("recruitment_requests").select("*, candidates(*)").eq("opportunity_id", id).maybeSingle(),
     supabase.from("profile_batches").select("*, profile_batch_candidates(candidate_id)").eq("opportunity_id", id).order("sent_on", { ascending: false }),
@@ -914,6 +958,7 @@ export async function getOpportunity(id: string) {
       reason: str(item.reason),
       notes: str(item.notes),
       completedAt: str(item.completed_at),
+      automationType: str(item.automation_type),
     })),
     strategyCall: strategy.data ? (strategy.data as Row) : null,
     recruitment: recruitment.data ? (recruitment.data as Row) : null,
