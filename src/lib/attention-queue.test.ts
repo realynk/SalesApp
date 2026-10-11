@@ -79,10 +79,9 @@ test("Mark Done is blocked for required workflow reminders", () => {
 test("queue keeps one row per follow-up and drops the matching next-action copy", () => {
   const attention = sampleAttention();
   const queue = buildAttentionQueue({ today: "2026-10-10", attention, followUps: [followA, followB] });
-  const acme = queue.filter((item) => item.companyName.includes("Acme") || item.title.includes("LinkedIn"));
   assert.equal(queue.filter((item) => item.followUpId === followA.id).length, 1);
   assert.equal(queue.some((item) => item.id === `next-${followA.opportunityId}`), false);
-  assert.ok(acme.length >= 1);
+  assert.ok(queue.some((item) => item.followUpId === followA.id && item.title.includes("LinkedIn")));
 });
 
 test("Lead B stays on the queue when Lead A is completed", () => {
@@ -285,6 +284,87 @@ test("week calendar is planning-only and does not complete work", () => {
   const calendar = readFileSync(join(root, "src/components/week-calendar.tsx"), "utf8");
   assert.equal(calendar.includes("completeFollowUp"), false);
   assert.match(calendar, /Mark work done on Attention/);
+});
+
+test("two leads at the same company keep their own names on Attention", () => {
+  const followAda = {
+    id: "fu-ada",
+    opportunityId: "opp-ada",
+    leadId: "lead-ada",
+    title: "First LinkedIn Follow-Up",
+    dueOn: "2026-10-09",
+    status: "open" as const,
+    companyName: "Acme",
+    contactName: "Ada Cole",
+    automationType: "interested_follow_1",
+  };
+  const followBen = {
+    id: "fu-ben",
+    opportunityId: "opp-ben",
+    leadId: "lead-ben",
+    title: "First LinkedIn Follow-Up",
+    dueOn: "2026-10-10",
+    status: "open" as const,
+    companyName: "Acme",
+    contactName: "Ben Cole",
+    automationType: "interested_follow_1",
+  };
+  const queue = buildAttentionQueue({
+    today: "2026-10-10",
+    attention: [],
+    followUps: [followAda, followBen],
+  });
+  const ada = queue.find((item) => item.followUpId === "fu-ada");
+  const ben = queue.find((item) => item.followUpId === "fu-ben");
+  assert.equal(ada?.subjectLabel, "Ada Cole");
+  assert.equal(ben?.subjectLabel, "Ben Cole");
+  assert.equal(ada?.href, "/opportunities/opp-ada");
+  assert.equal(ben?.href, "/opportunities/opp-ben");
+  assert.equal(ada?.opportunityId, "opp-ada");
+  assert.equal(ben?.opportunityId, "opp-ben");
+  assert.notEqual(ada?.subjectLabel, ben?.subjectLabel);
+  assert.equal(filterAttentionQueue(queue, "open").length, 2);
+  assert.equal(filterAttentionQueue(queue, "overdue").every((item) => item.view === "overdue"), true);
+  assert.equal(queue.some((item) => item.subjectLabel === "Acme"), false);
+});
+
+test("Attention queue grouping and navigation do not use the display label", () => {
+  const queue = buildAttentionQueue({
+    today: "2026-10-10",
+    attention: [],
+    followUps: [
+      {
+        id: "fu-1",
+        opportunityId: "opp-1",
+        leadId: "lead-1",
+        title: "Call back",
+        dueOn: "2026-10-09",
+        status: "open",
+        companyName: "Acme",
+        contactName: "Ada Cole",
+      },
+      {
+        id: "fu-2",
+        opportunityId: "opp-2",
+        leadId: "lead-2",
+        title: "Call back",
+        dueOn: "2026-10-09",
+        status: "open",
+        companyName: "Acme",
+        contactName: "Ben Cole",
+      },
+    ],
+  });
+  const overdue = filterAttentionQueue(queue, "overdue");
+  assert.equal(overdue.length, 2);
+  assert.deepEqual(
+    overdue.map((item) => item.opportunityId).sort(),
+    ["opp-1", "opp-2"],
+  );
+  assert.deepEqual(
+    overdue.map((item) => item.href).sort(),
+    ["/opportunities/opp-1", "/opportunities/opp-2"],
+  );
 });
 
 test("write actions stay behind requireWriter and do not unscoped-cancel", () => {

@@ -18,7 +18,7 @@ export type AttentionQueueItem = {
   opportunityId: string | null;
   leadId: string | null;
   title: string;
-  companyName: string;
+  subjectLabel: string;
   dueOn: string | null;
   completedAt: string | null;
   view: AttentionView;
@@ -75,7 +75,7 @@ function followUpQueueItem(item: QueueFollowUp, today: string): AttentionQueueIt
     opportunityId: item.opportunityId,
     leadId: item.leadId,
     title: item.title,
-    companyName: personDisplayName({ fullName: item.contactName, companyName: item.companyName }),
+    subjectLabel: personDisplayName({ fullName: item.contactName, companyName: item.companyName }),
     dueOn: item.dueOn,
     completedAt: item.completedAt ?? null,
     view,
@@ -142,7 +142,7 @@ function signalQueueItem(item: AttentionItem): AttentionQueueItem {
     opportunityId,
     leadId,
     title: item.title,
-    companyName: item.detail,
+    subjectLabel: item.detail,
     dueOn: item.dueOn,
     completedAt: null,
     view,

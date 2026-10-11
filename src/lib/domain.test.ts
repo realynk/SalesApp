@@ -606,6 +606,78 @@ test("attention surfaces urgent, pending-schedule, and review recommendations", 
   assert.ok(items.some((item) => item.kind === "suggest_nurture"));
 });
 
+test("same-company leads keep the linked contact on Attention and the week calendar", () => {
+  const input = {
+    today: "2026-10-10",
+    staleAfterDays: 10,
+    profilesWaitingDays: 5,
+    approachingWindowDays: 3,
+    opportunities: [
+      {
+        id: "opp-ada",
+        title: "Acme — virtual staff",
+        companyName: "Acme",
+        contactName: "Ada Cole",
+        stage: "Interested" as const,
+        status: "active" as const,
+        riskLevel: "low" as const,
+        waitingOn: "internal" as const,
+        nextAction: "First LinkedIn Follow-Up",
+        nextActionDate: "2026-10-09",
+        lastActivityOn: "2026-10-08",
+      },
+      {
+        id: "opp-ben",
+        title: "Acme — virtual staff",
+        companyName: "Acme",
+        contactName: "Ben Cole",
+        stage: "Strategy Call Scheduled" as const,
+        status: "active" as const,
+        riskLevel: "low" as const,
+        waitingOn: "client" as const,
+        nextAction: "Hold the strategy call",
+        nextActionDate: "2026-10-11",
+        lastActivityOn: "2026-10-09",
+      },
+    ],
+    followUps: [
+      {
+        id: "fu-ada",
+        opportunityId: "opp-ada",
+        leadId: "lead-ada",
+        title: "First LinkedIn Follow-Up",
+        dueOn: "2026-10-09",
+        status: "open" as const,
+        companyName: "Acme",
+      },
+    ],
+    profileBatches: [],
+    recruitment: [],
+    interviews: [],
+    contracts: [],
+    strategyCalls: [{ opportunityId: "opp-ben", companyName: "Acme", callOn: "2026-10-11", status: "Scheduled" }],
+    unmatchedInterested: [],
+  };
+  const attention = buildAttention(input);
+  const adaFollowUp = attention.find((item) => item.id === "follow-up-fu-ada");
+  const benCall = attention.find((item) => item.id === "call-opp-ben");
+  assert.match(String(adaFollowUp?.detail), /Ada Cole/);
+  assert.equal(adaFollowUp?.detail.includes("Ben Cole"), false);
+  assert.match(String(benCall?.title), /Ben Cole/);
+  assert.equal(String(benCall?.title).includes("Ada Cole"), false);
+  assert.equal(adaFollowUp?.href, "/opportunities/opp-ada");
+  assert.equal(benCall?.href, "/opportunities/opp-ben");
+
+  const tasks = buildWeekTasks(input);
+  const adaChip = tasks.find((task) => task.followUpId === "fu-ada");
+  const benChip = tasks.find((task) => task.kind === "strategy_call" && task.href === "/opportunities/opp-ben");
+  assert.equal(adaChip?.contact, "Ada Cole");
+  assert.equal(benChip?.contact, "Ben Cole");
+  assert.equal(adaChip?.href, "/opportunities/opp-ada");
+  assert.equal(benChip?.href, "/opportunities/opp-ben");
+  assert.notEqual(adaChip?.contact, benChip?.contact);
+});
+
 test("View LinkedIn uses only the stored LinkedIn URL and does not invent one", () => {
   assert.equal(
     storedLinkedInHref("https://www.linkedin.com/in/marcus-dardin"),
