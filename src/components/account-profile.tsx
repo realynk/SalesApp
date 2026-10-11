@@ -11,7 +11,8 @@ import { resolveNextAction } from "@/lib/next-action";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { SENDPILOT_UNIBOX_LINK } from "@/lib/sendpilot/app-links";
 import { storedLinkedInHref } from "@/lib/domain";
-import { INTERVIEW_AVAILABILITY_LABEL, splitLiveSalesCallNotes } from "@/lib/live-sales-call";
+import { LiveSalesCallForm } from "@/components/live-sales-call-form";
+import { emptyLiveSalesCallValues, INTERVIEW_AVAILABILITY_LABEL, splitLiveSalesCallNotes, type LiveSalesCallValues } from "@/lib/live-sales-call";
 import {
   addNote,
   clearNextActionOverride,
@@ -60,6 +61,7 @@ export function AccountProfile({
   lostReason,
   talentRequestSentOn,
   strategyNotes,
+  liveSalesCall,
   recruitmentStatus,
   contractStatus,
   targetStartOn,
@@ -95,6 +97,7 @@ export function AccountProfile({
   lostReason?: string | null;
   talentRequestSentOn?: string | null;
   strategyNotes?: string | null;
+  liveSalesCall?: LiveSalesCallValues;
   recruitmentStatus?: string | null;
   contractStatus?: string | null;
   targetStartOn?: string | null;
@@ -193,26 +196,43 @@ export function AccountProfile({
       </nav>
 
       {currentTab === "overview" ? (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <SectionCard title="Now" description="What needs attention for this account.">
-            <ul className="space-y-2 text-sm">
-              {openTasks.slice(0, 5).map((item) => (
-                <li key={item.id}>
-                  <span className="font-medium">{item.title}</span>
-                  <span className="text-muted-foreground"> · {formatDate(item.dueOn)}</span>
-                </li>
-              ))}
-              {openTasks.length === 0 ? <li className="text-muted-foreground">No open tasks.</li> : null}
-            </ul>
-          </SectionCard>
-          <SectionCard title="Recent activity">
-            <ul className="space-y-2 text-sm">
-              {activities.slice(0, 6).map((item) => (
-                <li key={item.id}>{item.title}<span className="text-xs text-muted-foreground"> · {formatDateTime(item.occurredAt)}</span></li>
-              ))}
-              {activities.length === 0 ? <li className="text-muted-foreground">Nothing logged yet.</li> : null}
-            </ul>
-          </SectionCard>
+        <div className="space-y-4">
+          <div className="grid gap-4 lg:grid-cols-2">
+            <SectionCard title="Now" description="What needs attention for this account.">
+              <ul className="space-y-2 text-sm">
+                {openTasks.slice(0, 5).map((item) => (
+                  <li key={item.id}>
+                    <span className="font-medium">{item.title}</span>
+                    <span className="text-muted-foreground"> · {formatDate(item.dueOn)}</span>
+                  </li>
+                ))}
+                {openTasks.length === 0 ? <li className="text-muted-foreground">No open tasks.</li> : null}
+              </ul>
+            </SectionCard>
+            <SectionCard title="Recent activity">
+              <ul className="space-y-2 text-sm">
+                {activities.slice(0, 6).map((item) => (
+                  <li key={item.id}>{item.title}<span className="text-xs text-muted-foreground"> · {formatDateTime(item.occurredAt)}</span></li>
+                ))}
+                {activities.length === 0 ? <li className="text-muted-foreground">Nothing logged yet.</li> : null}
+              </ul>
+            </SectionCard>
+          </div>
+          {opportunityId ? (
+            <SectionCard
+              title="Live sales call"
+              description="Open this during the call. Saving a draft does not complete the call or move the pipeline."
+            >
+              <LiveSalesCallForm
+                canWrite={canWrite}
+                leadId={leadId}
+                opportunityId={opportunityId}
+                companyName={companyName}
+                contactName={contactName}
+                initial={liveSalesCall ?? emptyLiveSalesCallValues()}
+              />
+            </SectionCard>
+          ) : null}
         </div>
       ) : null}
 
@@ -283,6 +303,21 @@ export function AccountProfile({
           {canWrite && opportunityId ? (
             <SectionCard title="Journey actions" description="These open the same dialogs as the board. Automation runs after you save.">
               <WorkActions leadId={leadId} opportunityId={opportunityId} companyName={companyName} contactName={contactName} />
+            </SectionCard>
+          ) : null}
+          {opportunityId ? (
+            <SectionCard
+              title="Live sales call"
+              description="Open this during the call. Saving a draft does not complete the call or move the pipeline."
+            >
+              <LiveSalesCallForm
+                canWrite={canWrite}
+                leadId={leadId}
+                opportunityId={opportunityId}
+                companyName={companyName}
+                contactName={contactName}
+                initial={liveSalesCall ?? emptyLiveSalesCallValues()}
+              />
             </SectionCard>
           ) : null}
           {stage === "Strategy Call Scheduled" || stage === "Strategy Call Complete" || stage === "Requirements Captured" || stage === "Recruitment" ? (

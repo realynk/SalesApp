@@ -68,7 +68,14 @@ import {
   syncOpportunityNextAction,
   upsertAutomationTasks,
 } from "@/server/pipeline-tasks";
-import { joinLiveSalesCallNotes, splitLiveSalesCallNotes } from "@/lib/live-sales-call";
+import {
+  draftStatusForLiveSalesCall,
+  emptyLiveSalesCallValues,
+  joinLiveSalesCallNotes,
+  liveSalesCallValuesFromRow,
+  splitLiveSalesCallNotes,
+  type LiveSalesCallValues,
+} from "@/lib/live-sales-call";
 import { buildTalentRequestEmail, type TalentFacts } from "@/lib/talent-request";
 import {
   createOpportunityForLead,
@@ -857,16 +864,40 @@ export async function saveSalesCallCompleteFromBoard(formData: FormData): Promis
     opportunityId = created.id;
   }
 
+  const { data: existingCall } = await supabase.from("strategy_calls").select("*").eq("opportunity_id", opportunityId).maybeSingle();
+  const existingRow = (existingCall ?? {}) as Record<string, string | number | null>;
+  const existingSplit = splitLiveSalesCallNotes(typeof existingRow.notes === "string" ? existingRow.notes : null);
+  const keep = (key: string, fallback: string | number | null | undefined = null) =>
+    optionalText(formData, key) ?? (existingRow[key] == null || existingRow[key] === "" ? fallback : existingRow[key]);
   const callPayload = {
     opportunity_id: opportunityId,
     call_on: callOn,
-    company_name: optionalText(formData, "company_name"),
-    client_name: optionalText(formData, "client_name"),
+    company_name: keep("company_name"),
+    client_name: keep("client_name"),
     status: "Complete",
-    notes: joinLiveSalesCallNotes(notes, optionalText(formData, "interview_availability")) || `Sales call completed on ${callOn}`,
-    tasks: items.map((item) => item.title).join("\n"),
+    notes:
+      joinLiveSalesCallNotes(
+        notes ?? existingSplit.notes,
+        optionalText(formData, "interview_availability") ?? existingSplit.interviewAvailability,
+      ) || `Sales call completed on ${callOn}`,
+    tasks: optionalText(formData, "tasks") ?? existingRow.tasks ?? items.map((item) => item.title).join("\n"),
+    headcount_requirement: optionalNumber(formData, "headcount_requirement") ?? existingRow.headcount_requirement,
+    work_arrangement: keep("work_arrangement"),
+    schedule: keep("schedule"),
+    preferred_virtual_staff: keep("preferred_virtual_staff"),
+    tools: keep("tools"),
+    start_date_target: dateField(formData, "start_date_target") ?? existingRow.start_date_target,
+    client_billing_rate: optionalNumber(formData, "client_billing_rate") ?? existingRow.client_billing_rate,
+    ideal_candidate: keep("ideal_candidate"),
+    deal_breakers: keep("deal_breakers"),
+    current_staffing: keep("current_staffing"),
+    reason_for_hiring: keep("reason_for_hiring"),
+    main_pain_point: keep("main_pain_point"),
+    urgency: keep("urgency"),
+    budget: keep("budget"),
+    timezone: keep("timezone"),
+    special_requirements: keep("special_requirements"),
   };
-  const { data: existingCall } = await supabase.from("strategy_calls").select("id").eq("opportunity_id", opportunityId).maybeSingle();
   const { error: callError } = existingCall
     ? await supabase.from("strategy_calls").update(callPayload).eq("opportunity_id", opportunityId)
     : await supabase.from("strategy_calls").insert(callPayload);
@@ -902,6 +933,68 @@ export async function saveSalesCallCompleteFromBoard(formData: FormData): Promis
 
   refresh("/opportunities", "/leads", "/dashboard", "/follow-ups", `/leads/${leadId}`, `/opportunities/${opportunityId}`);
   return { success: "Sales call marked complete. Review notes and the talent request are on reminders and the week calendar." };
+}
+
+export async function loadLiveSalesCall(opportunityId: string | null): Promise<{ error: string } | { values: LiveSalesCallValues }> {
+  await requireUser();
+  if (!opportunityId || !isUuid(opportunityId)) return { values: emptyLiveSalesCallValues() };
+  const { supabase } = await requireUser();
+  const { data, error } = await supabase.from("strategy_calls").select("*").eq("opportunity_id", opportunityId).maybeSingle();
+  if (error) return { error: writeFailureMessage(error, "The live sales call could not be loaded.") };
+  return { values: liveSalesCallValuesFromRow((data ?? null) as Record<string, unknown> | null) };
+}
+
+export async function saveLiveSalesCallDraft(formData: FormData): Promise<ActionState> {
+  const { supabase, userId } = await requireWriter();
+  const opportunityId = text(formData, "opportunity_id");
+  const leadId = optionalText(formData, "lead_id");
+  if (!isUuid(opportunityId)) return { error: "Open the opportunity before saving the live sales call." };
+  const { data: existing } = await supabase.from("strategy_calls").select("id, status").eq("opportunity_id", opportunityId).maybeSingle();
+  const status = draftStatusForLiveSalesCall((existing as { status?: string } | null)?.status);
+  const headcount = optionalNumber(formData, "headcount_requirement");
+  const rate = optionalNumber(formData, "client_billing_rate");
+  if (Number.isNaN(headcount) || Number.isNaN(rate)) return { error: "Headcount must be a number." };
+  const payload = {
+    opportunity_id: opportunityId,
+    call_on: dateField(formData, "call_on"),
+    client_name: optionalText(formData, "client_name"),
+    company_name: optionalText(formData, "company_name"),
+    headcount_requirement: headcount,
+    work_arrangement: optionalText(formData, "work_arrangement"),
+    schedule: optionalText(formData, "schedule"),
+    preferred_virtual_staff: optionalText(formData, "preferred_virtual_staff"),
+    tools: optionalText(formData, "tools"),
+    start_date_target: dateField(formData, "start_date_target"),
+    client_billing_rate: rate,
+    status,
+    tasks: optionalText(formData, "tasks"),
+    ideal_candidate: optionalText(formData, "ideal_candidate"),
+    deal_breakers: optionalText(formData, "deal_breakers"),
+    current_staffing: optionalText(formData, "current_staffing"),
+    reason_for_hiring: optionalText(formData, "reason_for_hiring"),
+    main_pain_point: optionalText(formData, "main_pain_point"),
+    urgency: optionalText(formData, "urgency"),
+    budget: optionalText(formData, "budget"),
+    timezone: optionalText(formData, "timezone"),
+    special_requirements: optionalText(formData, "special_requirements"),
+    notes: joinLiveSalesCallNotes(optionalText(formData, "notes"), optionalText(formData, "interview_availability")),
+  };
+  const { error } = existing
+    ? await supabase.from("strategy_calls").update(payload).eq("opportunity_id", opportunityId)
+    : await supabase.from("strategy_calls").insert(payload);
+  if (error) return { error: actionError(error) };
+  if (headcount || rate) {
+    await supabase.from("opportunities").update({ headcount: headcount ?? undefined, billing_rate: rate ?? undefined }).eq("id", opportunityId);
+  }
+  await supabase.from("activities").insert({
+    opportunity_id: opportunityId,
+    lead_id: leadId && isUuid(leadId) ? leadId : null,
+    type: "record_updated",
+    title: status === "Complete" ? "Live sales call updated" : "Live sales call draft saved",
+    actor_id: userId,
+  });
+  refresh(`/opportunities/${opportunityId}`, leadId && isUuid(leadId) ? `/leads/${leadId}` : `/opportunities/${opportunityId}`);
+  return { success: status === "Complete" ? "Updates saved." : "Draft saved. The sales call is not marked complete." };
 }
 
 export async function createFollowUp(_state: ActionState, formData: FormData): Promise<ActionState> {

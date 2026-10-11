@@ -145,6 +145,7 @@ test("app layout and write surfaces gate executives in the UI", () => {
 });
 
 test("pipeline UX write actions stay behind requireWriter", () => {
+  assert.match(actionsSource, /export async function saveLiveSalesCallDraft[\s\S]*?requireWriter/);
   assert.match(actionsSource, /export async function saveTalentRequestDraft[\s\S]*?requireWriter/);
   assert.match(actionsSource, /export async function markTalentRequestSent[\s\S]*?requireWriter/);
   assert.match(actionsSource, /export async function recordCandidateProfilesSentFromBoard[\s\S]*?requireWriter/);

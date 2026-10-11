@@ -53,6 +53,9 @@ export function ProfileWorkButtons({
     <>
       <Button type="button" variant="outline" size="sm" onClick={() => setKind("sales-profiles")}>Record sales profiles sent</Button>
       <Button type="button" variant="outline" size="sm" onClick={() => setKind("booked-call")}>Book sales call</Button>
+      <Button type="button" variant="outline" size="sm" asChild>
+        <a href="#live-sales-call">Open live sales call</a>
+      </Button>
       <Button type="button" variant="outline" size="sm" onClick={() => setKind("call-complete")}>Complete sales call</Button>
       <Button type="button" variant="outline" size="sm" onClick={() => setKind("talent")}>Talent request</Button>
       <Button type="button" variant="outline" size="sm" onClick={() => setKind("candidate-profiles")}>Candidate profiles sent</Button>

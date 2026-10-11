@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { AccountProfile } from "@/components/account-profile";
 import { getOpportunity } from "@/lib/data";
+import { liveSalesCallValuesFromRow } from "@/lib/live-sales-call";
 import { firstParam } from "@/lib/format";
 import { profileCanWrite, requireUser } from "@/server/session";
 
@@ -42,6 +43,7 @@ export default async function OpportunityPage({
       lostReason={opportunity.lostReason}
       talentRequestSentOn={opportunity.talentRequestSentOn}
       strategyNotes={opportunity.strategyCall ? String(opportunity.strategyCall.notes ?? "") : opportunity.notesText}
+      liveSalesCall={liveSalesCallValuesFromRow(opportunity.strategyCall)}
       recruitmentStatus={opportunity.recruitment ? String(opportunity.recruitment.status ?? "") : null}
       contractStatus={opportunity.contract ? String(opportunity.contract.status ?? "") : null}
       targetStartOn={opportunity.targetStartOn}
