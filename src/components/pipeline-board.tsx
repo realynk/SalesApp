@@ -551,10 +551,11 @@ function ItemCard({
 }
 
 function CardHeading({ item }: { item: BoardItem }) {
+  const same = item.contactName.trim().toLowerCase() === item.companyName.trim().toLowerCase();
   return (
     <>
-      <p className="text-sm font-semibold">{item.contactName}</p>
-      <p className="mt-0.5 text-xs text-muted-foreground">{item.companyName}</p>
+      <p className="truncate text-sm font-semibold">{item.contactName}</p>
+      {same ? null : <p className="mt-0.5 truncate text-xs text-muted-foreground">{item.companyName}</p>}
     </>
   );
 }

@@ -44,7 +44,12 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
               )}
               <td className="px-4 py-3">
                 <Link href={`/leads/${lead.id}`} className="font-medium">{lead.contactName}</Link>
-                <p className="text-xs text-muted-foreground">{lead.companyName} · {lead.email ?? "No email"}</p>
+                <p className="text-xs text-muted-foreground">
+                  {[
+                    lead.companyName !== lead.contactName ? lead.companyName : null,
+                    lead.email && lead.email !== lead.contactName ? lead.email : null,
+                  ].filter(Boolean).join(" · ") || "—"}
+                </p>
               </td>
               <td className="px-4 py-3">{lead.accountFlag ?? <span className="text-muted-foreground">—</span>}</td>
               <td className="px-4 py-3">

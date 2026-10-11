@@ -1,3 +1,5 @@
+import { personDisplayName } from "@/lib/lead-display";
+
 export const SENDPILOT_STATUSES = [
   "Interested",
   "Not Interested",
@@ -786,6 +788,10 @@ function kindFromAction(stage: string, action: string): WeekTaskKind {
   return "next_action";
 }
 
+function subjectName(contactName?: string | null, companyName?: string | null) {
+  return personDisplayName({ fullName: contactName, companyName });
+}
+
 function opportunityIdFromHref(href: string) {
   const match = href.match(/\/opportunities\/([^/?]+)/);
   return match?.[1] ?? null;
@@ -948,6 +954,7 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
 
 export function buildAttention(input: AttentionInput): AttentionItem[] {
   const items: AttentionItem[] = [];
+  const opportunityById = new Map(input.opportunities.map((opportunity) => [opportunity.id, opportunity]));
   const followUpDates = new Set(
     input.followUps.filter((item) => item.status === "open" && item.opportunityId).map((item) => `${item.opportunityId}:${item.dueOn}`),
   );
@@ -962,7 +969,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
         kind: "pending_schedule",
         severity: "today",
         title: followUp.title,
-        detail: `${followUp.companyName} · Pending schedule`,
+        detail: `${subjectName(followUp.contactName, followUp.companyName)} · Pending schedule`,
         href,
         dueOn: followUp.dueOn,
         sections: ["needs"],
@@ -975,7 +982,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
         kind: "urgent_review",
         severity: "overdue",
         title: followUp.title,
-        detail: `${followUp.companyName} · Urgent — needs review`,
+        detail: `${subjectName(followUp.contactName, followUp.companyName)} · Urgent — needs review`,
         href,
         dueOn: followUp.dueOn,
         sections: ["needs", "at_risk"],
@@ -988,7 +995,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
         kind: "suggest_nurture",
         severity: followUp.dueOn <= input.today ? "today" : "upcoming",
         title: followUp.title,
-        detail: `${followUp.companyName} · recommendation only`,
+        detail: `${subjectName(followUp.contactName, followUp.companyName)} · recommendation only`,
         href,
         dueOn: followUp.dueOn,
         sections: followUp.dueOn <= input.today ? ["needs", "today"] : ["upcoming"],
@@ -1001,7 +1008,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
         kind: followUp.automationType === "interview_review_7" ? "interview_review" : "awaiting_client_response",
         severity: followUp.dueOn <= input.today ? "today" : "upcoming",
         title: followUp.title,
-        detail: followUp.companyName,
+        detail: subjectName(followUp.contactName, followUp.companyName),
         href,
         dueOn: followUp.dueOn,
         sections: followUp.dueOn <= input.today ? ["needs", "waiting_client"] : ["upcoming", "waiting_client"],
@@ -1015,7 +1022,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
         kind: "follow_up_overdue",
         severity: "overdue",
         title: followUp.title,
-        detail: `${followUp.companyName} · ${Math.abs(delta)} day${Math.abs(delta) === 1 ? "" : "s"} overdue`,
+        detail: `${subjectName(followUp.contactName, followUp.companyName)} · ${Math.abs(delta)} day${Math.abs(delta) === 1 ? "" : "s"} overdue`,
         href,
         dueOn: followUp.dueOn,
         sections: ["needs", "at_risk"],
@@ -1026,7 +1033,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
         kind: "follow_up_today",
         severity: "today",
         title: followUp.title,
-        detail: followUp.companyName,
+        detail: subjectName(followUp.contactName, followUp.companyName),
         href,
         dueOn: followUp.dueOn,
         sections: ["today"],
@@ -1037,7 +1044,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
         kind: "follow_up_upcoming",
         severity: "upcoming",
         title: followUp.title,
-        detail: `${followUp.companyName} · due ${followUp.dueOn}`,
+        detail: `${subjectName(followUp.contactName, followUp.companyName)} · due ${followUp.dueOn}`,
         href,
         dueOn: followUp.dueOn,
         sections: ["upcoming"],
@@ -1058,7 +1065,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
           kind: "next_action_overdue",
           severity: "overdue",
           title: opportunity.nextAction || "Next action overdue",
-          detail: `${opportunity.companyName} · ${opportunity.stage}`,
+          detail: `${subjectName(opportunity.contactName, opportunity.companyName)} · ${opportunity.stage}`,
           href,
           dueOn: opportunity.nextActionDate,
           sections: ["needs", "at_risk"],
@@ -1069,7 +1076,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
           kind: "next_action_today",
           severity: "today",
           title: opportunity.nextAction || "Next action due today",
-          detail: `${opportunity.companyName} · ${opportunity.stage}`,
+          detail: `${subjectName(opportunity.contactName, opportunity.companyName)} · ${opportunity.stage}`,
           href,
           dueOn: opportunity.nextActionDate,
           sections: ["today"],
@@ -1080,7 +1087,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
           kind: "next_action_upcoming",
           severity: "upcoming",
           title: opportunity.nextAction || "Upcoming next action",
-          detail: `${opportunity.companyName} · ${opportunity.stage}`,
+          detail: `${subjectName(opportunity.contactName, opportunity.companyName)} · ${opportunity.stage}`,
           href,
           dueOn: opportunity.nextActionDate,
           sections: ["upcoming"],
@@ -1097,7 +1104,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
         id: `stale-${opportunity.id}`,
         kind: "stale",
         severity: "risk",
-        title: opportunity.companyName,
+        title: subjectName(opportunity.contactName, opportunity.companyName),
         detail: quietFor == null ? `${opportunity.stage} · no activity recorded` : `${opportunity.stage} · no activity for ${quietFor} days`,
         href,
         dueOn: opportunity.nextActionDate,
@@ -1110,7 +1117,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
         id: `wait-client-${opportunity.id}`,
         kind: "waiting_client",
         severity: "upcoming",
-        title: opportunity.companyName,
+        title: subjectName(opportunity.contactName, opportunity.companyName),
         detail: `${opportunity.stage} · waiting on the client`,
         href,
         dueOn: opportunity.nextActionDate,
@@ -1122,7 +1129,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
         id: `wait-recruitment-${opportunity.id}`,
         kind: "waiting_recruitment",
         severity: "upcoming",
-        title: opportunity.companyName,
+        title: subjectName(opportunity.contactName, opportunity.companyName),
         detail: "Waiting on recruitment",
         href: `/opportunities/${opportunity.id}`,
         dueOn: opportunity.nextActionDate,
@@ -1134,7 +1141,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
         id: `risk-${opportunity.id}`,
         kind: "at_risk",
         severity: "risk",
-        title: opportunity.companyName,
+        title: subjectName(opportunity.contactName, opportunity.companyName),
         detail: `${opportunity.riskLevel} risk · ${opportunity.stage}`,
         href,
         dueOn: opportunity.nextActionDate,
@@ -1215,7 +1222,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
       id: `call-${call.opportunityId}`,
       kind: "strategy_call_approaching",
       severity: delta === 0 ? "today" : "upcoming",
-      title: `Strategy call · ${call.companyName}`,
+      title: `Strategy call · ${subjectName(opportunityById.get(call.opportunityId)?.contactName, call.companyName)}`,
       detail: call.callOn,
       href: `/opportunities/${call.opportunityId}`,
       dueOn: call.callOn,

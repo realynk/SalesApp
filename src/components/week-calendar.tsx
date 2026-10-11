@@ -85,8 +85,8 @@ function TaskChip({ task, overdue }: { task: WeekTask; overdue: boolean }) {
   return (
     <Link href={task.href} className="block rounded-lg border border-border bg-card px-2 py-1.5 hover:border-primary">
       <p className={`text-[11px] font-medium uppercase ${overdue ? "text-destructive" : "text-primary"}`}>{overdue ? `${task.label} · overdue` : task.label}</p>
-      <p className="mt-0.5 text-xs font-medium leading-4 text-foreground">{task.title}</p>
-      <p className="text-[11px] text-muted-foreground">{task.contact}</p>
+      <p className="mt-0.5 truncate text-xs font-medium leading-4 text-foreground">{task.contact}</p>
+      <p className="truncate text-[11px] text-muted-foreground">{task.title}</p>
     </Link>
   );
 }

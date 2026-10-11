@@ -122,7 +122,7 @@ export function AccountProfile({
     <div className="space-y-6">
       <PageHeader
         back={{ href: "/opportunities", label: "Back to client journey" }}
-        eyebrow={companyName}
+        eyebrow={companyName && companyName !== contactName ? companyName : undefined}
         title={contactName}
         description={`SendPilot ${sendpilotStatus ?? "not set"}`}
         actions={

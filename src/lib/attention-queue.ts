@@ -1,4 +1,5 @@
 import type { AttentionItem } from "@/lib/domain";
+import { personDisplayName } from "@/lib/lead-display";
 
 export const ATTENTION_VIEWS = ["overdue", "today", "upcoming", "completed"] as const;
 export type AttentionView = (typeof ATTENTION_VIEWS)[number];
@@ -74,7 +75,7 @@ function followUpQueueItem(item: QueueFollowUp, today: string): AttentionQueueIt
     opportunityId: item.opportunityId,
     leadId: item.leadId,
     title: item.title,
-    companyName: item.companyName,
+    companyName: personDisplayName({ fullName: item.contactName, companyName: item.companyName }),
     dueOn: item.dueOn,
     completedAt: item.completedAt ?? null,
     view,
