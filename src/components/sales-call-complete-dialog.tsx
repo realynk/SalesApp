@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { controlClass, Field, textareaClass } from "@/components/bits";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { AccountFlag } from "@/lib/domain";
 import { emptyLiveSalesCallValues } from "@/lib/live-sales-call";
 import { todayInWorkflowZone } from "@/lib/workflow-dates";
@@ -71,11 +71,6 @@ export function SalesCallCompleteDialog({
       <DialogContent className="sm:max-w-lg" showCloseButton={!busy}>
         <DialogHeader>
           <DialogTitle>Sales call complete</DialogTitle>
-          <DialogDescription>
-            {draft
-              ? `After the call with ${draft.contactName} at ${draft.companyName}, notes review and the talent request are scheduled for the call date. The request is not sent until you approve it.`
-              : ""}
-          </DialogDescription>
         </DialogHeader>
         <form action={handleSubmit} aria-busy={busy} className="grid gap-3">
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
