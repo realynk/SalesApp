@@ -76,6 +76,33 @@ test("Mark Done is blocked for required workflow reminders", () => {
   assert.equal(canMarkFollowUpDone("sow_confirm_start"), false);
 });
 
+test("overdue required reminders can be marked done to clear finished work", () => {
+  assert.equal(canMarkFollowUpDone("call_talent_request", { dueOn: "2026-10-13", today: "2026-10-14" }), true);
+  assert.equal(canMarkFollowUpDone("call_talent_request", { dueOn: "2026-10-14", today: "2026-10-14" }), false);
+});
+
+test("overdue next-action rows can be marked done", () => {
+  const queue = buildAttentionQueue({
+    today: "2026-10-14",
+    attention: [
+      {
+        id: "next-opp-check",
+        kind: "next_action_overdue",
+        severity: "overdue",
+        title: "Check back on the sent profiles",
+        detail: "Muhammad Ahmad Khan · Email / Profile Preparation",
+        href: "/opportunities/33333333-3333-4333-8333-333333333333",
+        dueOn: "2026-09-22",
+        sections: ["needs"],
+      },
+    ],
+    followUps: [],
+  });
+  const item = queue.find((row) => row.title === "Check back on the sent profiles");
+  assert.equal(item?.action, "complete");
+  assert.equal(item?.followUpId, null);
+});
+
 test("queue keeps one row per follow-up and drops the matching next-action copy", () => {
   const attention = sampleAttention();
   const queue = buildAttentionQueue({ today: "2026-10-10", attention, followUps: [followA, followB] });
@@ -371,6 +398,7 @@ test("write actions stay behind requireWriter and do not unscoped-cancel", () =>
   const actions = readFileSync(join(root, "src/server/actions.ts"), "utf8");
   const tasks = readFileSync(join(root, "src/server/pipeline-tasks.ts"), "utf8");
   assert.match(actions, /export async function completeFollowUp[\s\S]*?requireWriter/);
+  assert.match(actions, /export async function completeNextActionWork[\s\S]*?requireWriter/);
   assert.match(actions, /export async function reopenFollowUp[\s\S]*?requireWriter/);
   assert.match(actions, /canMarkFollowUpDone/);
   assert.match(tasks, /if \(!opportunityId && !leadId\) return/);

@@ -153,6 +153,7 @@ test("pipeline UX write actions stay behind requireWriter", () => {
   assert.match(actionsSource, /export async function clearNextActionOverride[\s\S]*?requireWriter/);
   assert.match(actionsSource, /export async function reopenFollowUp[\s\S]*?requireWriter/);
   assert.match(actionsSource, /export async function completeFollowUp[\s\S]*?requireWriter/);
+  assert.match(actionsSource, /export async function completeNextActionWork[\s\S]*?requireWriter/);
   assert.match(actionsSource, /if \(error\) return \{ error: writeFailureMessage/);
   assert.doesNotMatch(actionsSource, /if \(error && !\/talent_request_draft/);
   assert.match(actionsSource, /already marked sent\. Follow-up dates were left unchanged/);

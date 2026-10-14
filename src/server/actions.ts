@@ -1058,10 +1058,10 @@ export async function completeFollowUp(formData: FormData) {
   const opportunityId = optionalText(formData, "opportunity_id");
   const leadId = optionalText(formData, "lead_id");
   if (!isUuid(id)) return;
-  const loaded = await supabase.from("follow_ups").select("id, automation_type, opportunity_id, lead_id, status").eq("id", id).maybeSingle();
-  const row = loaded.data as { automation_type?: string | null; opportunity_id?: string | null; lead_id?: string | null; status?: string } | null;
+  const loaded = await supabase.from("follow_ups").select("id, automation_type, opportunity_id, lead_id, status, due_on").eq("id", id).maybeSingle();
+  const row = loaded.data as { automation_type?: string | null; opportunity_id?: string | null; lead_id?: string | null; status?: string; due_on?: string | null } | null;
   if (!row || row.status !== "open") return;
-  if (!canMarkFollowUpDone(row.automation_type)) return;
+  if (!canMarkFollowUpDone(row.automation_type, { dueOn: row.due_on, today: todayInWorkflowZone() })) return;
   const completed = await completeLinkedTaskRecords(supabase, id, userId);
   if (completed?.error) return;
   await afterFollowUpCompleted(supabase, userId, id);
@@ -1076,6 +1076,44 @@ export async function completeFollowUp(formData: FormData) {
     actor_id: userId,
   });
   refresh("/follow-ups", "/dashboard", "/notifications", "/leads", nextOpportunityId ? `/opportunities/${nextOpportunityId}` : "/follow-ups", nextLeadId ? `/leads/${nextLeadId}` : "/leads");
+}
+
+export async function completeNextActionWork(formData: FormData) {
+  const { supabase, userId } = await requireWriter();
+  const opportunityId = text(formData, "opportunity_id");
+  const title = optionalText(formData, "title");
+  const leadId = optionalText(formData, "lead_id");
+  if (!isUuid(opportunityId)) return;
+  if (title) {
+    const matches = await supabase
+      .from("follow_ups")
+      .select("id")
+      .eq("opportunity_id", opportunityId)
+      .eq("status", "open")
+      .eq("title", title);
+    for (const row of Array.isArray(matches.data) ? matches.data : []) {
+      const id = String((row as { id?: string }).id ?? "");
+      if (!isUuid(id)) continue;
+      const completed = await completeLinkedTaskRecords(supabase, id, userId);
+      if (completed?.error) return;
+      await afterFollowUpCompleted(supabase, userId, id);
+    }
+  }
+  await supabase.from("opportunities").update({
+    next_action: null,
+    next_action_date: null,
+    next_action_manual: false,
+  }).eq("id", opportunityId);
+  await syncOpportunityNextAction(supabase, opportunityId);
+  await supabase.from("activities").insert({
+    opportunity_id: opportunityId,
+    lead_id: leadId,
+    type: "follow_up_completed",
+    title: "Open work marked done",
+    body: title,
+    actor_id: userId,
+  });
+  refresh("/follow-ups", "/dashboard", "/notifications", "/leads", `/opportunities/${opportunityId}`, leadId ? `/leads/${leadId}` : "/leads");
 }
 
 export async function reopenFollowUp(formData: FormData) {

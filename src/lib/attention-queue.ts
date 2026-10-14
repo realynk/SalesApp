@@ -44,8 +44,14 @@ export type QueueFollowUp = {
   completedAt?: string | null;
 };
 
-export function canMarkFollowUpDone(automationType?: string | null) {
-  return !WORKFLOW_REQUIRED_AUTOMATION.has(String(automationType ?? ""));
+export function canMarkFollowUpDone(
+  automationType?: string | null,
+  context?: { dueOn?: string | null; today?: string | null },
+) {
+  if (!WORKFLOW_REQUIRED_AUTOMATION.has(String(automationType ?? ""))) return true;
+  const dueOn = context?.dueOn;
+  const today = context?.today;
+  return Boolean(dueOn && today && dueOn < today);
 }
 
 export function attentionViewForDue(today: string, dueOn: string | null, pendingSchedule = false): Exclude<AttentionView, "completed"> {
@@ -67,7 +73,7 @@ function hrefForFollowUp(item: QueueFollowUp) {
 function followUpQueueItem(item: QueueFollowUp, today: string): AttentionQueueItem {
   const completed = item.status === "completed";
   const view = completed ? "completed" : attentionViewForDue(today, item.dueOn, item.pendingSchedule);
-  const completable = !completed && canMarkFollowUpDone(item.automationType);
+  const completable = !completed && canMarkFollowUpDone(item.automationType, { dueOn: item.dueOn, today });
   return {
     id: `follow-up-${item.id}`,
     source: "follow_up",
@@ -135,6 +141,7 @@ function signalQueueItem(item: AttentionItem): AttentionQueueItem {
   const view = item.severity === "overdue" ? "overdue" : item.severity === "today" ? "today" : "upcoming";
   const opportunityId = item.href.startsWith("/opportunities/") ? item.href.slice("/opportunities/".length).split("?")[0] ?? null : null;
   const leadId = item.href.startsWith("/leads/") ? item.href.slice("/leads/".length).split("?")[0] ?? null : null;
+  const completable = Boolean(opportunityId && item.kind.startsWith("next_action"));
   return {
     id: item.id,
     source: "signal",
@@ -149,8 +156,8 @@ function signalQueueItem(item: AttentionItem): AttentionQueueItem {
     priority: view === "overdue" ? "overdue" : view === "today" ? "today" : "upcoming",
     automationType: null,
     href: item.href,
-    action: "open",
-    actionLabel: "Open profile",
+    action: completable ? "complete" : "open",
+    actionLabel: completable ? "Mark Done" : "Open profile",
   };
 }
 

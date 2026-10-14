@@ -255,7 +255,7 @@ export function AccountProfile({
                     <span className="font-medium">{item.title}</span>
                     <p className="text-xs text-muted-foreground">{item.notes === "Pending schedule" ? "Pending schedule" : `Due ${formatDate(item.dueOn)}`}</p>
                   </span>
-                  {canWrite && canMarkFollowUpDone(item.automationType) ? (
+                  {canWrite && canMarkFollowUpDone(item.automationType, { dueOn: item.dueOn, today }) ? (
                     <form action={completeFollowUp}>
                       <input type="hidden" name="follow_up_id" value={item.id} />
                       {opportunityId ? <input type="hidden" name="opportunity_id" value={opportunityId} /> : null}
