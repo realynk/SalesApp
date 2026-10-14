@@ -155,3 +155,14 @@ export function liveSalesCallFieldLabels() {
     interviewMode: CANDIDATE_INTERVIEW_MODE,
   };
 }
+
+export function liveSalesCallValuesFromFormData(formData: FormData, fallback: LiveSalesCallValues): LiveSalesCallValues {
+  const next = { ...fallback };
+  const callOn = formData.get("call_on");
+  if (typeof callOn === "string") next.callOn = callOn;
+  for (const field of LIVE_SALES_CALL_FIELDS) {
+    const raw = formData.get(field.name);
+    if (typeof raw === "string") next[field.key] = raw;
+  }
+  return next;
+}

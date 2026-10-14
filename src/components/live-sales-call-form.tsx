@@ -5,11 +5,13 @@ import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { controlClass, Field, textareaClass } from "@/components/bits";
 import { Button } from "@/components/ui/button";
+import { MomEmailPanel } from "@/components/mom-email-panel";
 import {
   INTERVIEW_AVAILABILITY_HINT,
   INTERVIEW_AVAILABILITY_LABEL,
   LIVE_SALES_CALL_FIELDS,
   liveSalesCallIsComplete,
+  liveSalesCallValuesFromFormData,
   type LiveSalesCallValues,
 } from "@/lib/live-sales-call";
 import { saveLiveSalesCallDraft, saveSalesCallCompleteFromBoard } from "@/server/actions";
@@ -112,7 +114,7 @@ export function LiveSalesCallForm({
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
       {notice ? <p className="text-sm text-primary">{notice}</p> : null}
       {busyLabel ? <BusyStatus label={busyLabel} /> : null}
-      <form action={canWrite && !complete ? markComplete : saveDraft} aria-busy={busy} className="grid gap-3 md:grid-cols-2">
+      <form id="live-sales-call-form" action={canWrite && !complete ? markComplete : saveDraft} aria-busy={busy} className="grid gap-3 md:grid-cols-2">
         <Field label="Call date">
           <input className={controlClass} name="call_on" type="date" defaultValue={initial.callOn} disabled={!canWrite || busy} />
         </Field>
@@ -166,6 +168,16 @@ export function LiveSalesCallForm({
           </p>
         )}
       </form>
+      <MomEmailPanel
+        contactName={contactName}
+        companyName={companyName}
+        values={initial}
+        getValues={() => {
+          const form = document.getElementById("live-sales-call-form");
+          if (!(form instanceof HTMLFormElement)) return initial;
+          return liveSalesCallValuesFromFormData(new FormData(form), initial);
+        }}
+      />
     </div>
   );
 }

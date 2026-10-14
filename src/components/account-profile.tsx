@@ -322,7 +322,12 @@ export function AccountProfile({
           ) : null}
           {stage === "Strategy Call Scheduled" || stage === "Strategy Call Complete" || stage === "Requirements Captured" || stage === "Recruitment" ? (
             <SectionCard title="Meeting notes">
-              <MeetingNotesPanel clientName={contactName} companyName={companyName} />
+              <MeetingNotesPanel
+                clientName={contactName}
+                companyName={companyName}
+                industry={companyIndustry}
+                values={liveSalesCall ?? emptyLiveSalesCallValues()}
+              />
             </SectionCard>
           ) : null}
           {stage === "Client Started" || stage === "Onboarding" || stage === "Won" ? (
