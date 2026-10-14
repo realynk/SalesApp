@@ -54,7 +54,7 @@ export function ProfileSendDialog({
           <DialogTitle>Sent profiles to the client</DialogTitle>
           <DialogDescription>
             {draft
-              ? `${draft.contactName} at ${draft.companyName}. Check-backs 1 and 2 days from the call are added as tasks.`
+              ? `${draft.contactName} at ${draft.companyName}. Check-backs 1 and 2 days from the send date are added as tasks.`
               : ""}
           </DialogDescription>
         </DialogHeader>
@@ -65,9 +65,6 @@ export function ProfileSendDialog({
           </Field>
           <Field label="When was the email/profiles sent?">
             <input className={controlClass} name="profile_sent_on" type="date" required defaultValue={today} />
-          </Field>
-          <Field label="Initial proposal call date">
-            <input className={controlClass} name="call_on" type="date" />
           </Field>
           <Field label="Flag">
             <AccountFlagSelect defaultValue={draft?.accountFlag ?? null} />
