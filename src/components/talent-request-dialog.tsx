@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { controlClass, Field, textareaClass } from "@/components/bits";
+import { useEffect, useRef, useState } from "react";
+import { Field, textareaClass } from "@/components/bits";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { todayInWorkflowZone } from "@/lib/workflow-dates";
@@ -21,10 +21,18 @@ export function TalentRequestDialog({
   const [body, setBody] = useState("");
   const [missing, setMissing] = useState<string[]>([]);
   const [sentOn, setSentOn] = useState<string | null>(null);
-  const [sentDate, setSentDate] = useState(todayInWorkflowZone());
+  const copiedOnRef = useRef<string | null>(null);
   const [copied, setCopied] = useState(false);
 
+  function stampCopyDate() {
+    if (copiedOnRef.current) return copiedOnRef.current;
+    const day = todayInWorkflowZone();
+    copiedOnRef.current = day;
+    return day;
+  }
+
   useEffect(() => {
+    copiedOnRef.current = null;
     if (!draft) return;
     let cancelled = false;
     void loadTalentRequestDraft(draft.leadId, draft.opportunityId).then((result) => {
@@ -37,7 +45,7 @@ export function TalentRequestDialog({
         setBody(result.body);
         setMissing(result.missing ?? []);
         setSentOn(result.sentOn ?? null);
-        if (result.sentOn) setSentDate(result.sentOn);
+        if (result.sentOn) copiedOnRef.current = result.sentOn;
       }
     });
     return () => {
@@ -53,7 +61,7 @@ export function TalentRequestDialog({
     formData.set("lead_id", draft.leadId);
     if (draft.opportunityId) formData.set("opportunity_id", draft.opportunityId);
     formData.set("draft_body", body);
-    formData.set("sent_on", sentDate);
+    formData.set("sent_on", copiedOnRef.current ?? todayInWorkflowZone());
     const result = markSent ? await markTalentRequestSent(formData) : await saveTalentRequestDraft(formData);
     setPending(false);
     if (result?.error) {
@@ -65,6 +73,7 @@ export function TalentRequestDialog({
 
   async function copyEmail() {
     await navigator.clipboard.writeText(body);
+    stampCopyDate();
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1500);
   }
@@ -86,11 +95,8 @@ export function TalentRequestDialog({
           <Field label="Email draft">
             <textarea className={`${textareaClass} min-h-56`} value={body} onChange={(event) => setBody(event.target.value)} />
           </Field>
-          <Field label="Sent date">
-            <input className={controlClass} type="date" value={sentDate} onChange={(event) => setSentDate(event.target.value)} />
-          </Field>
           <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" onClick={copyEmail}>{copied ? "Copied" : "Copy email"}</Button>
+            <Button type="button" variant="outline" onClick={() => void copyEmail()}>{copied ? "Copied" : "Copy email"}</Button>
           </div>
         </div>
         <DialogFooter>
