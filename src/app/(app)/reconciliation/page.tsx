@@ -1,22 +1,29 @@
 import Link from "next/link";
 import { Notice, PageHeader } from "@/components/bits";
+import { ReviewBulkList } from "@/components/review-bulk-list";
+import { SubmitButton } from "@/components/forms";
 import { Button } from "@/components/ui/button";
 import { getReconciliation } from "@/lib/data";
-import { firstParam, formatDateTime } from "@/lib/format";
-import { createFromReviewedRecord } from "@/server/actions";
-import { ActionForm, SubmitButton } from "@/components/forms";
+import { firstParam } from "@/lib/format";
+import { archiveLeadFromList } from "@/server/actions";
+import { profileCanWrite, requireUser } from "@/server/session";
 
 export default async function ReconciliationPage({ searchParams }: { searchParams: Promise<{ notice?: string }> }) {
   const query = await searchParams;
-  const data = await getReconciliation();
+  const [data, session] = await Promise.all([getReconciliation(), requireUser()]);
+  const canWrite = profileCanWrite(session.profile);
   const latest = data.syncs[0];
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="SendPilot"
-        title="Lead reconciliation"
-        description="Every meaningful SendPilot lead is accounted for. Duplicates and unmatched rows stay visible until someone reviews them."
-        actions={<Button asChild><Link href="/leads/import">Import file</Link></Button>}
+        eyebrow="Leads"
+        title="Lead review"
+        description={
+          canWrite
+            ? "Matched and new import rows are added to current leads. Duplicates stay here so you can use the existing lead (keep, replace, or clear tagging), create a new lead or opportunity, or skip the row."
+            : "Matched and new import rows are listed here. View-only accounts can review held rows but cannot create, skip, or change leads."
+        }
+        actions={canWrite ? <Button asChild><Link href="/leads/import">Import leads</Link></Button> : undefined}
       />
       <Notice message={firstParam(query.notice)} />
       {latest ? (
@@ -47,7 +54,18 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
                 <p className="font-medium">{lead.contactName} — {lead.companyName}</p>
                 <p className="text-muted-foreground">SendPilot status: {lead.sendpilotStatus}. Sales opportunity: not found.</p>
               </div>
-              <Button asChild><Link href={`/leads/${lead.id}`}>Create opportunity</Link></Button>
+              {canWrite ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <form action={archiveLeadFromList}>
+                  <input type="hidden" name="lead_id" value={lead.id} />
+                  <input type="hidden" name="next" value="/reconciliation" />
+                  <SubmitButton variant="outline">Remove</SubmitButton>
+                </form>
+                <Button asChild><Link href={`/leads/${lead.id}`}>Create opportunity</Link></Button>
+              </div>
+              ) : (
+                <Button variant="outline" asChild><Link href={`/leads/${lead.id}`}>View lead</Link></Button>
+              )}
             </li>
           ))}
           {data.missingOpportunities.length === 0 ? <li className="py-4 text-sm text-muted-foreground">Every interested SendPilot lead has an opportunity.</li> : null}
@@ -55,24 +73,8 @@ export default async function ReconciliationPage({ searchParams }: { searchParam
       </section>
       <section className="rounded-xl border border-border bg-card p-4">
         <h2 className="text-sm font-semibold">Rows held for review</h2>
-        <ul className="mt-3 space-y-4">
-          {data.records.map((record) => (
-            <li key={String(record.id)} className="rounded-lg border border-border p-3 text-sm">
-              <p className="font-medium">{String(record.full_name ?? "Unnamed")} — {String(record.company_name ?? "No company")}</p>
-              <p className="text-muted-foreground">{String(record.classification)} · {String(record.review_reason ?? "Needs a person to decide")}</p>
-              <p className="text-xs text-muted-foreground">{String(record.email ?? "No email")} · {formatDateTime(String(record.created_at ?? ""))}</p>
-              <ActionForm action={createFromReviewedRecord} className="mt-3 space-y-2">
-                <input type="hidden" name="record_id" value={String(record.id)} />
-                <label className="flex items-center gap-2"><input type="checkbox" name="confirm" value="yes" required /> I checked this and want a contact created anyway.</label>
-                {String(record.classification) === "suppressed" ? (
-                  <label className="flex items-center gap-2"><input type="checkbox" name="lift_suppression" value="yes" required /> Recreate this permanently deleted SendPilot lead on purpose.</label>
-                ) : null}
-                <SubmitButton variant="outline">Create contact from this row</SubmitButton>
-              </ActionForm>
-            </li>
-          ))}
-          {data.records.length === 0 ? <li className="text-sm text-muted-foreground">No unmatched or duplicate rows are waiting.</li> : null}
-        </ul>
+        <p className="mt-1 text-xs text-muted-foreground">Source is on each row. Select several to create, keep, or skip together.</p>
+        <ReviewBulkList records={data.records} />
       </section>
     </div>
   );

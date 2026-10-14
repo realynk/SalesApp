@@ -6,11 +6,19 @@ import { useActionState } from "react";
 import { Button } from "@/components/ui/button";
 import type { ActionState } from "@/server/form";
 
-export function SubmitButton({ children, variant = "default" }: { children: ReactNode; variant?: "default" | "outline" | "secondary" | "destructive" }) {
+export function SubmitButton({
+  children,
+  variant = "default",
+  pending: pendingLabel = "Saving…",
+}: {
+  children: ReactNode;
+  variant?: "default" | "outline" | "secondary" | "destructive";
+  pending?: string;
+}) {
   const { pending } = useFormStatus();
   return (
     <Button type="submit" disabled={pending} variant={variant}>
-      {pending ? "Saving…" : children}
+      {pending ? pendingLabel : children}
     </Button>
   );
 }

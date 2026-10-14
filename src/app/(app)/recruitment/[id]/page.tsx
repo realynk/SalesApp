@@ -6,10 +6,12 @@ import { RECRUITMENT_STATUSES } from "@/lib/domain";
 import { getRecruitment } from "@/lib/data";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { updateRecruitmentStatus } from "@/server/actions";
+import { profileCanWrite, requireUser } from "@/server/session";
 
 export default async function RecruitmentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const record = await getRecruitment(id);
+  const [record, session] = await Promise.all([getRecruitment(id), requireUser()]);
+  const canWrite = profileCanWrite(session.profile);
   if (!record) notFound();
   const request = record.request;
   const opportunity = request.opportunities as { id?: string } | { id?: string }[] | null;
@@ -23,6 +25,7 @@ export default async function RecruitmentDetailPage({ params }: { params: Promis
         description={`Target ${formatDate(String(request.target_on ?? ""))}`}
         actions={opportunityId ? <Link className="text-sm text-primary underline" href={`/opportunities/${opportunityId}`}>Opportunity</Link> : null}
       />
+      {canWrite ? (
       <ActionForm action={updateRecruitmentStatus} className="grid max-w-xl gap-3 rounded-xl border border-border bg-card p-4">
         <input type="hidden" name="recruitment_id" value={String(request.id)} />
         <input type="hidden" name="opportunity_id" value={opportunityId ?? ""} />
@@ -34,6 +37,12 @@ export default async function RecruitmentDetailPage({ params }: { params: Promis
         <Field label="Notes"><textarea className="min-h-20 rounded-lg border border-input px-3 py-2 text-sm" name="notes" defaultValue={String(request.notes ?? "")} /></Field>
         <SubmitButton>Update status</SubmitButton>
       </ActionForm>
+      ) : (
+        <section className="grid max-w-xl gap-2 rounded-xl border border-border bg-card p-4 text-sm">
+          <p>Status: {String(request.status)}</p>
+          {request.notes ? <p className="text-muted-foreground">{String(request.notes)}</p> : null}
+        </section>
+      )}
       <section className="rounded-xl border border-border bg-card p-4">
         <h2 className="text-sm font-semibold">Candidates</h2>
         <ul className="mt-3 divide-y divide-border text-sm">

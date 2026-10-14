@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { AccountFlagSelect } from "@/components/account-flag-field";
 import { controlClass, Field } from "@/components/bits";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { AccountFlag } from "@/lib/domain";
+import { todayInWorkflowZone } from "@/lib/workflow-dates";
 import { saveBookedSalesCallFromBoard } from "@/server/actions";
 
 export type BookedCallDraft = {
@@ -27,7 +27,7 @@ export function BookedCallDialog({
 }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayInWorkflowZone();
 
   async function handleSubmit(formData: FormData) {
     if (!draft) return;
@@ -52,7 +52,7 @@ export function BookedCallDialog({
         <DialogHeader>
           <DialogTitle>Booked sales call</DialogTitle>
           <DialogDescription>
-            {draft ? `When was the meeting booked with ${draft.contactName} at ${draft.companyName}? It is added to reminders and tasks.` : ""}
+            {draft ? `When is the meeting with ${draft.contactName} at ${draft.companyName}? Prep tasks and the meeting-day reminder are added automatically.` : ""}
           </DialogDescription>
         </DialogHeader>
         <form action={handleSubmit} className="grid gap-3">
@@ -63,12 +63,9 @@ export function BookedCallDialog({
           <Field label="Meeting time">
             <input className={controlClass} name="call_time" type="time" required defaultValue="10:00" />
           </Field>
-          <Field label="Flag">
-            <AccountFlagSelect defaultValue={draft?.accountFlag ?? null} />
-          </Field>
           <DialogFooter>
             <Button type="button" variant="outline" disabled={pending} onClick={onCancel}>Cancel</Button>
-            <Button type="submit" disabled={pending}>{pending ? "Saving…" : "Save and add reminder"}</Button>
+            <Button type="submit" disabled={pending}>{pending ? "Saving…" : "Save"}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

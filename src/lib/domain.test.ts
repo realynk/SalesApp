@@ -10,6 +10,7 @@ import {
   median,
   normalizeSendPilotStatus,
   accountFlag,
+  belongsToCurrentLeadOrJourney,
   notInterestedColumn,
   notInterestedOutcome,
   boardStage,
@@ -18,10 +19,59 @@ import {
   profileSendCheckBacks,
   salesCallCompleteTasks,
   stageLabel,
+  statusDetailLabel,
+  salesBoardColumnCounts,
+  storedLinkedInHref,
   potentialArr,
   potentialMrr,
   timeMetrics,
 } from "./domain.ts";
+
+test("sales board counts match Client journey columns without listing cards", () => {
+  const rows = salesBoardColumnCounts({
+    interestedLeadIds: ["still-open", "already-moved", "no-opportunity"],
+    opportunities: [
+      { leadId: "still-open", stage: "Interested" },
+      { leadId: "already-moved", stage: "Email / Profile Preparation" },
+      { leadId: "profile-only", stage: "Email / Profile Preparation" },
+      { leadId: "booked", stage: "Strategy Call Proposed" },
+      { leadId: "complete-alias", stage: "Requirements Captured" },
+      { leadId: "recruit", stage: "Recruitment" },
+      { leadId: "profiles-ready", stage: "Profiles Ready" },
+      { leadId: "profiles-sent", stage: "Profiles Sent" },
+      { leadId: "client-review", stage: "Client Review" },
+      { leadId: "interview", stage: "Interview Scheduled" },
+      { leadId: "selected", stage: "Candidate Selected" },
+      { leadId: "sow", stage: "SOW Sent" },
+      { leadId: "signed", stage: "SOW Signed" },
+      { leadId: "trial", stage: "Onboarding" },
+      { leadId: "started", stage: "Client Started" },
+      { leadId: "won", stage: "Won" },
+      { leadId: "lost", stage: "Lost" },
+      { leadId: "nurture", stage: "On Hold / Nurture" },
+    ],
+  });
+  assert.deepEqual(
+    rows.map((row) => ({ label: row.label, count: row.count, unit: row.unit })),
+    [
+      { label: "Interested", count: 2, unit: "lead" },
+      { label: "Sent Profiles to the client", count: 2, unit: "opportunity" },
+      { label: "Booked Sales Call", count: 1, unit: "opportunity" },
+      { label: "Sales Call Complete", count: 1, unit: "opportunity" },
+      { label: "Recruitment", count: 2, unit: "opportunity" },
+      { label: "Profiles Sent", count: 2, unit: "opportunity" },
+      { label: "Interview Scheduled", count: 1, unit: "opportunity" },
+      { label: "Interview Complete / Candidate Selected", count: 1, unit: "opportunity" },
+      { label: "SOW Prep / Sent", count: 1, unit: "opportunity" },
+      { label: "SOW Signed", count: 1, unit: "opportunity" },
+      { label: "Trial period", count: 1, unit: "opportunity" },
+    ],
+  );
+  assert.equal(
+    rows.some((row) => ["Won", "Lost", "On Hold / Nurture", "Client Started"].includes(row.label)),
+    false,
+  );
+});
 
 test("labels the profile-send stage and defaults check-backs from the call", () => {
   assert.equal(stageLabel("Email / Profile Preparation"), "Sent Profiles to the client");
@@ -29,6 +79,10 @@ test("labels the profile-send stage and defaults check-backs from the call", () 
   assert.equal(stageLabel("Strategy Call Scheduled"), "Sales Call Complete");
   assert.equal(stageLabel("Strategy Call Complete"), "Sales Call Complete");
   assert.equal(stageLabel("Requirements Captured"), "Sales Call Complete");
+  assert.equal(statusDetailLabel("SOW Negotiation"), "SOW Negotiation");
+  assert.equal(stageLabel("SOW Negotiation"), "SOW Prep / Sent");
+  assert.equal(statusDetailLabel("Candidate Selected"), "Candidate Selected");
+  assert.equal(stageLabel("Candidate Selected"), "Interview Complete / Candidate Selected");
   assert.equal(stageLabel("Recruitment"), "Recruitment");
   assert.equal(boardStage("Requirements Captured"), "Strategy Call Scheduled");
   assert.equal(boardStage("Profiles Ready"), "Recruitment");
@@ -53,9 +107,8 @@ test("labels the profile-send stage and defaults check-backs from the call", () 
   assert.equal(stageLabel("Onboarding"), "Trial period");
   assert.equal(stageLabel("Won"), "Won");
   assert.deepEqual(salesCallCompleteTasks("2026-10-10"), [
-    { title: "Send the meeting notes", dueOn: "2026-10-10" },
-    { title: "Send the talent request to the recruitment team", dueOn: "2026-10-10" },
-    { title: "Create a GC in Google Chat / Space", dueOn: "2026-10-10" },
+    { title: "Review and Approve Meeting Notes", dueOn: "2026-10-10" },
+    { title: "Send Talent Request to Recruitment", dueOn: "2026-10-10" },
   ]);
   assert.equal(formatClock("14:30"), "2:30 PM");
   assert.equal(formatClock("09:05"), "9:05 AM");
@@ -191,7 +244,92 @@ test("surfaces overdue follow-ups, stale opportunities, and interested leads wit
   assert.ok(items.some((item) => item.kind === "recruitment_overdue"));
   assert.ok(items.some((item) => item.kind === "sow_awaiting"));
   assert.ok(items.some((item) => item.kind === "unmatched_interested"));
+  const interested = items.find((item) => item.kind === "unmatched_interested");
+  assert.equal(interested?.title, "New Interested Lead");
+  assert.equal(interested?.detail, "Leah Okonkwo — Westline Architects · Tagged Interested in SendPilot");
+  assert.equal(interested?.href, "/leads/lead-leah");
   assert.equal(items[0]?.severity, "overdue");
+});
+
+test("attention subjects stay only when the lead is on the current list or client journey", () => {
+  const currentLeadIds = new Set(["lead-visible"]);
+  const opportunityLeadIds = new Map([
+    ["opp-visible", "lead-visible"],
+    ["opp-missing", "lead-gone"],
+  ]);
+  assert.equal(
+    belongsToCurrentLeadOrJourney({
+      leadId: "lead-visible",
+      opportunityId: null,
+      currentLeadIds,
+      opportunityLeadIds,
+    }),
+    true,
+  );
+  assert.equal(
+    belongsToCurrentLeadOrJourney({
+      leadId: null,
+      opportunityId: "opp-visible",
+      currentLeadIds,
+      opportunityLeadIds,
+    }),
+    true,
+  );
+  assert.equal(
+    belongsToCurrentLeadOrJourney({
+      leadId: "lead-gone",
+      opportunityId: "opp-missing",
+      currentLeadIds,
+      opportunityLeadIds,
+    }),
+    false,
+  );
+  assert.equal(
+    belongsToCurrentLeadOrJourney({
+      leadId: null,
+      opportunityId: "opp-unknown",
+      currentLeadIds,
+      opportunityLeadIds,
+    }),
+    false,
+  );
+});
+
+test("week calendar keeps a call and same-day follow-ups visible together", () => {
+  const tasks = buildWeekTasks({
+    today: "2026-10-20",
+    staleAfterDays: 10,
+    profilesWaitingDays: 5,
+    approachingWindowDays: 3,
+    opportunities: [
+      {
+        id: "opp-1",
+        title: "Acme",
+        companyName: "Acme",
+        contactName: "Pat",
+        stage: "Strategy Call Proposed",
+        status: "active",
+        riskLevel: "low",
+        waitingOn: "client",
+        nextAction: "Sales call at 2:00 PM",
+        nextActionDate: "2026-10-20",
+        lastActivityOn: "2026-10-19",
+      },
+    ],
+    followUps: [
+      { id: "fu-a", opportunityId: "opp-1", leadId: "lead-1", title: "Research the Company", dueOn: "2026-10-20", status: "open", companyName: "Acme" },
+      { id: "fu-b", opportunityId: "opp-1", leadId: "lead-1", title: "Prepare Sales Slides", dueOn: "2026-10-20", status: "open", companyName: "Acme" },
+    ],
+    profileBatches: [],
+    recruitment: [],
+    interviews: [],
+    contracts: [],
+    strategyCalls: [{ opportunityId: "opp-1", companyName: "Acme", callOn: "2026-10-20", status: "Scheduled" }],
+    unmatchedInterested: [],
+  });
+  assert.equal(tasks.filter((task) => task.date === "2026-10-20").length, 3);
+  assert.equal(tasks.filter((task) => task.date === "2026-10-20" && task.kind === "follow_up").length, 2);
+  assert.ok(tasks.some((task) => task.date === "2026-10-20" && task.kind === "strategy_call"));
 });
 
 test("does not duplicate a next action that is already a follow-up", () => {
@@ -248,6 +386,7 @@ test("places the week's calls, follow-ups, and SOW check-backs on their dates", 
         id: "opp-harbor",
         title: "Harbor",
         companyName: "Harbor & Co. Accounting",
+        contactName: "Priya Shah",
         stage: "Strategy Call Scheduled",
         status: "active",
         riskLevel: "low",
@@ -260,6 +399,7 @@ test("places the week's calls, follow-ups, and SOW check-backs on their dates", 
         id: "opp-bright",
         title: "BrightPath",
         companyName: "BrightPath Mortgage",
+        contactName: "Daniel Ortiz",
         stage: "SOW Sent",
         status: "active",
         riskLevel: "medium",
@@ -272,6 +412,7 @@ test("places the week's calls, follow-ups, and SOW check-backs on their dates", 
         id: "opp-north",
         title: "Northstar",
         companyName: "Northstar Legal Group",
+        contactName: "Maya Chen",
         stage: "Email / Profile Preparation",
         status: "active",
         riskLevel: "low",
@@ -316,10 +457,14 @@ test("places the week's calls, follow-ups, and SOW check-backs on their dates", 
   const harbor = tasks.find((task) => task.company === "Harbor & Co. Accounting" && task.date === "2026-09-24");
   assert.equal(harbor?.kind, "strategy_call");
   assert.equal(harbor?.title, "Hold the strategy call and capture requirements");
-  assert.equal(tasks.filter((task) => task.id.startsWith("next-opp-north")).length, 0);
-  assert.equal(tasks.find((task) => task.company === "Northstar Legal Group")?.kind, "follow_up");
+  assert.equal(harbor?.contact, "Priya Shah");
+  assert.equal(tasks.find((task) => task.company === "BrightPath Mortgage" && task.kind === "sow")?.contact, "Daniel Ortiz");
+  assert.equal(tasks.some((task) => task.id.startsWith("next-opp-north")), false);
+  const northstar = tasks.find((task) => task.followUpId === "fu-1");
+  assert.equal(northstar?.kind, "follow_up");
+  assert.equal(northstar?.company, "Northstar Legal Group");
   assert.equal(tasks.find((task) => task.company === "BrightPath Mortgage" && task.date === "2026-09-25")?.kind, "sow");
-  assert.equal(tasks.find((task) => task.kind === "interview")?.title, "Nora Feldman");
+  assert.equal(tasks.find((task) => task.kind === "interview")?.title, "Interview scheduled");
   assert.equal(tasks.find((task) => task.kind === "start")?.date, "2026-10-14");
 });
 
@@ -341,4 +486,205 @@ test("calculates conversion and duration from stage history", () => {
   const duration = timeMetrics(events).find((row) => row.label === "Interested → Strategy Call");
   assert.equal(duration?.samples, 2);
   assert.equal(duration?.medianDays, median([9, 15]));
+});
+
+test("zero-count profile batches do not appear in Attention", () => {
+  const items = attentionBase({
+    profileBatches: [
+      {
+        id: "empty",
+        opportunityId: "opp-1",
+        companyName: "Harbor",
+        sentOn: "2026-09-01",
+        profileCount: 0,
+        clientResponse: null,
+        followUpOn: "2026-09-08",
+      },
+      {
+        id: "real",
+        opportunityId: "opp-2",
+        companyName: "Harbor",
+        sentOn: "2026-09-01",
+        profileCount: 2,
+        clientResponse: null,
+        followUpOn: "2026-09-08",
+      },
+    ],
+  });
+  assert.equal(items.some((item) => item.id === "profiles-empty"), false);
+  assert.ok(items.some((item) => item.id === "profiles-real"));
+});
+
+function attentionBase(overrides: Partial<Parameters<typeof buildAttention>[0]> = {}) {
+  return buildAttention({
+    today: "2026-09-23",
+    staleAfterDays: 10,
+    profilesWaitingDays: 5,
+    approachingWindowDays: 3,
+    opportunities: [],
+    followUps: [],
+    profileBatches: [],
+    recruitment: [],
+    interviews: [],
+    contracts: [],
+    strategyCalls: [],
+    unmatchedInterested: [],
+    ...overrides,
+  });
+}
+
+test("recent Not Interested transitions appear in Attention and historical ones do not flood it", () => {
+  const items = attentionBase({
+    recentNotInterested: [
+      {
+        activityId: "act-new",
+        leadId: "lead-marcus",
+        name: "Marcus Dardin",
+        companyName: "Amistad Freight Inc.",
+        occurredOn: "2026-09-20",
+      },
+      {
+        activityId: "act-dup",
+        leadId: "lead-marcus",
+        name: "Marcus Dardin",
+        companyName: "Amistad Freight Inc.",
+        occurredOn: "2026-09-21",
+      },
+      {
+        activityId: "act-old",
+        leadId: "lead-old",
+        name: "Old Lead",
+        companyName: "Historic Co",
+        occurredOn: "2026-08-01",
+      },
+    ],
+  });
+  const notInterested = items.filter((item) => item.kind === "recent_not_interested");
+  assert.equal(notInterested.length, 1);
+  assert.equal(notInterested[0]?.title, "Lead marked Not Interested");
+  assert.equal(notInterested[0]?.detail, "Marcus Dardin — Amistad Freight Inc. · Tagged Not Interested in SendPilot");
+  assert.equal(notInterested[0]?.href, "/leads/lead-marcus");
+});
+
+test("attention surfaces urgent, pending-schedule, and review recommendations", () => {
+  const items = attentionBase({
+    followUps: [
+      {
+        id: "urgent-1",
+        opportunityId: "opp-1",
+        leadId: "lead-1",
+        title: "Communicated with HR",
+        dueOn: "2026-09-20",
+        status: "open",
+        companyName: "Acme",
+        urgent: true,
+      },
+      {
+        id: "pending-1",
+        opportunityId: "opp-1",
+        leadId: "lead-1",
+        title: "Client Check-In — First Shift",
+        dueOn: "2026-09-23",
+        status: "open",
+        companyName: "Acme",
+        pendingSchedule: true,
+      },
+      {
+        id: "nurture-1",
+        opportunityId: "opp-2",
+        leadId: "lead-2",
+        title: "Suggested action: Move to Nurture",
+        dueOn: "2026-09-23",
+        status: "open",
+        companyName: "Beta",
+        automationType: "nurture_suggest",
+      },
+    ],
+  });
+  assert.ok(items.some((item) => item.kind === "urgent_review" && item.sections.includes("needs")));
+  assert.ok(items.some((item) => item.kind === "pending_schedule"));
+  assert.ok(items.some((item) => item.kind === "suggest_nurture"));
+});
+
+test("same-company leads keep the linked contact on Attention and the week calendar", () => {
+  const input = {
+    today: "2026-10-10",
+    staleAfterDays: 10,
+    profilesWaitingDays: 5,
+    approachingWindowDays: 3,
+    opportunities: [
+      {
+        id: "opp-ada",
+        title: "Acme — virtual staff",
+        companyName: "Acme",
+        contactName: "Ada Cole",
+        stage: "Interested" as const,
+        status: "active" as const,
+        riskLevel: "low" as const,
+        waitingOn: "internal" as const,
+        nextAction: "First LinkedIn Follow-Up",
+        nextActionDate: "2026-10-09",
+        lastActivityOn: "2026-10-08",
+      },
+      {
+        id: "opp-ben",
+        title: "Acme — virtual staff",
+        companyName: "Acme",
+        contactName: "Ben Cole",
+        stage: "Strategy Call Scheduled" as const,
+        status: "active" as const,
+        riskLevel: "low" as const,
+        waitingOn: "client" as const,
+        nextAction: "Hold the strategy call",
+        nextActionDate: "2026-10-11",
+        lastActivityOn: "2026-10-09",
+      },
+    ],
+    followUps: [
+      {
+        id: "fu-ada",
+        opportunityId: "opp-ada",
+        leadId: "lead-ada",
+        title: "First LinkedIn Follow-Up",
+        dueOn: "2026-10-09",
+        status: "open" as const,
+        companyName: "Acme",
+      },
+    ],
+    profileBatches: [],
+    recruitment: [],
+    interviews: [],
+    contracts: [],
+    strategyCalls: [{ opportunityId: "opp-ben", companyName: "Acme", callOn: "2026-10-11", status: "Scheduled" }],
+    unmatchedInterested: [],
+  };
+  const attention = buildAttention(input);
+  const adaFollowUp = attention.find((item) => item.id === "follow-up-fu-ada");
+  const benCall = attention.find((item) => item.id === "call-opp-ben");
+  assert.match(String(adaFollowUp?.detail), /Ada Cole/);
+  assert.equal(adaFollowUp?.detail.includes("Ben Cole"), false);
+  assert.match(String(benCall?.title), /Ben Cole/);
+  assert.equal(String(benCall?.title).includes("Ada Cole"), false);
+  assert.equal(adaFollowUp?.href, "/opportunities/opp-ada");
+  assert.equal(benCall?.href, "/opportunities/opp-ben");
+
+  const tasks = buildWeekTasks(input);
+  const adaChip = tasks.find((task) => task.followUpId === "fu-ada");
+  const benChip = tasks.find((task) => task.kind === "strategy_call" && task.href === "/opportunities/opp-ben");
+  assert.equal(adaChip?.contact, "Ada Cole");
+  assert.equal(benChip?.contact, "Ben Cole");
+  assert.equal(adaChip?.href, "/opportunities/opp-ada");
+  assert.equal(benChip?.href, "/opportunities/opp-ben");
+  assert.notEqual(adaChip?.contact, benChip?.contact);
+});
+
+test("View LinkedIn uses only the stored LinkedIn URL and does not invent one", () => {
+  assert.equal(
+    storedLinkedInHref("https://www.linkedin.com/in/marcus-dardin"),
+    "https://www.linkedin.com/in/marcus-dardin",
+  );
+  assert.equal(storedLinkedInHref(null), null);
+  assert.equal(storedLinkedInHref(""), null);
+  assert.equal(storedLinkedInHref("Marcus Dardin"), null);
+  assert.equal(storedLinkedInHref("https://example.com/marcus"), null);
 });

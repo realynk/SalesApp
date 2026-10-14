@@ -1,40 +1,33 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { Webhook } from "svix";
 
-const MAX_SKEW_SECONDS = 5 * 60;
+export function sendPilotSignatureHeaders(headers: Headers) {
+  return {
+    id: headers.get("svix-id") ?? headers.get("webhook-id"),
+    timestamp: headers.get("svix-timestamp") ?? headers.get("webhook-timestamp"),
+    signature: headers.get("svix-signature") ?? headers.get("webhook-signature"),
+  };
+}
 
 export function verifySendPilotSignature(input: {
   rawBody: string;
-  signatureHeader: string | null;
+  headers: Headers;
   secret: string;
-  nowSeconds?: number;
-}): { ok: true } | { ok: false; reason: string } {
-  if (!input.secret) return { ok: false, reason: "missing_secret" };
-  if (!input.signatureHeader) return { ok: false, reason: "missing_header" };
+}): { ok: true } | { ok: false; reason: string; status: 401 | 503 } {
+  if (!input.secret) return { ok: false, reason: "missing_secret", status: 503 };
 
-  const parts = input.signatureHeader.split(",").map((part) => part.trim());
-  const timestamp = parts.find((part) => part.startsWith("t="))?.slice(2);
-  const provided = parts.find((part) => part.startsWith("s="))?.slice(2);
-  if (!timestamp || !provided) return { ok: false, reason: "malformed_header" };
-
-  const timestampSeconds = Number(timestamp);
-  if (!Number.isFinite(timestampSeconds)) return { ok: false, reason: "invalid_timestamp" };
-
-  const now = input.nowSeconds ?? Math.floor(Date.now() / 1000);
-  if (Math.abs(now - timestampSeconds) > MAX_SKEW_SECONDS) {
-    return { ok: false, reason: "expired_timestamp" };
+  const { id, timestamp, signature } = sendPilotSignatureHeaders(input.headers);
+  if (!id || !timestamp || !signature) {
+    return { ok: false, reason: "missing_header", status: 401 };
   }
 
-  const expected = createHmac("sha256", input.secret)
-    .update(`${timestamp}.${input.rawBody}`)
-    .digest("hex");
-
   try {
-    const providedBuffer = Buffer.from(provided, "utf8");
-    const expectedBuffer = Buffer.from(expected, "utf8");
-    if (providedBuffer.length !== expectedBuffer.length) return { ok: false, reason: "mismatch" };
-    if (!timingSafeEqual(providedBuffer, expectedBuffer)) return { ok: false, reason: "mismatch" };
+    new Webhook(input.secret).verify(input.rawBody, {
+      "svix-id": id,
+      "svix-timestamp": timestamp,
+      "svix-signature": signature,
+    });
     return { ok: true };
   } catch {
-    return { ok: false, reason: "mismatch" };
+    return { ok: false, reason: "mismatch", status: 401 };
   }
 }

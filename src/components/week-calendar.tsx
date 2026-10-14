@@ -21,12 +21,12 @@ export function WeekCalendar({
   week?: string;
   tasks: WeekTask[];
   notice?: string;
+  canWrite?: boolean;
 }) {
   const requested = week && /^\d{4}-\d{2}-\d{2}$/.test(week) ? week : today;
   const start = weekStartMonday(requested);
   const days = Array.from({ length: 7 }, (_, index) => addDays(start, index));
   const end = days[6] ?? start;
-  const carried = tasks.filter((task) => task.date < start).sort((a, b) => a.date.localeCompare(b.date));
   const viewingCurrent = start === weekStartMonday(today);
 
   return (
@@ -35,7 +35,7 @@ export function WeekCalendar({
         <div>
           <h2 className="text-sm font-bold">Week of {format(parseISO(start), "MMM d")}</h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            Strategy calls, follow-ups, interviews, recruitment targets, profile check-backs, and SOW dates through {format(parseISO(end), "MMM d")}.
+            This week’s schedule through {format(parseISO(end), "MMM d")}. Mark work done on Attention.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -50,18 +50,6 @@ export function WeekCalendar({
           </Button>
         </div>
       </div>
-      {carried.length > 0 ? (
-        <div className="border-b border-border px-4 py-3">
-          <p className="text-xs font-medium tracking-wide text-destructive uppercase">Still open from earlier</p>
-          <ul className="mt-2 flex flex-wrap gap-2">
-            {carried.slice(0, 8).map((task) => (
-              <li key={task.id}>
-                <TaskChip task={task} overdue />
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
       <div className="overflow-x-auto">
         <div className="grid min-w-[980px] grid-cols-7 divide-x divide-border">
           {days.map((day) => {
@@ -74,7 +62,7 @@ export function WeekCalendar({
                   <p className={`text-sm font-bold ${isToday ? "text-primary" : "text-foreground"}`}>{format(parseISO(day), "d")}</p>
                 </div>
                 <ul className="flex min-h-40 flex-col gap-2 p-2">
-                  {items.length === 0 ? <li className="text-xs text-muted-foreground">Clear</li> : null}
+                  {items.length === 0 ? <li className="text-xs text-muted-foreground">Nothing due</li> : null}
                   {items.map((task) => (
                     <li key={task.id}>
                       <TaskChip task={task} overdue={task.date < today} />
@@ -97,8 +85,8 @@ function TaskChip({ task, overdue }: { task: WeekTask; overdue: boolean }) {
   return (
     <Link href={task.href} className="block rounded-lg border border-border bg-card px-2 py-1.5 hover:border-primary">
       <p className={`text-[11px] font-medium uppercase ${overdue ? "text-destructive" : "text-primary"}`}>{overdue ? `${task.label} · overdue` : task.label}</p>
-      <p className="mt-0.5 text-xs font-medium leading-4 text-foreground">{task.title}</p>
-      <p className="text-[11px] text-muted-foreground">{task.company}</p>
+      <p className="mt-0.5 truncate text-xs font-medium leading-4 text-foreground">{task.contact}</p>
+      <p className="truncate text-[11px] text-muted-foreground">{task.title}</p>
     </Link>
   );
 }

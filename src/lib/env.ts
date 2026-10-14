@@ -12,6 +12,16 @@ export function supabaseKey() {
   return process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 }
 
+export function publicAppBaseUrl() {
+  const explicit = (process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || "").trim();
+  if (explicit) return explicit.replace(/\/$/, "");
+  const production = (process.env.VERCEL_PROJECT_PRODUCTION_URL || "").trim();
+  if (production) {
+    return production.startsWith("http") ? production.replace(/\/$/, "") : `https://${production.replace(/\/$/, "")}`;
+  }
+  return "";
+}
+
 export function sendPilotIntegrationStatus() {
   const apiEnabled = Boolean(process.env.SENDPILOT_API_BASE_URL && process.env.SENDPILOT_API_KEY);
   const webhookConfigured = Boolean(process.env.SENDPILOT_WEBHOOK_SECRET);

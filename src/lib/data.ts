@@ -1,18 +1,22 @@
 import { cache } from "react";
 import {
-  ACCOUNT_FLAGS,
   BOARD_STAGES,
   NOT_INTERESTED_INTAKE,
   NOT_INTERESTED_OUTCOMES,
   SENDPILOT_STATUSES,
   accountFlag,
+  belongsToCurrentLeadOrJourney,
   boardStage,
+  salesBoardColumnCounts,
   buildAttention,
   conversionRates,
   dateInTimeZone,
   daysBetween,
+  addDays,
+  normalizeSendPilotStatus,
   notInterestedColumn,
   notInterestedOutcome,
+  PROFILE_SEND_STAGE,
   stageLabel,
   timeMetrics,
   todayInTimeZone,
@@ -24,7 +28,13 @@ import {
   type WaitingOn,
 } from "@/lib/domain";
 import { raiseIf } from "@/lib/errors";
-import { fullName } from "@/lib/format";
+import { personDisplayName } from "@/lib/lead-display";
+import { inReportingRange, reportingStartOn, type ReportingDuration } from "@/lib/reporting-duration";
+import { reviewRecordOrigin, type ReviewOrigin } from "@/lib/review-origin";
+import { mapSendPilotLeadSources, type SendPilotLeadSource } from "@/lib/sendpilot/lead-sources";
+import { backfillMissingInterestedOpportunities } from "@/lib/opportunity-start";
+import { attentionQueueCounts, buildAttentionQueue } from "@/lib/attention-queue";
+import { canWriteCrm } from "@/lib/authz";
 import { requireUser } from "@/server/session";
 
 type Row = Record<string, unknown>;
@@ -76,6 +86,7 @@ export type OpportunitySummary = {
   waitingOn: WaitingOn;
   nextAction: string | null;
   nextActionDate: string | null;
+  targetStartOn: string | null;
   lastActivityAt: string | null;
   lastActivitySummary: string | null;
   headcount: number | null;
@@ -92,6 +103,8 @@ export type OpportunitySummary = {
   nurtureNotes: string | null;
   lostReason: string | null;
   accountFlag: AccountFlag | null;
+  nextActionManual: boolean;
+  talentRequestSentOn: string | null;
 };
 
 const DEFAULT_SETTINGS: Settings = {
@@ -118,6 +131,7 @@ function mapOpportunity(value: Row): OpportunitySummary {
     waitingOn: value.waiting_on as WaitingOn,
     nextAction: str(value.next_action),
     nextActionDate: str(value.next_action_date),
+    targetStartOn: str(value.target_start_on),
     lastActivityAt: str(value.last_activity_at),
     lastActivitySummary: str(value.last_activity_summary),
     headcount,
@@ -128,17 +142,24 @@ function mapOpportunity(value: Row): OpportunitySummary {
     companyId: String(value.company_id),
     companyName: str(company?.name) ?? "Unknown company",
     contactId: String(value.contact_id),
-    contactName: fullName(str(contact?.first_name), str(contact?.last_name)),
+    contactName: personDisplayName({
+      firstName: str(contact?.first_name),
+      lastName: str(contact?.last_name),
+      email: str(contact?.email),
+      companyName: str(company?.name),
+    }),
     email: str(contact?.email),
     nurtureReason: str(value.nurture_reason),
     nurtureNotes: str(value.nurture_notes),
     lostReason: str(value.lost_reason),
     accountFlag: accountFlag(str(value.account_flag)),
+    nextActionManual: bool(value.next_action_manual),
+    talentRequestSentOn: str(value.talent_request_sent_on),
   };
 }
 
 const OPPORTUNITY_SELECT = `
-  id, title, stage, status, risk_level, waiting_on, next_action, next_action_date,
+  id, title, stage, status, risk_level, waiting_on, next_action, next_action_date, target_start_on, next_action_manual, talent_request_draft, talent_request_sent_on,
   last_activity_at, last_activity_summary, headcount, billing_rate, owner_id, lead_id,
   company_id, contact_id, nurture_reason, nurture_notes, lost_reason, notes, account_flag, created_at,
   companies(id, name, industry, timezone, website, notes),
@@ -174,10 +195,11 @@ export const getCommandCenter = cache(async () => {
   const { supabase, profile } = await requireUser();
   const settings = await getSettings();
   const today = todayInTimeZone(settings.businessTimezone);
-  const [opportunityResult, followResult, batchResult, recruitmentResult, interviewResult, contractResult, callResult, leadResult, clientResult] =
+  const [opportunityResult, followResult, completedFollowResult, batchResult, recruitmentResult, interviewResult, contractResult, callResult, leadResult, clientResult, notInterestedResult] =
     await Promise.all([
       supabase.from("opportunities").select(OPPORTUNITY_SELECT).limit(500),
-      supabase.from("follow_ups").select("id, opportunity_id, lead_id, title, due_on, status, reason, notes").eq("status", "open").limit(300),
+      loadAllOpenFollowUps(supabase),
+      loadRecentCompletedFollowUps(supabase),
       supabase.from("profile_batches").select("id, opportunity_id, sent_on, profile_count, client_response, follow_up_on").limit(300),
       supabase.from("recruitment_requests").select("id, opportunity_id, status, target_on, company_name, urgent").limit(300),
       supabase.from("interviews").select("id, opportunity_id, candidate_name, client_name, interview_at, status").limit(300),
@@ -185,13 +207,21 @@ export const getCommandCenter = cache(async () => {
       supabase.from("strategy_calls").select("opportunity_id, call_on, status, company_name").limit(300),
       supabase.from("leads").select("id, sendpilot_status, archived_at, contacts(first_name, last_name), companies(name)").eq("sendpilot_status", "Interested").is("archived_at", null).limit(500),
       supabase.from("clients").select("id, start_date").limit(300),
+      supabase
+        .from("activities")
+        .select("id, lead_id, occurred_at, metadata, contacts(first_name, last_name), companies(name)")
+        .eq("type", "sendpilot_status_changed")
+        .gte("occurred_at", `${addDays(today, -settings.staleAfterDays)}T00:00:00.000Z`)
+        .order("occurred_at", { ascending: false })
+        .limit(200),
     ]);
 
-  const loadedOpportunities = missingAccountFlagColumn(opportunityResult.error)
+  const loadedOpportunities = missingAccountFlagColumn(opportunityResult.error) || missingAutomationColumn(opportunityResult.error)
     ? await supabase.from("opportunities").select(OPPORTUNITY_SELECT_FALLBACK).limit(500)
     : opportunityResult;
   raiseIf(loadedOpportunities.error);
   raiseIf(followResult.error);
+  raiseIf(completedFollowResult.error);
   raiseIf(batchResult.error);
   raiseIf(recruitmentResult.error);
   raiseIf(interviewResult.error);
@@ -214,84 +244,180 @@ export const getCommandCenter = cache(async () => {
 
   const allOpportunities = rows(loadedOpportunities.data).map(mapOpportunity);
   const archivedOpportunityIds = new Set(allOpportunities.filter((item) => archivedIds.has(item.leadId)).map((item) => item.id));
-  const opportunities = allOpportunities.filter((item) => !archivedIds.has(item.leadId));
+  let opportunities = allOpportunities.filter((item) => !archivedIds.has(item.leadId));
+  const listedLeads = missingArchivedColumn(leadResult.error)
+    ? await supabase.from("leads").select("id, sendpilot_status").order("updated_at", { ascending: false }).limit(500)
+    : await supabase.from("leads").select("id, sendpilot_status").is("archived_at", null).order("updated_at", { ascending: false }).limit(500);
+  raiseIf(listedLeads.error);
+  const currentLeadIds = new Set<string>();
+  const statusByLead = new Map<string, string | null>();
+  for (const item of rows(listedLeads.error ? [] : listedLeads.data)) {
+    const id = String(item.id);
+    currentLeadIds.add(id);
+    statusByLead.set(id, str(item.sendpilot_status));
+  }
+  for (const item of rows(loadedLeads.data)) {
+    currentLeadIds.add(String(item.id));
+    statusByLead.set(String(item.id), str(item.sendpilot_status) ?? "Interested");
+  }
+  const missingStatusIds = [...new Set(opportunities.map((item) => item.leadId).filter((id) => !statusByLead.has(id)))];
+  if (missingStatusIds.length > 0) {
+    const extraLeads = await supabase.from("leads").select("id, sendpilot_status").in("id", missingStatusIds);
+    raiseIf(extraLeads.error);
+    for (const item of rows(extraLeads.data)) {
+      statusByLead.set(String(item.id), str(item.sendpilot_status));
+    }
+  }
+  for (const opportunity of opportunities) {
+    if (statusByLead.get(opportunity.leadId) === "Not Interested") continue;
+    currentLeadIds.add(opportunity.leadId);
+  }
+  opportunities = opportunities.filter((item) => currentLeadIds.has(item.leadId));
+  const opportunityLeadIds = new Map(opportunities.map((item) => [item.id, item.leadId]));
   const opportunityIds = new Set(opportunities.map((opportunity) => opportunity.leadId));
   const companyByOpportunity = new Map(opportunities.map((opportunity) => [opportunity.id, opportunity.companyName]));
+  const contactByOpportunity = new Map(opportunities.map((opportunity) => [opportunity.id, opportunity.contactName]));
 
   const companyByLead = new Map<string, string>();
+  const contactByLead = new Map<string, string>();
   for (const opportunity of opportunities) {
     companyByLead.set(opportunity.leadId, opportunity.companyName);
+    contactByLead.set(opportunity.leadId, opportunity.contactName);
   }
   for (const item of rows(loadedLeads.data)) {
     const company = row(item.companies);
     const name = str(company?.name);
     if (name) companyByLead.set(String(item.id), name);
+    const contact = row(item.contacts);
+    contactByLead.set(
+      String(item.id),
+      personDisplayName({
+        firstName: str(contact?.first_name),
+        lastName: str(contact?.last_name),
+        email: str(contact?.email),
+        companyName: str(company?.name),
+      }),
+    );
   }
 
-  const followUps = rows(followResult.data)
-    .map((item) => {
-      const opportunityId = str(item.opportunity_id);
-      const leadId = str(item.lead_id);
-      return {
-        id: String(item.id),
-        opportunityId,
-        leadId,
-        title: str(item.title) ?? "Follow-up",
-        dueOn: str(item.due_on) ?? today,
-        status: "open" as const,
-        companyName:
-          (opportunityId ? companyByOpportunity.get(opportunityId) : null) ??
-          (leadId ? companyByLead.get(leadId) : null) ??
-          "Follow-up",
-      };
-    })
-    .filter((item) => {
-      if (item.leadId && archivedIds.has(item.leadId)) return false;
-      if (item.opportunityId && archivedOpportunityIds.has(item.opportunityId)) return false;
-      return true;
+  const mapCenterFollowUp = (item: Row, status: "open" | "completed") => {
+    const opportunityId = str(item.opportunity_id);
+    const leadId = str(item.lead_id);
+    return {
+      id: String(item.id),
+      opportunityId,
+      leadId,
+      title: str(item.title) ?? "Follow-up",
+      dueOn: str(item.due_on) ?? today,
+      status,
+      urgent: bool(item.urgent),
+      pendingSchedule: bool(item.pending_schedule),
+      automationType: str(item.automation_type),
+      completedAt: str(item.completed_at),
+      companyName:
+        (opportunityId ? companyByOpportunity.get(opportunityId) : null) ??
+        (leadId ? companyByLead.get(leadId) : null) ??
+        "Follow-up",
+      contactName:
+        (opportunityId ? contactByOpportunity.get(opportunityId) : null) ??
+        (leadId ? contactByLead.get(leadId) : null) ??
+        null,
+    };
+  };
+  const keepFollowUp = (item: { leadId: string | null; opportunityId: string | null }) => {
+    if (item.leadId && archivedIds.has(item.leadId)) return false;
+    if (item.opportunityId && archivedOpportunityIds.has(item.opportunityId)) return false;
+    return belongsToCurrentLeadOrJourney({
+      leadId: item.leadId,
+      opportunityId: item.opportunityId,
+      currentLeadIds,
+      opportunityLeadIds,
     });
+  };
+  const followUps = rows(followResult.data).map((item) => mapCenterFollowUp(item, "open")).filter(keepFollowUp);
+  const completedFollowUps = rows(completedFollowResult.data).map((item) => mapCenterFollowUp(item, "completed")).filter(keepFollowUp);
 
-  const profileBatches = rows(batchResult.data).map((item) => ({
-    id: String(item.id),
-    opportunityId: String(item.opportunity_id),
-    companyName: companyByOpportunity.get(String(item.opportunity_id)) ?? "Client",
-    sentOn: str(item.sent_on) ?? today,
-    profileCount: num(item.profile_count) ?? 0,
-    clientResponse: str(item.client_response),
-    followUpOn: str(item.follow_up_on),
-  }));
+  const profileBatches = rows(batchResult.data)
+    .map((item) => ({
+      id: String(item.id),
+      opportunityId: String(item.opportunity_id),
+      companyName: companyByOpportunity.get(String(item.opportunity_id)) ?? "Client",
+      sentOn: str(item.sent_on) ?? today,
+      profileCount: num(item.profile_count) ?? 0,
+      clientResponse: str(item.client_response),
+      followUpOn: str(item.follow_up_on),
+    }))
+    .filter((item) =>
+      belongsToCurrentLeadOrJourney({
+        opportunityId: item.opportunityId,
+        currentLeadIds,
+        opportunityLeadIds,
+      }),
+    );
 
-  const recruitment = rows(recruitmentResult.data).map((item) => ({
-    id: String(item.id),
-    opportunityId: String(item.opportunity_id),
-    companyName: str(item.company_name) ?? companyByOpportunity.get(String(item.opportunity_id)) ?? "Recruitment",
-    status: str(item.status) ?? "Not Started",
-    targetOn: str(item.target_on) ?? today,
-    urgent: bool(item.urgent),
-  }));
+  const recruitment = rows(recruitmentResult.data)
+    .map((item) => ({
+      id: String(item.id),
+      opportunityId: String(item.opportunity_id),
+      companyName: str(item.company_name) ?? companyByOpportunity.get(String(item.opportunity_id)) ?? "Recruitment",
+      status: str(item.status) ?? "Not Started",
+      targetOn: str(item.target_on) ?? today,
+      urgent: bool(item.urgent),
+    }))
+    .filter((item) =>
+      belongsToCurrentLeadOrJourney({
+        opportunityId: item.opportunityId,
+        currentLeadIds,
+        opportunityLeadIds,
+      }),
+    );
 
-  const interviews = rows(interviewResult.data).map((item) => ({
-    id: String(item.id),
-    opportunityId: String(item.opportunity_id),
-    candidateName: str(item.candidate_name) ?? "Candidate",
-    companyName: str(item.client_name) ?? companyByOpportunity.get(String(item.opportunity_id)) ?? "Client",
-    interviewOn: dateInTimeZone(str(item.interview_at), settings.businessTimezone),
-    status: str(item.status) ?? "Requested",
-  }));
+  const interviews = rows(interviewResult.data)
+    .map((item) => ({
+      id: String(item.id),
+      opportunityId: String(item.opportunity_id),
+      candidateName: str(item.candidate_name) ?? "Candidate",
+      companyName: str(item.client_name) ?? companyByOpportunity.get(String(item.opportunity_id)) ?? "Client",
+      interviewOn: dateInTimeZone(str(item.interview_at), settings.businessTimezone),
+      status: str(item.status) ?? "Requested",
+    }))
+    .filter((item) =>
+      belongsToCurrentLeadOrJourney({
+        opportunityId: item.opportunityId,
+        currentLeadIds,
+        opportunityLeadIds,
+      }),
+    );
 
-  const contracts = rows(contractResult.data).map((item) => ({
-    opportunityId: String(item.opportunity_id),
-    companyName: companyByOpportunity.get(String(item.opportunity_id)) ?? "Client",
-    status: str(item.status) ?? "Preparing",
-    expectedStartOn: str(item.expected_start_on),
-  }));
+  const contracts = rows(contractResult.data)
+    .map((item) => ({
+      opportunityId: String(item.opportunity_id),
+      companyName: companyByOpportunity.get(String(item.opportunity_id)) ?? "Client",
+      status: str(item.status) ?? "Preparing",
+      expectedStartOn: str(item.expected_start_on),
+    }))
+    .filter((item) =>
+      belongsToCurrentLeadOrJourney({
+        opportunityId: item.opportunityId,
+        currentLeadIds,
+        opportunityLeadIds,
+      }),
+    );
 
-  const strategyCalls = rows(callResult.data).map((item) => ({
-    opportunityId: String(item.opportunity_id),
-    companyName: str(item.company_name) ?? companyByOpportunity.get(String(item.opportunity_id)) ?? "Client",
-    callOn: str(item.call_on),
-    status: str(item.status) ?? "Draft",
-  }));
+  const strategyCalls = rows(callResult.data)
+    .map((item) => ({
+      opportunityId: String(item.opportunity_id),
+      companyName: str(item.company_name) ?? companyByOpportunity.get(String(item.opportunity_id)) ?? "Client",
+      callOn: str(item.call_on),
+      status: str(item.status) ?? "Draft",
+    }))
+    .filter((item) =>
+      belongsToCurrentLeadOrJourney({
+        opportunityId: item.opportunityId,
+        currentLeadIds,
+        opportunityLeadIds,
+      }),
+    );
 
   const unmatchedInterested = rows(loadedLeads.data)
     .filter((lead) => !opportunityIds.has(String(lead.id)))
@@ -300,10 +426,38 @@ export const getCommandCenter = cache(async () => {
       const company = row(lead.companies);
       return {
         leadId: String(lead.id),
-        name: fullName(str(contact?.first_name), str(contact?.last_name)),
+        name: personDisplayName({
+          firstName: str(contact?.first_name),
+          lastName: str(contact?.last_name),
+          companyName: str(company?.name),
+        }),
         companyName: str(company?.name) ?? "Unknown company",
       };
     });
+
+  const recentNotInterested = notInterestedResult.error
+    ? []
+    : rows(notInterestedResult.data).flatMap((item) => {
+        const leadId = str(item.lead_id);
+        if (!leadId || archivedIds.has(leadId)) return [];
+        const metadata = item.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata)
+          ? (item.metadata as Row)
+          : {};
+        if (normalizeSendPilotStatus(str(metadata.newStatus)) !== "Not Interested") return [];
+        const contact = row(item.contacts);
+        const company = row(item.companies);
+        return [{
+          activityId: String(item.id),
+          leadId,
+          name: personDisplayName({
+            firstName: str(contact?.first_name),
+            lastName: str(contact?.last_name),
+            companyName: str(company?.name) ?? companyByLead.get(leadId),
+          }),
+          companyName: str(company?.name) ?? companyByLead.get(leadId) ?? "Unknown company",
+          occurredOn: dateInTimeZone(str(item.occurred_at), settings.businessTimezone) ?? today,
+        }];
+      });
 
   const attention = buildAttention({
     today,
@@ -314,6 +468,7 @@ export const getCommandCenter = cache(async () => {
       id: opportunity.id,
       title: opportunity.title,
       companyName: opportunity.companyName,
+      contactName: opportunity.contactName,
       stage: opportunity.stage,
       status: opportunity.status,
       riskLevel: opportunity.riskLevel,
@@ -329,29 +484,48 @@ export const getCommandCenter = cache(async () => {
     contracts,
     strategyCalls,
     unmatchedInterested,
+    recentNotInterested,
   });
+  const queue = buildAttentionQueue({ today, attention, followUps, completedFollowUps });
+  const queueCounts = attentionQueueCounts(queue);
 
   const weekStart = startOfWeek(today);
   const weekEnd = addDaysLocal(weekStart, 6);
   const month = today.slice(0, 7);
   const clients = rows(clientResult.data);
   const activeCount = opportunities.filter((item) => item.status === "active" || item.status === "nurture" || item.status === "on_hold").length;
+  const interestedLeadIds = [
+    ...new Set([
+      ...[...statusByLead.entries()].filter(([, status]) => status === "Interested").map(([id]) => id),
+      ...rows(loadedLeads.data).map((item) => String(item.id)),
+    ]),
+  ];
+  const salesBoardCounts = salesBoardColumnCounts({
+    opportunities: opportunities.map((opportunity) => ({ leadId: opportunity.leadId, stage: opportunity.stage })),
+    interestedLeadIds,
+  });
 
   return {
     profile,
     settings,
     today,
     attention,
+    queue,
+    queueCounts,
     opportunities,
+    salesBoardCounts,
     kpis: {
+      activeLeads: currentLeadIds.size,
       activeOpportunities: activeCount,
+      overdueActions: queueCounts.overdue,
+      dueToday: queueCounts.today,
       nurture: opportunities.filter((item) => item.status === "nurture").length,
       interestedLeads: rows(loadedLeads.data).length,
       interestedWithoutOpportunity: unmatchedInterested.length,
-      profilesInReview: opportunities.filter((item) => item.stage === "Profiles Sent" || item.stage === "Client Review").length,
+      profilesInReview: opportunities.filter((item) => boardStage(item.stage) === PROFILE_SEND_STAGE).length,
       meetingsThisWeek: strategyCalls.filter((call) => call.callOn && call.callOn >= weekStart && call.callOn <= weekEnd).length,
       recruitmentRequests: recruitment.filter((item) => !["Candidate Selected", "No Suitable Candidate"].includes(item.status)).length,
-      profilesAwaiting: profileBatches.filter((batch) => !batch.clientResponse).length,
+      profilesAwaiting: profileBatches.filter((batch) => !batch.clientResponse && batch.profileCount > 0).length,
       interviews: interviews.filter((item) => ["Requested", "Scheduled", "Reschedule", "Additional Interview"].includes(item.status)).length,
       sowsPending: contracts.filter((item) => ["Preparing", "Sent", "Negotiating"].includes(item.status)).length,
       startsThisMonth:
@@ -363,6 +537,7 @@ export const getCommandCenter = cache(async () => {
         id: opportunity.id,
         title: opportunity.title,
         companyName: opportunity.companyName,
+        contactName: opportunity.contactName,
         stage: opportunity.stage,
         status: opportunity.status,
         riskLevel: opportunity.riskLevel,
@@ -450,7 +625,12 @@ export async function listLeads(filters: { q?: string; status?: string; review?:
       return {
         id: String(item.id),
         companyName: str(company?.name) ?? "Unknown company",
-        contactName: fullName(str(contact?.first_name), str(contact?.last_name)),
+        contactName: personDisplayName({
+          firstName: str(contact?.first_name),
+          lastName: str(contact?.last_name),
+          email: str(contact?.email),
+          companyName: str(company?.name),
+        }),
         email: str(contact?.email),
         phone: str(contact?.phone),
         linkedinUrl: str(contact?.linkedin_url),
@@ -467,6 +647,7 @@ export async function listLeads(filters: { q?: string; status?: string; review?:
         notInterestedOutcome: notInterestedOutcome(str(item.not_interested_outcome)),
         accountFlag: accountFlag(str(item.account_flag)),
         archivedAt: str(item.archived_at),
+        createdAt: str(item.created_at),
       };
     })
     .filter((lead) => {
@@ -499,6 +680,114 @@ function missingAccountFlagColumn(error: { message?: string; code?: string } | n
   return Boolean(error && (error.code === "PGRST204" || /account_flag/i.test(error.message ?? "")));
 }
 
+function missingAutomationColumn(error: { message?: string; code?: string } | null) {
+  return Boolean(error && (error.code === "PGRST204" || /automation_key|automation_type|urgent|pending_schedule|target_start_on|next_action_manual|talent_request|completed_by/i.test(error.message ?? "")));
+}
+
+const FOLLOW_UP_SELECT = "id, opportunity_id, lead_id, title, due_on, status, reason, notes, urgent, pending_schedule, automation_type, completed_at, completed_by";
+const FOLLOW_UP_SELECT_FALLBACK = "id, opportunity_id, lead_id, title, due_on, status, reason, notes";
+const FOLLOW_UP_SELECT_COMPLETED = "id, opportunity_id, lead_id, title, due_on, status, reason, notes, urgent, pending_schedule, automation_type, completed_at";
+
+async function loadAllOpenFollowUps(supabase: Awaited<ReturnType<typeof requireUser>>["supabase"]) {
+  const pageSize = 500;
+  const collected: Row[] = [];
+  let from = 0;
+  let select = FOLLOW_UP_SELECT;
+  for (let page = 0; page < 20; page += 1) {
+    const result = await supabase
+      .from("follow_ups")
+      .select(select)
+      .eq("status", "open")
+      .order("due_on")
+      .range(from, from + pageSize - 1);
+    if (result.error && /completed_by/i.test(`${result.error.code ?? ""} ${result.error.message ?? ""}`) && select === FOLLOW_UP_SELECT) {
+      select = FOLLOW_UP_SELECT_COMPLETED;
+      collected.length = 0;
+      from = 0;
+      continue;
+    }
+    if (missingAutomationColumn(result.error) && select !== FOLLOW_UP_SELECT_FALLBACK) {
+      select = FOLLOW_UP_SELECT_FALLBACK;
+      collected.length = 0;
+      from = 0;
+      continue;
+    }
+    if (result.error) return result;
+    const batch = rows(result.data);
+    collected.push(...batch);
+    if (batch.length < pageSize) return { data: collected, error: null };
+    from += pageSize;
+  }
+  return { data: collected, error: null };
+}
+
+async function loadRecentCompletedFollowUps(supabase: Awaited<ReturnType<typeof requireUser>>["supabase"]) {
+  let select = FOLLOW_UP_SELECT;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const result = await supabase
+      .from("follow_ups")
+      .select(select)
+      .eq("status", "completed")
+      .order("completed_at", { ascending: false })
+      .limit(80);
+    if (result.error && /completed_by|PGRST204/i.test(`${result.error.code ?? ""} ${result.error.message ?? ""}`) && select === FOLLOW_UP_SELECT) {
+      select = FOLLOW_UP_SELECT_COMPLETED;
+      continue;
+    }
+    if (missingAutomationColumn(result.error) && select !== FOLLOW_UP_SELECT_FALLBACK) {
+      select = FOLLOW_UP_SELECT_FALLBACK;
+      continue;
+    }
+    return result;
+  }
+  return { data: [], error: null };
+}
+
+export async function listSendPilotSourcesByLeadIds(leadIds: string[]): Promise<Map<string, SendPilotLeadSource[]>> {
+  const ids = [...new Set(leadIds.filter((id) => isUuid(id)))];
+  if (ids.length === 0) return new Map();
+  const { supabase } = await requireUser();
+  const { data: identities, error: identityError } = await supabase
+    .from("sendpilot_lead_identities")
+    .select("lead_id, integration_id")
+    .in("lead_id", ids);
+  raiseIf(identityError);
+  const identityRows = rows(identities);
+  const integrationIds = [
+    ...new Set(identityRows.map((item) => str(item.integration_id)).filter((id): id is string => Boolean(id))),
+  ];
+  if (integrationIds.length === 0) return new Map();
+  const { data: integrations, error: integrationError } = await supabase
+    .from("sendpilot_integrations")
+    .select("id, name")
+    .in("id", integrationIds);
+  raiseIf(integrationError);
+  return mapSendPilotLeadSources({
+    identities: identityRows,
+    integrations: rows(integrations),
+  });
+}
+
+export async function countLeads(filters: { archived?: boolean; status?: string; createdOnOrAfter?: string | null } = {}) {
+  const { supabase } = await requireUser();
+  let query = supabase.from("leads").select("id", { count: "exact", head: true });
+  if (filters.archived) query = query.not("archived_at", "is", null);
+  else query = query.is("archived_at", null);
+  if (filters.status) query = query.eq("sendpilot_status", filters.status);
+  if (filters.createdOnOrAfter) query = query.gte("created_at", `${filters.createdOnOrAfter}T00:00:00.000Z`);
+  const first = await query;
+  if (missingArchivedColumn(first.error)) {
+    let fallback = supabase.from("leads").select("id", { count: "exact", head: true });
+    if (filters.status) fallback = fallback.eq("sendpilot_status", filters.status);
+    if (filters.createdOnOrAfter) fallback = fallback.gte("created_at", `${filters.createdOnOrAfter}T00:00:00.000Z`);
+    const second = await fallback;
+    raiseIf(second.error);
+    return second.count ?? 0;
+  }
+  raiseIf(first.error);
+  return first.count ?? 0;
+}
+
 export async function getLead(id: string) {
   if (!isUuid(id)) return null;
   const { supabase } = await requireUser();
@@ -529,7 +818,7 @@ export async function getLead(id: string) {
   const [activities, opportunityResult, followUps, notes] = await Promise.all([
     supabase.from("activities").select("id, type, title, body, occurred_at").eq("lead_id", id).order("occurred_at", { ascending: false }).limit(100),
     supabase.from("opportunities").select("id, stage, status, title, next_action, next_action_date").eq("lead_id", id).order("created_at", { ascending: false }).limit(5),
-    supabase.from("follow_ups").select("id, title, due_on, status, reason, notes, completed_at").eq("lead_id", id).order("due_on"),
+    supabase.from("follow_ups").select("id, title, due_on, status, reason, notes, completed_at, automation_type").eq("lead_id", id).order("due_on"),
     supabase.from("notes").select("id, body, created_at").eq("lead_id", id).order("created_at", { ascending: false }),
   ]);
   raiseIf(activities.error);
@@ -558,7 +847,12 @@ export async function getLead(id: string) {
     },
     contact: {
       id: str(contact?.id),
-      name: fullName(str(contact?.first_name), str(contact?.last_name)),
+      name: personDisplayName({
+        firstName: str(contact?.first_name),
+        lastName: str(contact?.last_name),
+        email: str(contact?.email),
+        companyName: str(company?.name),
+      }),
       email: str(contact?.email),
       phone: str(contact?.phone),
       linkedinUrl: str(contact?.linkedin_url),
@@ -581,6 +875,7 @@ export async function getLead(id: string) {
       reason: str(item.reason),
       notes: str(item.notes),
       completedAt: str(item.completed_at),
+      automationType: str(item.automation_type),
     })),
     notes: rows(notes.data).map((item) => ({ id: String(item.id), body: str(item.body) ?? "", createdAt: str(item.created_at) })),
   };
@@ -621,8 +916,8 @@ export async function getOpportunity(id: string) {
   if (!isUuid(id)) return null;
   const { supabase } = await requireUser();
   const settings = await getSettings();
-  const first = await supabase.from("opportunities").select(`${OPPORTUNITY_SELECT}, leads(id, sendpilot_status, source, last_synced_at)`).eq("id", id).maybeSingle();
-  const loaded = missingAccountFlagColumn(first.error)
+  const first = await supabase.from("opportunities").select(`${OPPORTUNITY_SELECT}, leads(id, sendpilot_status, not_interested_outcome, source, last_synced_at)`).eq("id", id).maybeSingle();
+  const loaded = missingAccountFlagColumn(first.error) || missingAutomationColumn(first.error)
     ? await supabase.from("opportunities").select(`${OPPORTUNITY_SELECT_FALLBACK}, leads(id, sendpilot_status, source, last_synced_at)`).eq("id", id).maybeSingle()
     : first;
   raiseIf(loaded.error);
@@ -632,7 +927,7 @@ export async function getOpportunity(id: string) {
   const [activities, history, followUps, strategy, recruitment, batches, interviews, contract, client, notes, documents, tasks] = await Promise.all([
     supabase.from("activities").select("id, type, title, body, occurred_at").or(`opportunity_id.eq.${id},lead_id.eq.${summary.leadId}`).order("occurred_at", { ascending: false }).limit(200),
     supabase.from("pipeline_stage_history").select("id, previous_stage, new_stage, changed_at, note").eq("opportunity_id", id).order("changed_at", { ascending: false }),
-    supabase.from("follow_ups").select("id, title, due_on, status, reason, notes, completed_at").eq("opportunity_id", id).order("due_on"),
+    supabase.from("follow_ups").select("id, title, due_on, status, reason, notes, completed_at, automation_type").eq("opportunity_id", id).order("due_on"),
     supabase.from("strategy_calls").select("*").eq("opportunity_id", id).maybeSingle(),
     supabase.from("recruitment_requests").select("*, candidates(*)").eq("opportunity_id", id).maybeSingle(),
     supabase.from("profile_batches").select("*, profile_batch_candidates(candidate_id)").eq("opportunity_id", id).order("sent_on", { ascending: false }),
@@ -663,10 +958,17 @@ export async function getOpportunity(id: string) {
     }),
   );
 
+  const company = row((loaded.data as Row).companies);
+  const contact = row((loaded.data as Row).contacts);
   return {
     ...summary,
     notesText: str((loaded.data as Row).notes),
+    phone: str(contact?.phone),
+    linkedInUrl: str(contact?.linkedin_url),
+    companyIndustry: str(company?.industry),
+    companyWebsite: str(company?.website),
     sendpilotStatus: str(lead?.sendpilot_status) as SendPilotStatus | null,
+    notInterestedOutcome: notInterestedOutcome(str(lead?.not_interested_outcome)),
     sendpilotSource: str(lead?.source),
     lastSyncedAt: str(lead?.last_synced_at),
     today: todayInTimeZone(settings.businessTimezone),
@@ -687,6 +989,7 @@ export async function getOpportunity(id: string) {
       reason: str(item.reason),
       notes: str(item.notes),
       completedAt: str(item.completed_at),
+      automationType: str(item.automation_type),
     })),
     strategyCall: strategy.data ? (strategy.data as Row) : null,
     recruitment: recruitment.data ? (recruitment.data as Row) : null,
@@ -759,8 +1062,35 @@ export async function getRecruitment(id: string) {
   return { request: record, history: rows(historyResult.data) };
 }
 
+export type ExistingReviewLead = {
+  leadId: string;
+  contactId: string;
+  contactName: string;
+  companyName: string;
+  email: string | null;
+  sendpilotStatus: string | null;
+  opportunityId: string | null;
+  opportunityStage: string | null;
+};
+
+export type ReviewRecord = {
+  id: string;
+  classification: string | null;
+  review_reason: string | null;
+  full_name: string | null;
+  company_name: string | null;
+  email: string | null;
+  sendpilot_status: string | null;
+  created_at: string | null;
+  origin: ReviewOrigin;
+  existing: ExistingReviewLead | null;
+};
+
 export async function getReconciliation() {
-  const { supabase } = await requireUser();
+  const { supabase, userId, profile } = await requireUser();
+  if (canWriteCrm(profile?.role)) {
+    await backfillMissingInterestedOpportunities(supabase, userId);
+  }
   const [syncs, records, leads] = await Promise.all([
     supabase.from("sendpilot_syncs").select("*").order("created_at", { ascending: false }).limit(8),
     supabase.from("sendpilot_records").select("*").eq("review_required", true).eq("applied", false).order("created_at", { ascending: false }).limit(100),
@@ -768,20 +1098,157 @@ export async function getReconciliation() {
   ]);
   raiseIf(syncs.error);
   raiseIf(records.error);
-  return { syncs: rows(syncs.data), records: rows(records.data), missingOpportunities: leads };
+  const recordRows = rows(records.data);
+  const reviewSyncIds = [...new Set(recordRows.map((item) => str(item.sync_id)).filter((id): id is string => Boolean(id && isUuid(id))))];
+  const reviewIntegrationIds = [...new Set(recordRows.map((item) => str(item.integration_id)).filter((id): id is string => Boolean(id && isUuid(id))))];
+  const reviewCampaignKeys = recordRows.flatMap((item) => {
+    const integrationId = str(item.integration_id);
+    const campaignId = str(item.campaign_id);
+    return integrationId && campaignId ? [`${integrationId}:${campaignId}`] : [];
+  });
+  const originSyncs = reviewSyncIds.length
+    ? await supabase.from("sendpilot_syncs").select("id, source, filename, integration_id").in("id", reviewSyncIds)
+    : { data: [], error: null };
+  raiseIf(originSyncs.error);
+  for (const item of rows(originSyncs.data)) {
+    const integrationId = str(item.integration_id);
+    if (integrationId && isUuid(integrationId)) reviewIntegrationIds.push(integrationId);
+  }
+  const uniqueIntegrationIds = [...new Set(reviewIntegrationIds)];
+  const originIntegrations = uniqueIntegrationIds.length
+    ? await supabase.from("sendpilot_integrations").select("id, name").in("id", uniqueIntegrationIds)
+    : { data: [], error: null };
+  raiseIf(originIntegrations.error);
+  const campaignPairs = [...new Set(reviewCampaignKeys)].map((key) => {
+    const [integrationId, campaignId] = key.split(":");
+    return { integrationId, campaignId };
+  });
+  const originCampaigns = campaignPairs.length
+    ? await supabase
+        .from("sendpilot_campaigns")
+        .select("integration_id, sendpilot_campaign_id, name")
+        .in("integration_id", [...new Set(campaignPairs.map((item) => item.integrationId))])
+    : { data: [], error: null };
+  raiseIf(originCampaigns.error);
+  const syncById = new Map(rows(originSyncs.data).map((item) => [String(item.id), item]));
+  const integrationNameById = new Map(
+    rows(originIntegrations.data).map((item) => [String(item.id), str(item.name) ?? "Untitled"]),
+  );
+  const campaignNameByKey = new Map(
+    rows(originCampaigns.data).flatMap((item) => {
+      const integrationId = str(item.integration_id);
+      const campaignId = str(item.sendpilot_campaign_id);
+      if (!integrationId || !campaignId) return [];
+      return [[`${integrationId}:${campaignId}`, str(item.name)] as const];
+    }),
+  );
+  const contactIds = [...new Set(recordRows.map((item) => str(item.matched_contact_id)).filter((id): id is string => Boolean(id && isUuid(id))))];
+  const leadIds = [...new Set(recordRows.map((item) => str(item.matched_lead_id)).filter((id): id is string => Boolean(id && isUuid(id))))];
+  const existingByLead = new Map<string, ExistingReviewLead>();
+  const existingByContact = new Map<string, ExistingReviewLead>();
+  if (contactIds.length || leadIds.length) {
+    let leadQuery = supabase.from("leads").select("id, contact_id, sendpilot_status, archived_at, companies(name), contacts(first_name, last_name, email)");
+    if (leadIds.length && contactIds.length) leadQuery = leadQuery.or(`id.in.(${leadIds.join(",")}),contact_id.in.(${contactIds.join(",")})`);
+    else if (leadIds.length) leadQuery = leadQuery.in("id", leadIds);
+    else leadQuery = leadQuery.in("contact_id", contactIds);
+    let loadedLeads: { data: unknown; error: { message?: string; code?: string } | null } = await leadQuery;
+    if (missingArchivedColumn(loadedLeads.error)) {
+      let fallback = supabase.from("leads").select("id, contact_id, sendpilot_status, companies(name), contacts(first_name, last_name, email)");
+      if (leadIds.length && contactIds.length) fallback = fallback.or(`id.in.(${leadIds.join(",")}),contact_id.in.(${contactIds.join(",")})`);
+      else if (leadIds.length) fallback = fallback.in("id", leadIds);
+      else fallback = fallback.in("contact_id", contactIds);
+      loadedLeads = await fallback;
+    }
+    raiseIf(loadedLeads.error);
+    const existingLeadIds = rows(loadedLeads.data).map((item) => String(item.id));
+    const opportunities = existingLeadIds.length
+      ? await supabase.from("opportunities").select("id, lead_id, stage, status").in("lead_id", existingLeadIds)
+      : { data: [], error: null };
+    raiseIf(opportunities.error);
+    const opportunityByLead = new Map(
+      rows(opportunities.data)
+        .filter((item) => ["active", "nurture", "on_hold"].includes(String(item.status ?? "")))
+        .map((item) => [String(item.lead_id), item]),
+    );
+    for (const item of rows(loadedLeads.data)) {
+      if (str(item.archived_at)) continue;
+      const contact = row(item.contacts);
+      const company = row(item.companies);
+      const opportunity = opportunityByLead.get(String(item.id));
+      const existing: ExistingReviewLead = {
+        leadId: String(item.id),
+        contactId: String(item.contact_id),
+        contactName: personDisplayName({
+          firstName: str(contact?.first_name),
+          lastName: str(contact?.last_name),
+          email: str(contact?.email),
+          companyName: str(company?.name),
+        }),
+        companyName: str(company?.name) ?? "Unknown company",
+        email: str(contact?.email),
+        sendpilotStatus: str(item.sendpilot_status),
+        opportunityId: opportunity ? String(opportunity.id) : null,
+        opportunityStage: opportunity ? str(opportunity.stage) : null,
+      };
+      existingByLead.set(existing.leadId, existing);
+      existingByContact.set(existing.contactId, existing);
+    }
+  }
+  return {
+    syncs: rows(syncs.data),
+    records: recordRows.flatMap((item): ReviewRecord[] => {
+      const id = str(item.id);
+      if (!id) return [];
+      const matchedLeadId = str(item.matched_lead_id);
+      const matchedContactId = str(item.matched_contact_id);
+      const sync = syncById.get(str(item.sync_id) ?? "");
+      const integrationId = str(item.integration_id) ?? str(sync?.integration_id);
+      const campaignId = str(item.campaign_id);
+      return [{
+        id,
+        classification: str(item.classification),
+        review_reason: str(item.review_reason),
+        full_name: str(item.full_name),
+        company_name: str(item.company_name),
+        email: str(item.email),
+        sendpilot_status: str(item.sendpilot_status),
+        created_at: str(item.created_at),
+        origin: reviewRecordOrigin({
+          recordSource: str(item.source),
+          syncSource: str(sync?.source),
+          filename: str(sync?.filename),
+          integrationName: integrationId ? integrationNameById.get(integrationId) ?? null : null,
+          campaignId,
+          campaignName: integrationId && campaignId ? campaignNameByKey.get(`${integrationId}:${campaignId}`) ?? null : null,
+        }),
+        existing:
+          (matchedLeadId ? existingByLead.get(matchedLeadId) : null) ??
+          (matchedContactId ? existingByContact.get(matchedContactId) : null) ??
+          null,
+      }];
+    }),
+    missingOpportunities: leads,
+  };
 }
 
-export async function getAnalytics() {
+export async function getAnalytics(filters: { startOn?: string | null } = {}) {
   const { supabase } = await requireUser();
-  const [leads, history, recruitment, batches, interviews, contracts, clients, opportunities] = await Promise.all([
+  const startOn = filters.startOn ?? null;
+  let historyQuery = supabase.from("pipeline_stage_history").select("opportunity_id, new_stage, changed_at").limit(8000);
+  if (startOn) historyQuery = historyQuery.gte("changed_at", `${startOn}T00:00:00.000Z`);
+  const [leads, history, recruitment, batches, interviews, contracts, clients, opportunities, totalLeads, interested, notInterested, meetingsBooked] = await Promise.all([
     supabase.from("leads").select("sendpilot_status").is("archived_at", null).limit(5000),
-    supabase.from("pipeline_stage_history").select("opportunity_id, new_stage, changed_at").limit(8000),
+    historyQuery,
     supabase.from("recruitment_requests").select("id", { count: "exact", head: true }),
-    supabase.from("profile_batches").select("id", { count: "exact", head: true }),
+    supabase.from("profile_batches").select("id", { count: "exact", head: true }).gt("profile_count", 0),
     supabase.from("interviews").select("id", { count: "exact", head: true }),
     supabase.from("contracts").select("status"),
     supabase.from("clients").select("id", { count: "exact", head: true }),
     supabase.from("opportunities").select("stage, status").limit(1000),
+    countLeads({ createdOnOrAfter: startOn }),
+    countLeads({ status: "Interested", createdOnOrAfter: startOn }),
+    countLeads({ status: "Not Interested", createdOnOrAfter: startOn }),
+    countLeads({ status: "Meeting Booked", createdOnOrAfter: startOn }),
   ]);
   let leadRowsResult = leads;
   if (missingArchivedColumn(leads.error)) {
@@ -791,16 +1258,19 @@ export async function getAnalytics() {
   const leadRows = rows(leadRowsResult.data);
   const countStatus = (status: string) => leadRows.filter((lead) => lead.sendpilot_status === status).length;
   const opportunityRows = rows(opportunities.data);
-  const events = rows(history.data).map((item) => ({
-    opportunityId: String(item.opportunity_id),
-    stage: String(item.new_stage),
-    at: String(item.changed_at),
-  }));
+  const events = rows(history.data)
+    .map((item) => ({
+      opportunityId: String(item.opportunity_id),
+      stage: String(item.new_stage),
+      at: String(item.changed_at),
+    }))
+    .filter((event) => inReportingRange(event.at, startOn));
   const contractRows = rows(contracts.data);
   return {
-    totalLeads: leadRows.length,
-    interested: countStatus("Interested"),
-    meetingsBooked: countStatus("Meeting Booked"),
+    totalLeads,
+    interested,
+    notInterested,
+    meetingsBooked,
     meetingsCompleted: countStatus("Meeting Complete"),
     recruitmentRequests: recruitment.count ?? 0,
     profilesSent: batches.count ?? 0,
@@ -818,15 +1288,19 @@ export async function getAnalytics() {
   };
 }
 
-export async function getReporting() {
-  const [center, leads, analytics] = await Promise.all([getCommandCenter(), listLeads({}), getAnalytics()]);
+export async function getReporting(range: ReportingDuration = "all") {
+  const center = await getCommandCenter();
+  const startOn = reportingStartOn(range, center.today);
+  const [leads, analytics] = await Promise.all([listLeads({}), getAnalytics({ startOn })]);
+  const rangedLeads = leads.filter((lead) => inReportingRange(lead.createdAt, startOn));
+  const rangedLeadIds = new Set(rangedLeads.map((lead) => lead.id));
   const laterLeadIds = new Set(
     center.opportunities.filter((item) => boardStage(item.stage) !== "Interested").map((item) => item.leadId),
   );
   const openTasks = center.schedule.followUps.filter((item) => item.status === "open");
   const sendpilot = SENDPILOT_STATUSES.map((status) => ({
     label: status,
-    count: leads.filter((lead) => lead.sendpilotStatus === status).length,
+    count: rangedLeads.filter((lead) => lead.sendpilotStatus === status).length,
     href:
       status === "Interested"
         ? "/opportunities"
@@ -838,29 +1312,27 @@ export async function getReporting() {
     label: stageLabel(stage),
     count:
       stage === "Interested"
-        ? leads.filter((lead) => lead.sendpilotStatus === "Interested" && !laterLeadIds.has(lead.id)).length
-        : center.opportunities.filter((item) => boardStage(item.stage) === stage).length,
+        ? rangedLeads.filter((lead) => lead.sendpilotStatus === "Interested" && !laterLeadIds.has(lead.id)).length
+        : center.opportunities.filter((item) => boardStage(item.stage) === stage && rangedLeadIds.has(item.leadId)).length,
     href: "/opportunities",
   }));
   const outcomes = [NOT_INTERESTED_INTAKE, ...NOT_INTERESTED_OUTCOMES].map((column) => ({
     label: column,
-    count: leads.filter((lead) => lead.sendpilotStatus === "Not Interested" && notInterestedColumn(lead.notInterestedOutcome) === column).length,
+    count: rangedLeads.filter((lead) => lead.sendpilotStatus === "Not Interested" && notInterestedColumn(lead.notInterestedOutcome) === column).length,
     href: "/opportunities?interest=not-interested",
-  }));
-  const flags = ACCOUNT_FLAGS.map((flag) => ({
-    label: flag,
-    count: leads.filter((lead) => lead.accountFlag === flag).length,
   }));
   return {
     today: center.today,
-    totalLeads: leads.length,
+    totalLeads: analytics.totalLeads,
+    taggedInterested: analytics.interested,
+    taggedNotInterested: analytics.notInterested,
+    bookedCalls: analytics.meetingsBooked,
     openTasks: openTasks.length,
     overdueTasks: openTasks.filter((item) => item.dueOn < center.today).length,
     dueToday: openTasks.filter((item) => item.dueOn === center.today).length,
     sendpilot,
     journey,
     outcomes,
-    flags,
     conversions: analytics.conversions,
     durations: analytics.durations,
   };

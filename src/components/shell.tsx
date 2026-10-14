@@ -3,35 +3,38 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, ChartColumn, FolderSync, Handshake, LayoutDashboard, Menu, Search, Settings, Users } from "lucide-react";
+import { Bell, ChartColumn, FileUp, FolderSync, Handshake, LayoutDashboard, Menu, Search, Settings, Users } from "lucide-react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { isNavActive, navItemsForAccess } from "@/lib/nav";
 import { signOut } from "@/server/actions";
+import { useCanWriteCrm } from "@/components/workspace-access";
 
-const NAV = [
-  { href: "/dashboard", label: "Command Center", icon: LayoutDashboard },
-  { href: "/opportunities", label: "Client journey", icon: Handshake },
-  { href: "/reporting", label: "Reporting", icon: ChartColumn },
-  { href: "/leads", label: "Leads", icon: Users },
-  { href: "/reconciliation", label: "SendPilot import", icon: FolderSync },
-  { href: "/settings", label: "Settings", icon: Settings },
-];
+const NAV_ICONS = {
+  "/dashboard": LayoutDashboard,
+  "/notifications": Bell,
+  "/opportunities": Handshake,
+  "/reporting": ChartColumn,
+  "/leads": Users,
+  "/leads/import": FileUp,
+  "/reconciliation": FolderSync,
+  "/settings": Settings,
+} as const;
 
 export function Shell({
   children,
-  name,
-  attentionCount,
+  attentionCount = 0,
 }: {
   children: ReactNode;
-  name: string;
-  attentionCount: number;
+  attentionCount?: number;
 }) {
   return (
     <div className="min-h-screen bg-background">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 border-r border-sidebar-border bg-sidebar lg:block">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-sidebar-border bg-sidebar lg:flex">
         <Brand />
-        <Nav />
+        <Nav attentionCount={attentionCount} />
+        <SignOut className="mt-auto p-3" />
       </aside>
       <div className="lg:pl-64">
         <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-border bg-background/90 px-4 backdrop-blur md:px-6">
@@ -45,7 +48,8 @@ export function Shell({
               <SheetHeader>
                 <SheetTitle>Realynk</SheetTitle>
               </SheetHeader>
-              <Nav />
+              <Nav attentionCount={attentionCount} />
+              <SignOut className="mt-4 px-3" />
             </SheetContent>
           </Sheet>
           <form action="/search" className="relative min-w-0 flex-1">
@@ -56,17 +60,6 @@ export function Shell({
               className="h-9 w-full rounded-lg border border-input bg-card pr-3 pl-9 text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/40"
             />
           </form>
-          <Link href="/notifications" className="relative inline-flex h-9 items-center gap-2 rounded-lg border border-border px-3 text-sm">
-            <Bell className="size-4" />
-            <span className="hidden sm:inline">Attention</span>
-            {attentionCount > 0 ? <span className="rounded-full bg-primary px-1.5 text-xs text-primary-foreground">{attentionCount}</span> : null}
-          </Link>
-          <div className="hidden items-center gap-3 md:flex">
-            <span className="text-sm text-muted-foreground">{name}</span>
-            <form action={signOut}>
-              <Button type="submit" variant="ghost" size="sm">Sign out</Button>
-            </form>
-          </div>
         </header>
         <main className="px-4 py-6 md:px-6">{children}</main>
       </div>
@@ -83,13 +76,15 @@ function Brand() {
   );
 }
 
-function Nav() {
+function Nav({ attentionCount = 0 }: { attentionCount?: number }) {
   const pathname = usePathname();
+  const canWrite = useCanWriteCrm();
   return (
     <nav className="flex flex-col gap-1 p-3">
-      {NAV.map((item) => {
-        const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-        const Icon = item.icon;
+      {navItemsForAccess(canWrite).map((item) => {
+        const active = isNavActive(pathname, item.href);
+        const Icon = NAV_ICONS[item.href];
+        const showCount = item.href === "/notifications" && attentionCount > 0;
         return (
           <Link
             key={item.href}
@@ -100,10 +95,23 @@ function Nav() {
             )}
           >
             <Icon className="size-4" />
-            {item.label}
+            <span className="min-w-0 flex-1">{item.label}</span>
+            {showCount ? (
+              <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold leading-none text-primary-foreground">
+                {attentionCount > 99 ? "99+" : attentionCount}
+              </span>
+            ) : null}
           </Link>
         );
       })}
     </nav>
+  );
+}
+
+function SignOut({ className }: { className?: string }) {
+  return (
+    <form action={signOut} className={className}>
+      <Button type="submit" variant="ghost" size="sm">Sign out</Button>
+    </form>
   );
 }

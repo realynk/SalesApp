@@ -1,10 +1,12 @@
 import type { ReactNode } from "react";
 import { DataError } from "@/components/bits";
 import { Shell } from "@/components/shell";
+import { WorkspaceAccessProvider } from "@/components/workspace-access";
 import { getCommandCenter } from "@/lib/data";
 import { AppDataError } from "@/lib/errors";
+import { attentionBadgeFromQueue } from "@/lib/attention-queue";
 import { signOut } from "@/server/actions";
-import { requireUser } from "@/server/session";
+import { profileCanWrite, requireUser } from "@/server/session";
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const session = await requireUser();
@@ -22,18 +24,20 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     );
   }
 
-  let center;
+  let attentionCount = 0;
   try {
-    center = await getCommandCenter();
+    const center = await getCommandCenter();
+    attentionCount = attentionBadgeFromQueue(center.queueCounts);
   } catch (error) {
     if (error instanceof AppDataError) return <DataError message={error.message} />;
     throw error;
   }
 
-  const attentionCount = center.attention.filter((item) => item.sections.includes("needs") || item.sections.includes("today")).length;
   return (
-    <Shell name={session.profile.full_name} attentionCount={attentionCount}>
-      {children}
-    </Shell>
+    <WorkspaceAccessProvider canWrite={profileCanWrite(session.profile)}>
+      <Shell attentionCount={attentionCount}>
+        {children}
+      </Shell>
+    </WorkspaceAccessProvider>
   );
 }

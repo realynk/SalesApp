@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { isLoginPath, LOGIN_METHOD_COOKIE, loginPathForMethod } from "@/lib/auth/passwordless";
 import { isSupabaseConfigured, supabaseKey, supabaseUrl } from "@/lib/env";
 
 export async function updateSession(request: NextRequest) {
@@ -34,15 +35,17 @@ export async function updateSession(request: NextRequest) {
   const user = data?.claims;
   const path = request.nextUrl.pathname;
   const isPublic = path.startsWith("/login") || path.startsWith("/auth") || path.startsWith("/setup") || path.startsWith("/api/sendpilot/webhook");
+  const loginPath = loginPathForMethod(request.cookies.get(LOGIN_METHOD_COOKIE)?.value);
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();
-    url.pathname = "/login";
+    url.pathname = loginPath;
+    url.search = "";
     url.searchParams.set("next", path);
     return copyResponse(supabaseResponse, NextResponse.redirect(url));
   }
 
-  if (user && path === "/login") {
+  if (user && isLoginPath(path)) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
     url.search = "";

@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { SubmitButton } from "@/components/forms";
 import { archiveLead, deleteLeadPermanently, restoreLead } from "@/server/actions";
+import { useCanWriteCrm } from "@/components/workspace-access";
 
 export function LeadActionsMenu({
   leadId,
@@ -31,6 +32,8 @@ export function LeadActionsMenu({
   archived: boolean;
 }) {
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const canWrite = useCanWriteCrm();
+  if (!canWrite) return null;
 
   return (
     <>

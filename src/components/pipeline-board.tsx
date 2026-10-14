@@ -18,14 +18,26 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { GripVertical } from "lucide-react";
-import { RISK_LEVELS, STAGE_PLAYBOOK, PROFILE_SEND_STAGE, BOOKED_CALL_STAGE, SALES_CALL_COMPLETE_STAGE, WAITING_ON, boardStage, isHiddenBoardStage, stageLabel, type AccountFlag, type OpportunityStage } from "@/lib/domain";
+import { Flag, GripVertical } from "lucide-react";
+import { RISK_LEVELS, STAGE_PLAYBOOK, PROFILE_SEND_STAGE, BOOKED_CALL_STAGE, SALES_CALL_COMPLETE_STAGE, INTERVIEW_COMPLETE_STAGE, SOW_PREP_STAGE, WAITING_ON, accountFlagIconClass, accountFlagLabel, boardStage, isHiddenBoardStage, stageLabel, statusDetailLabel, type AccountFlag, type OpportunityStage } from "@/lib/domain";
 import { formatDate } from "@/lib/format";
+import { todayInWorkflowZone } from "@/lib/workflow-dates";
 import { dropLeadOnStage, dropOpportunityOnStage, setAccountFlagFromBoard } from "@/server/actions";
-import { AccountFlagSelect, FlagBadge } from "@/components/account-flag-field";
+import { AccountFlagButton } from "@/components/account-flag-field";
+import { sendPilotSourceIndicator, type SendPilotLeadSource } from "@/lib/sendpilot/lead-sources";
 import { BookedCallDialog } from "@/components/booked-call-dialog";
 import { ProfileSendDialog, type ProfileSendDraft } from "@/components/profile-send-dialog";
 import { SalesCallCompleteDialog } from "@/components/sales-call-complete-dialog";
+import { TalentRequestDialog } from "@/components/talent-request-dialog";
+import { CandidateProfilesSentDialog } from "@/components/candidate-profiles-sent-dialog";
+import { InterviewScheduledDialog } from "@/components/interview-scheduled-dialog";
+import { InterviewOutcomeDialog } from "@/components/interview-outcome-dialog";
+import { LostReasonDialog } from "@/components/lost-reason-dialog";
+import { SowTransitionDialog } from "@/components/sow-transition-dialog";
+import { NurtureDialog } from "@/components/nurture-dialog";
+import { ClientStartDialog } from "@/components/client-start-dialog";
+import { BoardScroller } from "@/components/board-scroller";
+import { useCanWriteCrm } from "@/components/workspace-access";
 
 const COLUMN_TONE = [
   "border-t-[#f97066]",
@@ -36,7 +48,7 @@ const COLUMN_TONE = [
   "border-t-[#155eef]",
 ];
 
-const BLOCKED_DROPS = new Set<OpportunityStage>(["Lost", "Client Started"]);
+const BLOCKED_DROPS = new Set<OpportunityStage>([]);
 
 export type BoardOpportunity = {
   id: string;
@@ -51,6 +63,7 @@ export type BoardOpportunity = {
   riskLevel: string;
   email: string | null;
   accountFlag: AccountFlag | null;
+  sendpilotSources?: SendPilotLeadSource[];
 };
 
 export type BoardLead = {
@@ -60,6 +73,7 @@ export type BoardLead = {
   email: string | null;
   nextFollowUp: { title: string; dueOn: string } | null;
   accountFlag: AccountFlag | null;
+  sendpilotSources?: SendPilotLeadSource[];
 };
 
 type BoardItem = {
@@ -68,6 +82,7 @@ type BoardItem = {
   leadId: string;
   opportunityId: string | null;
   stage: OpportunityStage;
+  storedStage: OpportunityStage;
   companyName: string;
   contactName: string;
   nextAction: string | null;
@@ -77,6 +92,7 @@ type BoardItem = {
   riskLevel: string;
   email: string | null;
   accountFlag: AccountFlag | null;
+  sendpilotSources: SendPilotLeadSource[];
   href: string;
 };
 
@@ -92,6 +108,7 @@ function fromOpportunity(opportunity: BoardOpportunity): BoardItem {
     leadId: opportunity.leadId,
     opportunityId: opportunity.id,
     stage: boardStage(opportunity.stage),
+    storedStage: opportunity.stage,
     companyName: opportunity.companyName,
     contactName: opportunity.contactName,
     nextAction: opportunity.nextAction,
@@ -101,6 +118,7 @@ function fromOpportunity(opportunity: BoardOpportunity): BoardItem {
     riskLevel: opportunity.riskLevel,
     email: opportunity.email,
     accountFlag: opportunity.accountFlag,
+    sendpilotSources: opportunity.sendpilotSources ?? [],
     href: `/opportunities/${opportunity.id}`,
   };
 }
@@ -113,6 +131,7 @@ function fromLead(lead: BoardLead, opportunity?: BoardOpportunity): BoardItem {
     leadId: lead.id,
     opportunityId: null,
     stage: "Interested",
+    storedStage: "Interested",
     companyName: lead.companyName,
     contactName: lead.contactName,
     nextAction: lead.nextFollowUp?.title ?? "Drag onto a stage to start the client journey",
@@ -122,6 +141,7 @@ function fromLead(lead: BoardLead, opportunity?: BoardOpportunity): BoardItem {
     riskLevel: "low",
     email: lead.email,
     accountFlag: lead.accountFlag,
+    sendpilotSources: lead.sendpilotSources ?? [],
     href: `/leads/${lead.id}`,
   };
 }
@@ -145,12 +165,26 @@ export function PipelineBoard({
     ...opportunities.filter((item) => item.stage !== "Interested").map(fromOpportunity),
   ];
 
+  const canWrite = useCanWriteCrm();
   const router = useRouter();
   const [items, setItems] = useState(initialItems);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
-  const [prompt, setPrompt] = useState<{ kind: "profile-send" | "booked-call" | "sales-call-complete"; item: BoardItem; previous: BoardItem[] } | null>(null);
+  type PromptKind =
+    | "profile-send"
+    | "booked-call"
+    | "sales-call-complete"
+    | "recruitment"
+    | "candidate-profiles"
+    | "interview-scheduled"
+    | "interview-outcome"
+    | "lost"
+    | "sow-prep"
+    | "sow-signed"
+    | "nurture"
+    | "client-start";
+  const [prompt, setPrompt] = useState<{ kind: PromptKind; item: BoardItem; previous: BoardItem[] } | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -164,11 +198,11 @@ export function PipelineBoard({
           stage,
           tone: COLUMN_TONE[index % COLUMN_TONE.length],
           items: items.filter((item) => item.stage === stage),
-          acceptsDrop: !BLOCKED_DROPS.has(stage),
+          acceptsDrop: canWrite && !BLOCKED_DROPS.has(stage),
         }))
         .filter((column) => !isHiddenBoardStage(column.stage))
         .filter((column) => column.items.length > 0 || column.acceptsDrop),
-    [items, stages],
+    [items, stages, canWrite],
   );
 
   const activeItem = items.find((item) => item.id === activeId) ?? initialItems.find((item) => item.id === activeId);
@@ -181,7 +215,7 @@ export function PipelineBoard({
     const formData = new FormData();
     formData.set("stage", stage);
     formData.set("next_action", item.nextAction && item.kind === "opportunity" ? item.nextAction : STAGE_PLAYBOOK[stage].nextAction);
-    formData.set("next_action_date", item.nextActionDate ?? new Date().toISOString().slice(0, 10));
+    formData.set("next_action_date", item.nextActionDate ?? todayInWorkflowZone());
     formData.set("waiting_on", (WAITING_ON as readonly string[]).includes(item.waitingOn) ? item.waitingOn : STAGE_PLAYBOOK[stage].waitingOn);
     formData.set("risk_level", (RISK_LEVELS as readonly string[]).includes(item.riskLevel) ? item.riskLevel : "low");
     if (item.kind === "opportunity" && item.opportunityId) {
@@ -219,36 +253,37 @@ export function PipelineBoard({
   }
 
   function handleDragStart(event: DragStartEvent) {
+    if (!canWrite) return;
     setActiveId(String(event.active.id));
     setNotice(null);
   }
 
   function handleDragEnd(event: DragEndEvent) {
+    if (!canWrite) return;
     setActiveId(null);
     const item = items.find((entry) => entry.id === event.active.id);
     const stage = event.over?.id ? String(event.over.id) as OpportunityStage : null;
     if (!item || !stage || item.stage === stage) return;
     if (isHiddenBoardStage(stage)) return;
-    if (BLOCKED_DROPS.has(stage)) {
-      setNotice(
-        stage === "Lost"
-          ? "Open the opportunity and add a lost reason before moving it to Lost."
-          : "Open the opportunity and use Client start so the start date and headcount are recorded.",
-      );
-      return;
-    }
     const previous = items;
     setItems(previous.map((entry) => (entry.id === item.id ? { ...entry, stage } : entry)));
-    if (stage === PROFILE_SEND_STAGE) {
-      setPrompt({ kind: "profile-send", item, previous });
-      return;
-    }
-    if (stage === BOOKED_CALL_STAGE) {
-      setPrompt({ kind: "booked-call", item, previous });
-      return;
-    }
-    if (stage === SALES_CALL_COMPLETE_STAGE) {
-      setPrompt({ kind: "sales-call-complete", item, previous });
+    const prompts: Record<string, PromptKind> = {
+      [PROFILE_SEND_STAGE]: "profile-send",
+      [BOOKED_CALL_STAGE]: "booked-call",
+      [SALES_CALL_COMPLETE_STAGE]: "sales-call-complete",
+      Recruitment: "recruitment",
+      "Profiles Sent": "candidate-profiles",
+      "Interview Scheduled": "interview-scheduled",
+      [INTERVIEW_COMPLETE_STAGE]: "interview-outcome",
+      Lost: "lost",
+      [SOW_PREP_STAGE]: "sow-prep",
+      "SOW Signed": "sow-signed",
+      "On Hold / Nurture": "nurture",
+      "Client Started": "client-start",
+    };
+    const kind = prompts[stage];
+    if (kind) {
+      setPrompt({ kind, item, previous });
       return;
     }
     void persistMove(item, stage, previous);
@@ -257,7 +292,9 @@ export function PipelineBoard({
   return (
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">
-        The Interested column is every lead tagged Interested in SendPilot who has not moved further. Drag a card to a later stage. Flag the account if you need to spot it quickly.
+        {canWrite
+          ? "The Interested column is every lead tagged Interested in SendPilot who has not moved further. Drag a card to a later stage. Flag the account if you need to spot it quickly."
+          : "The Interested column is every lead tagged Interested in SendPilot who has not moved further. Open a card to review it. This account is view-only."}
       </p>
       {notice ? <p className="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground">{notice}</p> : null}
       <DndContext
@@ -267,21 +304,20 @@ export function PipelineBoard({
         onDragCancel={() => setActiveId(null)}
         onDragEnd={handleDragEnd}
       >
-        <div className="overflow-x-auto pb-2">
-          <div className="flex min-w-max items-start gap-3">
-            {columns.map((column) => (
-              <BoardColumn
-                key={column.stage}
-                stage={column.stage}
-                tone={column.tone}
-                items={column.items}
-                acceptsDrop={column.acceptsDrop}
-                disabledId={pendingId}
-                onFlagChange={persistFlag}
-              />
-            ))}
-          </div>
-        </div>
+        <BoardScroller>
+          {columns.map((column) => (
+            <BoardColumn
+              key={column.stage}
+              stage={column.stage}
+              tone={column.tone}
+              items={column.items}
+              acceptsDrop={column.acceptsDrop}
+              disabledId={pendingId}
+              canDrag={canWrite}
+              onFlagChange={canWrite ? persistFlag : undefined}
+            />
+          ))}
+        </BoardScroller>
         <DragOverlay dropAnimation={null}>
           {activeItem ? <ItemCard item={activeItem} overlay /> : null}
         </DragOverlay>
@@ -341,6 +377,46 @@ export function PipelineBoard({
           router.refresh();
         }}
       />
+      <TalentRequestDialog
+        draft={prompt?.kind === "recruitment" ? prompt.item : null}
+        onCancel={() => { if (prompt) setItems(prompt.previous); setPrompt(null); }}
+        onSaved={() => { setPrompt(null); router.refresh(); }}
+      />
+      <CandidateProfilesSentDialog
+        draft={prompt?.kind === "candidate-profiles" ? prompt.item : null}
+        onCancel={() => { if (prompt) setItems(prompt.previous); setPrompt(null); }}
+        onSaved={() => { setPrompt(null); router.refresh(); }}
+      />
+      <InterviewScheduledDialog
+        draft={prompt?.kind === "interview-scheduled" ? prompt.item : null}
+        onCancel={() => { if (prompt) setItems(prompt.previous); setPrompt(null); }}
+        onSaved={() => { setPrompt(null); router.refresh(); }}
+      />
+      <InterviewOutcomeDialog
+        draft={prompt?.kind === "interview-outcome" ? prompt.item : null}
+        onCancel={() => { if (prompt) setItems(prompt.previous); setPrompt(null); }}
+        onSaved={() => { setPrompt(null); router.refresh(); }}
+      />
+      <LostReasonDialog
+        draft={prompt?.kind === "lost" ? prompt.item : null}
+        onCancel={() => { if (prompt) setItems(prompt.previous); setPrompt(null); }}
+        onSaved={() => { setPrompt(null); router.refresh(); }}
+      />
+      <SowTransitionDialog
+        draft={prompt?.kind === "sow-prep" || prompt?.kind === "sow-signed" ? { ...prompt.item, kind: prompt.kind } : null}
+        onCancel={() => { if (prompt) setItems(prompt.previous); setPrompt(null); }}
+        onSaved={() => { setPrompt(null); router.refresh(); }}
+      />
+      <NurtureDialog
+        draft={prompt?.kind === "nurture" ? prompt.item : null}
+        onCancel={() => { if (prompt) setItems(prompt.previous); setPrompt(null); }}
+        onSaved={() => { setPrompt(null); router.refresh(); }}
+      />
+      <ClientStartDialog
+        draft={prompt?.kind === "client-start" ? prompt.item : null}
+        onCancel={() => { if (prompt) setItems(prompt.previous); setPrompt(null); }}
+        onSaved={() => { setPrompt(null); router.refresh(); }}
+      />
     </div>
   );
 }
@@ -351,6 +427,7 @@ function BoardColumn({
   items,
   acceptsDrop,
   disabledId,
+  canDrag,
   onFlagChange,
 }: {
   stage: OpportunityStage;
@@ -358,7 +435,8 @@ function BoardColumn({
   items: BoardItem[];
   acceptsDrop: boolean;
   disabledId: string | null;
-  onFlagChange: (item: BoardItem, flag: AccountFlag | null) => void;
+  canDrag: boolean;
+  onFlagChange?: (item: BoardItem, flag: AccountFlag | null) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: stage,
@@ -370,11 +448,11 @@ function BoardColumn({
   return (
     <section
       ref={setNodeRef}
-      className={`w-72 shrink-0 rounded-xl border border-t-4 bg-muted/40 ${tone} ${
+      className={`flex h-full w-72 shrink-0 flex-col overflow-hidden rounded-xl border border-t-4 bg-muted/40 ${tone} ${
         isOver ? "border-primary bg-accent/80" : "border-border"
       }`}
     >
-      <header className="px-3 py-3">
+      <header className={`sticky top-0 z-10 shrink-0 px-3 py-3 ${isOver ? "bg-accent/80" : "bg-muted/40"}`}>
         <h2 className="text-sm font-bold leading-5">{stageLabel(stage)}</h2>
         <p className="mt-1 text-xs text-muted-foreground">
           {sendpilotIntake ? "From SendPilot" : null}
@@ -382,15 +460,15 @@ function BoardColumn({
           {items.length} {sendpilotIntake ? (items.length === 1 ? "lead" : "leads") : items.length === 1 ? "opportunity" : "opportunities"}
         </p>
       </header>
-      <ul className="flex min-h-32 flex-col gap-2 px-2 pb-3">
+      <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-3">
         {items.map((item) => (
           <li key={item.id}>
-            <DraggableCard item={item} disabled={disabledId === item.id} onFlagChange={onFlagChange} />
+            <DraggableCard item={item} disabled={!canDrag || disabledId === item.id} canDrag={canDrag} onFlagChange={onFlagChange} />
           </li>
         ))}
         {items.length === 0 ? (
           <li className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground">
-            {acceptsDrop ? "Drop a card here" : "Open the opportunity to use this stage"}
+            {canDrag && acceptsDrop ? "Drop a card here" : items.length === 0 ? "No cards in this stage" : "Open the opportunity to use this stage"}
           </li>
         ) : null}
       </ul>
@@ -401,11 +479,13 @@ function BoardColumn({
 function DraggableCard({
   item,
   disabled,
+  canDrag,
   onFlagChange,
 }: {
   item: BoardItem;
   disabled: boolean;
-  onFlagChange: (item: BoardItem, flag: AccountFlag | null) => void;
+  canDrag: boolean;
+  onFlagChange?: (item: BoardItem, flag: AccountFlag | null) => void;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: item.id,
@@ -415,7 +495,7 @@ function DraggableCard({
 
   return (
     <div ref={setNodeRef} className={isDragging ? "opacity-30" : undefined} {...listeners} {...attributes}>
-      <ItemCard item={item} onFlagChange={onFlagChange} />
+      <ItemCard item={item} canDrag={canDrag} onFlagChange={onFlagChange} />
     </div>
   );
 }
@@ -423,28 +503,46 @@ function DraggableCard({
 function ItemCard({
   item,
   overlay = false,
+  canDrag = true,
   onFlagChange,
 }: {
   item: BoardItem;
   overlay?: boolean;
+  canDrag?: boolean;
   onFlagChange?: (item: BoardItem, flag: AccountFlag | null) => void;
 }) {
   return (
-    <article className={`rounded-lg border border-border bg-card p-3 shadow-sm ${overlay ? "rotate-1 cursor-grabbing shadow-lg" : "cursor-grab"}`}>
+    <article className={`rounded-lg border border-border bg-card p-3 shadow-sm ${overlay ? "rotate-1 cursor-grabbing shadow-lg" : canDrag ? "cursor-grab" : ""}`}>
       <div className="flex items-start gap-2">
-        <GripVertical className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
+        {canDrag ? <GripVertical className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden /> : null}
         <div className="min-w-0 flex-1">
+          <div className="flex items-start gap-1">
+            {overlay ? (
+              <div className="min-w-0 flex-1">
+                <CardHeading item={item} />
+              </div>
+            ) : (
+              <Link href={item.href} className="min-w-0 flex-1">
+                <CardHeading item={item} />
+              </Link>
+            )}
+            <div className="flex shrink-0 items-center gap-0.5">
+              <SendPilotSourceBadge sources={item.sendpilotSources} />
+              {overlay || !onFlagChange ? (
+                <span className="inline-flex size-6 items-center justify-center" title={accountFlagLabel(item.accountFlag)}>
+                  <Flag className={`size-3.5 ${accountFlagIconClass(item.accountFlag)}`} aria-hidden />
+                </span>
+              ) : (
+                <AccountFlagButton value={item.accountFlag} onChange={(flag) => onFlagChange(item, flag)} />
+              )}
+            </div>
+          </div>
           {overlay ? (
-            <CardBody item={item} />
+            <CardMeta item={item} />
           ) : (
             <Link href={item.href} className="block">
-              <CardBody item={item} />
+              <CardMeta item={item} />
             </Link>
-          )}
-          {overlay || !onFlagChange ? null : (
-            <div className="mt-2">
-              <AccountFlagSelect compact value={item.accountFlag} onChange={(flag) => onFlagChange(item, flag)} />
-            </div>
           )}
         </div>
       </div>
@@ -452,20 +550,37 @@ function ItemCard({
   );
 }
 
-function CardBody({ item }: { item: BoardItem }) {
+function CardHeading({ item }: { item: BoardItem }) {
+  const same = item.contactName.trim().toLowerCase() === item.companyName.trim().toLowerCase();
   return (
     <>
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-sm font-semibold">{item.companyName}</p>
-        <FlagBadge flag={item.accountFlag} />
-      </div>
-      <p className="mt-0.5 text-xs text-muted-foreground">{item.contactName}</p>
-      <dl className="mt-2 space-y-1 text-xs">
-        <CardField label={item.kind === "lead" ? "Follow-up" : "Next action"} value={item.nextAction ?? "Set the next action"} />
-        <CardField label="Due" value={formatDate(item.nextActionDate)} />
-        {item.kind === "opportunity" ? <CardField label="Owner" value={item.ownerName ?? "Unassigned"} /> : <CardField label="Source" value="SendPilot Interested" />}
-      </dl>
+      <p className="truncate text-sm font-semibold">{item.contactName}</p>
+      {same ? null : <p className="mt-0.5 truncate text-xs text-muted-foreground">{item.companyName}</p>}
     </>
+  );
+}
+
+function CardMeta({ item }: { item: BoardItem }) {
+  return (
+    <dl className="mt-2 space-y-1 text-xs">
+      <CardField label="Status" value={statusDetailLabel(item.storedStage)} />
+      <CardField label={item.kind === "lead" ? "Follow-up" : "Next action"} value={item.nextAction ?? "Set the next action"} />
+      {item.nextActionDate ? <CardField label="Due" value={formatDate(item.nextActionDate)} /> : null}
+    </dl>
+  );
+}
+
+function SendPilotSourceBadge({ sources }: { sources: SendPilotLeadSource[] }) {
+  const indicator = sendPilotSourceIndicator(sources);
+  if (!indicator.show) return null;
+  return (
+    <span
+      title={indicator.title}
+      aria-label={indicator.title}
+      className="inline-flex h-5 shrink-0 items-center rounded border border-border px-1 text-[10px] font-medium leading-none text-muted-foreground"
+    >
+      {indicator.label}
+    </span>
   );
 }
 

@@ -132,3 +132,28 @@
     @apply font-sans;
   }
 }
+
+@layer components {
+  .board-x-scroll {
+    overflow-x: scroll;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scrollbar-gutter: stable;
+    scrollbar-width: auto;
+    scrollbar-color: color-mix(in oklab, var(--foreground) 35%, transparent) var(--muted);
+  }
+
+  .board-x-scroll::-webkit-scrollbar {
+    height: 12px;
+  }
+
+  .board-x-scroll::-webkit-scrollbar-track {
+    background: var(--muted);
+    border-radius: 999px;
+  }
+
+  .board-x-scroll::-webkit-scrollbar-thumb {
+    background: color-mix(in oklab, var(--foreground) 35%, transparent);
+    border-radius: 999px;
+  }
+}

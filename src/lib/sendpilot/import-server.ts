@@ -1,4 +1,5 @@
-import { importRpcError } from "@/lib/sendpilot/import-rpc-error";
+import { actionError } from "@/lib/errors";
+import { backfillMissingInterestedOpportunities } from "@/lib/opportunity-start";
 import { IMPORT_STORAGE_BUCKET } from "@/lib/sendpilot/import-limits";
 import { exceptionPreviewRows, parseSendPilotExport } from "@/lib/sendpilot/parse-export";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -28,10 +29,7 @@ export async function loadImportFile(
     return { ok: false as const, error: "That import file could not be found." };
   }
   const { data, error } = await supabase.storage.from(IMPORT_STORAGE_BUCKET).download(storagePath);
-  if (error || !data) {
-    console.error("[sendpilot.import.storage.download]", error);
-    return { ok: false as const, error: "The uploaded export could not be read. Upload it again." };
-  }
+  if (error || !data) return { ok: false as const, error: "The uploaded export could not be read. Upload it again." };
   const bytes = new Uint8Array(await data.arrayBuffer());
   const filename = storagePath.split("/").pop() ?? "export.csv";
   return { ok: true as const, bytes, filename };
@@ -49,10 +47,7 @@ export async function previewStoredImport(
   if (!parsed.ok) return parsed;
   const payload = { filename: parsed.filename, source: parsed.source, rows: parsed.rows };
   const { data, error } = await supabase.rpc("preview_sendpilot_import", { payload });
-  if (error) {
-    console.error("[sendpilot.import.preview.rpc]", error.code, error.message, error.details);
-    return { ok: false as const, error: importRpcError(error) };
-  }
+  if (error) return { ok: false as const, error: actionError(error) };
   const preview = data as ImportPreviewSummary & { rows?: Array<Record<string, string | null>> };
   const { rows, ...counts } = preview;
   return {
@@ -77,10 +72,8 @@ export async function applyStoredImport(
   if (!parsed.ok) return parsed;
   const payload = { filename: parsed.filename, source: parsed.source, rows: parsed.rows };
   const { data, error } = await supabase.rpc("apply_sendpilot_import", { payload });
-  if (error) {
-    console.error("[sendpilot.import.apply.rpc]", error.code, error.message, error.details);
-    return { ok: false as const, error: importRpcError(error) };
-  }
+  if (error) return { ok: false as const, error: actionError(error) };
+  await backfillMissingInterestedOpportunities(supabase, userId);
   await supabase.storage.from(IMPORT_STORAGE_BUCKET).remove([storagePath]);
   return {
     ok: true as const,

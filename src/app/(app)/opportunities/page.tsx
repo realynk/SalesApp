@@ -4,8 +4,9 @@ import { NotInterestedBoard } from "@/components/not-interested-board";
 import { PipelineBoard } from "@/components/pipeline-board";
 import { Button } from "@/components/ui/button";
 import { BOARD_STAGES } from "@/lib/domain";
-import { listLeads, listOpportunities } from "@/lib/data";
+import { listLeads, listOpportunities, listSendPilotSourcesByLeadIds } from "@/lib/data";
 import { firstParam, formatDate } from "@/lib/format";
+import { sourcesForLead } from "@/lib/sendpilot/lead-sources";
 
 export default async function OpportunitiesPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const query = await searchParams;
@@ -16,6 +17,10 @@ export default async function OpportunitiesPage({ searchParams }: { searchParams
     interest === "interested" ? listOpportunities({ q }) : Promise.resolve([]),
     interest === "interested" ? listLeads({ q, status: "Interested" }) : Promise.resolve([]),
     listLeads({ q, status: "Not Interested" }),
+  ]);
+  const sendpilotSources = await listSendPilotSourcesByLeadIds([
+    ...interestedLeads.map((lead) => lead.id),
+    ...opportunities.map((opportunity) => opportunity.leadId),
   ]);
 
   const href = (next: { view?: "board" | "list"; interest?: "interested" | "not-interested" }) => {
@@ -36,8 +41,8 @@ export default async function OpportunitiesPage({ searchParams }: { searchParams
         title={interest === "interested" ? "Interested" : "Not Interested"}
         description={
           interest === "interested"
-            ? "See where each SendPilot Interested lead sits. Drag a card to move it. Drop prompts only ask what you need to set the next tasks."
-            : "SendPilot Not Interested leads start here. Drag a card onto Nurture or another reason."
+            ? "See where each SendPilot Interested lead sits."
+            : "SendPilot Not Interested leads start here."
         }
         actions={
           <div className="flex flex-wrap gap-2">
@@ -88,8 +93,14 @@ export default async function OpportunitiesPage({ searchParams }: { searchParams
         <PipelineBoard
           key={[...interestedLeads.map((lead) => `${lead.id}:${lead.accountFlag}`), ...opportunities.map((item) => `${item.id}:${item.stage}:${item.accountFlag}`)].join("|")}
           stages={BOARD_STAGES}
-          opportunities={opportunities}
-          interestedLeads={interestedLeads}
+          opportunities={opportunities.map((opportunity) => ({
+            ...opportunity,
+            sendpilotSources: sourcesForLead(sendpilotSources, opportunity.leadId),
+          }))}
+          interestedLeads={interestedLeads.map((lead) => ({
+            ...lead,
+            sendpilotSources: sourcesForLead(sendpilotSources, lead.id),
+          }))}
         />
       ) : (
         <SimpleTable
@@ -97,8 +108,8 @@ export default async function OpportunitiesPage({ searchParams }: { searchParams
           rows={opportunities.map((opportunity) => ({
             id: opportunity.id,
             href: `/opportunities/${opportunity.id}`,
-            name: opportunity.companyName,
-            company: opportunity.contactName,
+            name: opportunity.contactName,
+            company: opportunity.companyName,
             flag: opportunity.accountFlag,
             stage: opportunity.stage,
             next: opportunity.nextAction ?? "Missing",
@@ -123,7 +134,7 @@ function SimpleTable({
       <table className="w-full min-w-[760px] text-left text-sm">
         <thead className="text-xs tracking-wide text-muted-foreground uppercase">
           <tr>
-            <th className="px-4 py-3">Account</th>
+            <th className="px-4 py-3">Lead</th>
             <th className="px-4 py-3">Flag</th>
             <th className="px-4 py-3">Where</th>
             <th className="px-4 py-3">Next task</th>

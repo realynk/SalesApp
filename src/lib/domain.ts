@@ -1,3 +1,5 @@
+import { personDisplayName } from "@/lib/lead-display";
+
 export const SENDPILOT_STATUSES = [
   "Interested",
   "Not Interested",
@@ -139,6 +141,22 @@ export const ACCOUNT_FLAG_TONE: Record<AccountFlag, string> = {
   "Waiting on recruitment": "border-[#bdb4fe] bg-[#f4f3ff] text-[#5925dc]",
   "At risk": "border-[#f97066] bg-[#fef3f2] text-[#912018]",
 };
+
+export const ACCOUNT_FLAG_ICON_CLASS: Record<AccountFlag, string> = {
+  Urgent: "text-[#b42318] fill-[#b42318]",
+  "Follow up": "text-[#175cd3] fill-[#175cd3]",
+  "Waiting on client": "text-[#b54708] fill-[#b54708]",
+  "Waiting on recruitment": "text-[#5925dc] fill-[#5925dc]",
+  "At risk": "text-[#912018] fill-[#912018]",
+};
+
+export function accountFlagLabel(flag: AccountFlag | null) {
+  return flag ? `Flag: ${flag}` : "Flag: None";
+}
+
+export function accountFlagIconClass(flag: AccountFlag | null) {
+  return flag ? ACCOUNT_FLAG_ICON_CLASS[flag] : "text-muted-foreground fill-none";
+}
 
 export const ACTIVITY_TYPES = [
   "lead_imported",
@@ -316,9 +334,8 @@ export const BOOKED_CALL_STAGE: OpportunityStage = "Strategy Call Proposed";
 export const SALES_CALL_COMPLETE_STAGE: OpportunityStage = "Strategy Call Scheduled";
 
 export const SALES_CALL_COMPLETE_TASKS = [
-  "Send the meeting notes",
-  "Send the talent request to the recruitment team",
-  "Create a GC in Google Chat / Space",
+  "Review and Approve Meeting Notes",
+  "Send Talent Request to Recruitment",
 ] as const;
 
 export function salesCallCompleteTasks(callOn: string) {
@@ -357,6 +374,53 @@ export function boardStage(stage: OpportunityStage): OpportunityStage {
 }
 
 export const BOARD_STAGES = OPPORTUNITY_STAGES.filter((stage) => !isHiddenBoardStage(stage));
+
+const SALES_BOARD_COUNT_EXCLUDED = new Set<OpportunityStage>(["Won", "Lost", "On Hold / Nurture", "Client Started"]);
+
+/** Client journey columns from Interested through Trial period. */
+export const SALES_BOARD_COUNT_STAGES = BOARD_STAGES.filter((stage) => !SALES_BOARD_COUNT_EXCLUDED.has(stage));
+
+export function salesBoardColumnCounts(input: {
+  opportunities: Array<{ leadId: string; stage: string }>;
+  interestedLeadIds: string[];
+}) {
+  const laterLeadIds = new Set(
+    input.opportunities.filter((item) => item.stage !== "Interested").map((item) => item.leadId),
+  );
+  const intakeIds = new Set(input.interestedLeadIds.filter((id) => !laterLeadIds.has(id)));
+  const extraInterestedOpportunities = input.opportunities.filter(
+    (item) => item.stage === "Interested" && !intakeIds.has(item.leadId),
+  ).length;
+  const laterCounts = new Map<OpportunityStage, number>();
+  for (const item of input.opportunities) {
+    if (item.stage === "Interested") continue;
+    const column = boardStage(item.stage as OpportunityStage);
+    laterCounts.set(column, (laterCounts.get(column) ?? 0) + 1);
+  }
+  return SALES_BOARD_COUNT_STAGES.map((stage) => ({
+    stage,
+    label: stageLabel(stage),
+    count: stage === "Interested" ? intakeIds.size + extraInterestedOpportunities : laterCounts.get(stage) ?? 0,
+    unit: stage === "Interested" ? ("lead" as const) : ("opportunity" as const),
+  }));
+}
+
+export type SalesBoardColumnCount = ReturnType<typeof salesBoardColumnCounts>[number];
+
+export const LOST_REASONS = [
+  "Budget",
+  "No response",
+  "Chose another provider",
+  "No longer interested",
+  "Requirements changed",
+  "Timing",
+  "Other",
+] as const;
+
+/** Specific stored status, not the grouped board column label. */
+export function statusDetailLabel(stage: string) {
+  return stage;
+}
 
 export function stageLabel(stage: string) {
   if (stage === PROFILE_SEND_STAGE) return "Sent Profiles to the client";
@@ -468,6 +532,21 @@ export function normalizeLinkedIn(value: string | null | undefined) {
   return cleaned || null;
 }
 
+export function storedLinkedInHref(value: string | null | undefined) {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) return null;
+  const candidate = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    const parsed = new URL(candidate);
+    const host = parsed.hostname.replace(/^www\./i, "").toLowerCase();
+    if (host !== "linkedin.com" && !host.endsWith(".linkedin.com")) return null;
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
 export function normalizeName(value: string | null | undefined) {
   const cleaned = value?.trim().toLowerCase().replace(/\s+/g, " ") ?? "";
   return cleaned || null;
@@ -557,12 +636,15 @@ export type AttentionItem = {
   href: string;
   dueOn: string | null;
   sections: AttentionSection[];
+  opportunityId?: string | null;
+  leadId?: string | null;
 };
 
 type AttentionOpportunity = {
   id: string;
   title: string;
   companyName: string;
+  contactName?: string | null;
   stage: OpportunityStage;
   status: OpportunityStatus;
   riskLevel: RiskLevel;
@@ -571,6 +653,20 @@ type AttentionOpportunity = {
   nextActionDate: string | null;
   lastActivityOn: string | null;
 };
+
+export function belongsToCurrentLeadOrJourney(input: {
+  leadId?: string | null;
+  opportunityId?: string | null;
+  currentLeadIds: Set<string>;
+  opportunityLeadIds: Map<string, string>;
+}) {
+  if (input.leadId && input.currentLeadIds.has(input.leadId)) return true;
+  if (input.opportunityId) {
+    const leadId = input.opportunityLeadIds.get(input.opportunityId);
+    if (leadId && input.currentLeadIds.has(leadId)) return true;
+  }
+  return false;
+}
 
 export type AttentionInput = {
   today: string;
@@ -586,6 +682,10 @@ export type AttentionInput = {
     dueOn: string;
     status: "open" | "completed" | "cancelled";
     companyName: string;
+    contactName?: string | null;
+    urgent?: boolean;
+    pendingSchedule?: boolean;
+    automationType?: string | null;
   }>;
   profileBatches: Array<{
     id: string;
@@ -624,6 +724,13 @@ export type AttentionInput = {
     status: string;
   }>;
   unmatchedInterested: Array<{ leadId: string; name: string; companyName: string }>;
+  recentNotInterested?: Array<{
+    activityId: string;
+    leadId: string;
+    name: string;
+    companyName: string;
+    occurredOn: string;
+  }>;
 };
 
 const CLOSED_RECRUITMENT = new Set(["Candidate Selected", "No Suitable Candidate"]);
@@ -644,7 +751,12 @@ export type WeekTask = {
   label: string;
   title: string;
   company: string;
+  contact: string;
   href: string;
+  followUpId?: string;
+  opportunityId?: string | null;
+  leadId?: string | null;
+  automationType?: string | null;
 };
 
 const WEEK_TASK_LABEL: Record<WeekTaskKind, string> = {
@@ -676,6 +788,10 @@ function kindFromAction(stage: string, action: string): WeekTaskKind {
   return "next_action";
 }
 
+function subjectName(contactName?: string | null, companyName?: string | null) {
+  return personDisplayName({ fullName: contactName, companyName });
+}
+
 function opportunityIdFromHref(href: string) {
   const match = href.match(/\/opportunities\/([^/?]+)/);
   return match?.[1] ?? null;
@@ -685,13 +801,14 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
   const tasks: WeekTask[] = [];
   const opportunityById = new Map(input.opportunities.map((opportunity) => [opportunity.id, opportunity]));
   const open = new Set<OpportunityStatus>(["active", "nurture", "on_hold"]);
+  const contactFor = (opportunityId: string | null | undefined, fallback: string, explicit?: string | null) => {
+    const fromOpportunity = opportunityId ? opportunityById.get(opportunityId)?.contactName?.trim() : "";
+    return explicit?.trim() || fromOpportunity || fallback;
+  };
 
   const push = (task: WeekTask) => {
     tasks.push(task);
   };
-  const occupied = (opportunityId: string, date: string) =>
-    tasks.some((task) => task.date === date && opportunityIdFromHref(task.href) === opportunityId);
-
   for (const followUp of input.followUps) {
     if (followUp.status !== "open" || !followUp.dueOn) continue;
     push({
@@ -701,13 +818,28 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
       label: WEEK_TASK_LABEL.follow_up,
       title: followUp.title,
       company: followUp.companyName,
+      contact: contactFor(followUp.opportunityId, followUp.companyName, followUp.contactName),
       href: followUp.opportunityId ? `/opportunities/${followUp.opportunityId}` : `/leads/${followUp.leadId ?? ""}`,
+      followUpId: followUp.id,
+      opportunityId: followUp.opportunityId,
+      leadId: followUp.leadId,
+      automationType: followUp.automationType,
     });
   }
 
+  const followUpKeys = new Set(
+    input.followUps
+      .filter((item) => item.status === "open" && item.opportunityId && item.dueOn)
+      .map((item) => `${item.opportunityId}:${item.dueOn}`),
+  );
+  const followUpKinds = input.followUps.filter((item) => item.status === "open");
+
   for (const call of input.strategyCalls) {
     if (!call.callOn || (call.status !== "Scheduled" && call.status !== "Proposed")) continue;
-    if (occupied(call.opportunityId, call.callOn)) continue;
+    const covered = followUpKinds.some((item) =>
+      item.opportunityId === call.opportunityId && item.dueOn === call.callOn && /sales call|strategy call/i.test(item.title),
+    );
+    if (covered) continue;
     const opportunity = opportunityById.get(call.opportunityId);
     const sameDayAction = opportunity?.nextActionDate === call.callOn ? opportunity.nextAction : null;
     push({
@@ -717,27 +849,31 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
       label: WEEK_TASK_LABEL.strategy_call,
       title: sameDayAction ?? "Sales call scheduled",
       company: call.companyName,
+      contact: contactFor(call.opportunityId, call.companyName),
       href: `/opportunities/${call.opportunityId}`,
     });
   }
 
   for (const interview of input.interviews) {
     if (!interview.interviewOn || !OPEN_INTERVIEW.has(interview.status)) continue;
-    if (occupied(interview.opportunityId, interview.interviewOn)) continue;
+    const covered = followUpKinds.some((item) =>
+      item.opportunityId === interview.opportunityId && item.dueOn === interview.interviewOn && /interview/i.test(item.title),
+    );
+    if (covered) continue;
     push({
       id: `interview-${interview.id}`,
       date: interview.interviewOn,
       kind: "interview",
       label: WEEK_TASK_LABEL.interview,
-      title: interview.candidateName,
+      title: "Interview scheduled",
       company: interview.companyName,
+      contact: contactFor(interview.opportunityId, interview.companyName),
       href: `/opportunities/${interview.opportunityId}`,
     });
   }
 
   for (const request of input.recruitment) {
     if (CLOSED_RECRUITMENT.has(request.status) || !request.targetOn) continue;
-    if (occupied(request.opportunityId, request.targetOn)) continue;
     push({
       id: `recruitment-${request.id}`,
       date: request.targetOn,
@@ -745,13 +881,17 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
       label: WEEK_TASK_LABEL.recruitment,
       title: request.status,
       company: request.companyName,
+      contact: contactFor(request.opportunityId, request.companyName),
       href: `/recruitment/${request.id}`,
     });
   }
 
   for (const batch of input.profileBatches) {
     if (batch.clientResponse || !batch.followUpOn) continue;
-    if (occupied(batch.opportunityId, batch.followUpOn)) continue;
+    const covered = followUpKinds.some((item) =>
+      item.opportunityId === batch.opportunityId && /candidate profile/i.test(item.title),
+    );
+    if (covered) continue;
     push({
       id: `profiles-${batch.id}`,
       date: batch.followUpOn,
@@ -759,13 +899,14 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
       label: WEEK_TASK_LABEL.profiles,
       title: `${batch.profileCount} profiles awaiting a response`,
       company: batch.companyName,
+      contact: contactFor(batch.opportunityId, batch.companyName),
       href: `/opportunities/${batch.opportunityId}`,
     });
   }
 
   for (const opportunity of input.opportunities) {
     if (!open.has(opportunity.status) || !opportunity.nextAction || !opportunity.nextActionDate) continue;
-    if (occupied(opportunity.id, opportunity.nextActionDate)) continue;
+    if (followUpKeys.has(`${opportunity.id}:${opportunity.nextActionDate}`)) continue;
     const kind = kindFromAction(opportunity.stage, opportunity.nextAction);
     push({
       id: `next-${opportunity.id}-${opportunity.nextActionDate}`,
@@ -774,6 +915,7 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
       label: WEEK_TASK_LABEL[kind],
       title: opportunity.nextAction,
       company: opportunity.companyName,
+      contact: contactFor(opportunity.id, opportunity.companyName, opportunity.contactName),
       href: `/opportunities/${opportunity.id}`,
     });
   }
@@ -789,10 +931,11 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
         label: WEEK_TASK_LABEL.sow,
         title: "Check back on the SOW",
         company: contract.companyName,
+        contact: contactFor(contract.opportunityId, contract.companyName),
         href: `/opportunities/${contract.opportunityId}`,
       });
     }
-    if (contract.expectedStartOn && waitingOnSignature && !occupied(contract.opportunityId, contract.expectedStartOn)) {
+    if (contract.expectedStartOn && waitingOnSignature) {
       push({
         id: `start-${contract.opportunityId}`,
         date: contract.expectedStartOn,
@@ -800,16 +943,20 @@ export function buildWeekTasks(input: AttentionInput): WeekTask[] {
         label: WEEK_TASK_LABEL.start,
         title: "Expected start",
         company: contract.companyName,
+        contact: contactFor(contract.opportunityId, contract.companyName),
         href: `/opportunities/${contract.opportunityId}`,
       });
     }
   }
 
-  return tasks.sort((a, b) => a.date.localeCompare(b.date) || a.company.localeCompare(b.company) || a.label.localeCompare(b.label));
+  return tasks.sort((a, b) => a.date.localeCompare(b.date) || a.contact.localeCompare(b.contact) || a.label.localeCompare(b.label));
 }
 
 export function buildAttention(input: AttentionInput): AttentionItem[] {
   const items: AttentionItem[] = [];
+  const opportunityById = new Map(input.opportunities.map((opportunity) => [opportunity.id, opportunity]));
+  const linkedPerson = (opportunityId?: string | null, contactName?: string | null, companyName?: string | null) =>
+    subjectName(contactName || (opportunityId ? opportunityById.get(opportunityId)?.contactName : null), companyName);
   const followUpDates = new Set(
     input.followUps.filter((item) => item.status === "open" && item.opportunityId).map((item) => `${item.opportunityId}:${item.dueOn}`),
   );
@@ -818,6 +965,58 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
   for (const followUp of input.followUps) {
     if (followUp.status !== "open") continue;
     const href = followUp.opportunityId ? `/opportunities/${followUp.opportunityId}` : `/leads/${followUp.leadId}`;
+    if (followUp.pendingSchedule) {
+      items.push({
+        id: `follow-up-${followUp.id}`,
+        kind: "pending_schedule",
+        severity: "today",
+        title: followUp.title,
+        detail: `${linkedPerson(followUp.opportunityId, followUp.contactName, followUp.companyName)} · Pending schedule`,
+        href,
+        dueOn: followUp.dueOn,
+        sections: ["needs"],
+      });
+      continue;
+    }
+    if (followUp.urgent) {
+      items.push({
+        id: `follow-up-${followUp.id}`,
+        kind: "urgent_review",
+        severity: "overdue",
+        title: followUp.title,
+        detail: `${linkedPerson(followUp.opportunityId, followUp.contactName, followUp.companyName)} · Urgent — needs review`,
+        href,
+        dueOn: followUp.dueOn,
+        sections: ["needs", "at_risk"],
+      });
+      continue;
+    }
+    if (followUp.automationType === "nurture_suggest") {
+      items.push({
+        id: `follow-up-${followUp.id}`,
+        kind: "suggest_nurture",
+        severity: followUp.dueOn <= input.today ? "today" : "upcoming",
+        title: followUp.title,
+        detail: `${linkedPerson(followUp.opportunityId, followUp.contactName, followUp.companyName)} · recommendation only`,
+        href,
+        dueOn: followUp.dueOn,
+        sections: followUp.dueOn <= input.today ? ["needs", "today"] : ["upcoming"],
+      });
+      continue;
+    }
+    if (followUp.automationType === "awaiting_client_review" || followUp.automationType === "interview_review_7") {
+      items.push({
+        id: `follow-up-${followUp.id}`,
+        kind: followUp.automationType === "interview_review_7" ? "interview_review" : "awaiting_client_response",
+        severity: followUp.dueOn <= input.today ? "today" : "upcoming",
+        title: followUp.title,
+        detail: linkedPerson(followUp.opportunityId, followUp.contactName, followUp.companyName),
+        href,
+        dueOn: followUp.dueOn,
+        sections: followUp.dueOn <= input.today ? ["needs", "waiting_client"] : ["upcoming", "waiting_client"],
+      });
+      continue;
+    }
     const delta = daysBetween(input.today, followUp.dueOn);
     if (delta < 0) {
       items.push({
@@ -825,7 +1024,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
         kind: "follow_up_overdue",
         severity: "overdue",
         title: followUp.title,
-        detail: `${followUp.companyName} · ${Math.abs(delta)} day${Math.abs(delta) === 1 ? "" : "s"} overdue`,
+        detail: `${linkedPerson(followUp.opportunityId, followUp.contactName, followUp.companyName)} · ${Math.abs(delta)} day${Math.abs(delta) === 1 ? "" : "s"} overdue`,
         href,
         dueOn: followUp.dueOn,
         sections: ["needs", "at_risk"],
@@ -836,7 +1035,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
         kind: "follow_up_today",
         severity: "today",
         title: followUp.title,
-        detail: followUp.companyName,
+        detail: linkedPerson(followUp.opportunityId, followUp.contactName, followUp.companyName),
         href,
         dueOn: followUp.dueOn,
         sections: ["today"],
@@ -847,7 +1046,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
         kind: "follow_up_upcoming",
         severity: "upcoming",
         title: followUp.title,
-        detail: `${followUp.companyName} · due ${followUp.dueOn}`,
+        detail: `${linkedPerson(followUp.opportunityId, followUp.contactName, followUp.companyName)} · due ${followUp.dueOn}`,
         href,
         dueOn: followUp.dueOn,
         sections: ["upcoming"],
@@ -868,7 +1067,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
           kind: "next_action_overdue",
           severity: "overdue",
           title: opportunity.nextAction || "Next action overdue",
-          detail: `${opportunity.companyName} · ${opportunity.stage}`,
+          detail: `${subjectName(opportunity.contactName, opportunity.companyName)} · ${opportunity.stage}`,
           href,
           dueOn: opportunity.nextActionDate,
           sections: ["needs", "at_risk"],
@@ -879,7 +1078,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
           kind: "next_action_today",
           severity: "today",
           title: opportunity.nextAction || "Next action due today",
-          detail: `${opportunity.companyName} · ${opportunity.stage}`,
+          detail: `${subjectName(opportunity.contactName, opportunity.companyName)} · ${opportunity.stage}`,
           href,
           dueOn: opportunity.nextActionDate,
           sections: ["today"],
@@ -890,7 +1089,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
           kind: "next_action_upcoming",
           severity: "upcoming",
           title: opportunity.nextAction || "Upcoming next action",
-          detail: `${opportunity.companyName} · ${opportunity.stage}`,
+          detail: `${subjectName(opportunity.contactName, opportunity.companyName)} · ${opportunity.stage}`,
           href,
           dueOn: opportunity.nextActionDate,
           sections: ["upcoming"],
@@ -907,7 +1106,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
         id: `stale-${opportunity.id}`,
         kind: "stale",
         severity: "risk",
-        title: opportunity.companyName,
+        title: subjectName(opportunity.contactName, opportunity.companyName),
         detail: quietFor == null ? `${opportunity.stage} · no activity recorded` : `${opportunity.stage} · no activity for ${quietFor} days`,
         href,
         dueOn: opportunity.nextActionDate,
@@ -920,7 +1119,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
         id: `wait-client-${opportunity.id}`,
         kind: "waiting_client",
         severity: "upcoming",
-        title: opportunity.companyName,
+        title: subjectName(opportunity.contactName, opportunity.companyName),
         detail: `${opportunity.stage} · waiting on the client`,
         href,
         dueOn: opportunity.nextActionDate,
@@ -932,7 +1131,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
         id: `wait-recruitment-${opportunity.id}`,
         kind: "waiting_recruitment",
         severity: "upcoming",
-        title: opportunity.companyName,
+        title: subjectName(opportunity.contactName, opportunity.companyName),
         detail: "Waiting on recruitment",
         href: `/opportunities/${opportunity.id}`,
         dueOn: opportunity.nextActionDate,
@@ -944,7 +1143,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
         id: `risk-${opportunity.id}`,
         kind: "at_risk",
         severity: "risk",
-        title: opportunity.companyName,
+        title: subjectName(opportunity.contactName, opportunity.companyName),
         detail: `${opportunity.riskLevel} risk · ${opportunity.stage}`,
         href,
         dueOn: opportunity.nextActionDate,
@@ -954,6 +1153,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
   }
 
   for (const batch of input.profileBatches) {
+    if ((batch.profileCount ?? 0) <= 0) continue;
     if (batch.clientResponse && batch.clientResponse.trim()) continue;
     const waiting = daysBetween(batch.sentOn, input.today);
     if (waiting >= input.profilesWaitingDays) {
@@ -982,6 +1182,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
         detail: `${request.status} · target was ${request.targetOn}`,
         href: `/recruitment/${request.id}`,
         dueOn: request.targetOn,
+        opportunityId: request.opportunityId,
         sections: ["needs", "waiting_recruitment", "at_risk"],
       });
     } else if (withinWindow(input.today, request.targetOn, input.approachingWindowDays)) {
@@ -993,6 +1194,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
         detail: `${request.status} · target ${request.targetOn}`,
         href: `/recruitment/${request.id}`,
         dueOn: request.targetOn,
+        opportunityId: request.opportunityId,
         sections: delta === 0 ? ["today", "waiting_recruitment"] : ["upcoming", "waiting_recruitment"],
       });
     }
@@ -1022,7 +1224,7 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
       id: `call-${call.opportunityId}`,
       kind: "strategy_call_approaching",
       severity: delta === 0 ? "today" : "upcoming",
-      title: `Strategy call · ${call.companyName}`,
+          title: `Strategy call · ${linkedPerson(call.opportunityId, opportunityById.get(call.opportunityId)?.contactName, call.companyName)}`,
       detail: call.callOn,
       href: `/opportunities/${call.opportunityId}`,
       dueOn: call.callOn,
@@ -1066,11 +1268,29 @@ export function buildAttention(input: AttentionInput): AttentionItem[] {
       id: `lead-${lead.leadId}`,
       kind: "unmatched_interested",
       severity: "risk",
-      title: `${lead.name} — ${lead.companyName}`,
-      detail: "SendPilot says Interested. No sales opportunity yet.",
+      title: "New Interested Lead",
+      detail: `${lead.name} — ${lead.companyName} · Tagged Interested in SendPilot`,
       href: `/leads/${lead.leadId}`,
       dueOn: null,
       sections: ["needs", "at_risk"],
+    });
+  }
+
+  const seenNotInterested = new Set<string>();
+  for (const lead of input.recentNotInterested ?? []) {
+    const age = daysBetween(lead.occurredOn, input.today);
+    if (age < 0 || age > input.staleAfterDays) continue;
+    if (seenNotInterested.has(lead.leadId)) continue;
+    seenNotInterested.add(lead.leadId);
+    items.push({
+      id: `not-interested-${lead.leadId}`,
+      kind: "recent_not_interested",
+      severity: "risk",
+      title: "Lead marked Not Interested",
+      detail: `${lead.name} — ${lead.companyName} · Tagged Not Interested in SendPilot`,
+      href: `/leads/${lead.leadId}`,
+      dueOn: lead.occurredOn,
+      sections: ["needs"],
     });
   }
 
