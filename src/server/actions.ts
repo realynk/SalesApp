@@ -102,6 +102,13 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { dateField, optionalNumber, optionalText, settingsSchema, text, type ActionState } from "@/server/form";
 import { requireUser, requireWriter } from "@/server/session";
+import { gmailConnectReadyMessage, gmailOAuthConfigured } from "@/lib/gmail/config";
+import {
+  decryptGmailRefreshToken,
+  deleteGmailConnection,
+  loadGmailConnectionRow,
+} from "@/lib/gmail/connection";
+import { listGmailSendAs, refreshGmailAccessToken, sendGmailMessage } from "@/lib/gmail/send";
 
 function refresh(...paths: string[]) {
   for (const path of paths) revalidatePath(path);
@@ -742,6 +749,86 @@ export async function saveProfileSendFromBoard(formData: FormData): Promise<Acti
 
   refresh("/opportunities", "/leads", "/dashboard", "/follow-ups", `/leads/${leadId}`, `/opportunities/${opportunityId}`);
   return { success: "Profile send recorded. The check-back tasks are on reminders and the week calendar." };
+}
+
+export type GmailStatus = {
+  configured: boolean;
+  connected: boolean;
+  email: string | null;
+  fromAddresses: string[];
+  senderName: string;
+  message: string | null;
+};
+
+export async function loadGmailStatus(): Promise<GmailStatus> {
+  const { supabase, userId, profile } = await requireUser();
+  const senderName = profile?.full_name?.trim() || "Realynk Assistants";
+  const setup = gmailConnectReadyMessage();
+  if (setup) {
+    return { configured: gmailOAuthConfigured(), connected: false, email: null, fromAddresses: [], senderName, message: setup };
+  }
+  const loaded = await loadGmailConnectionRow(supabase, userId);
+  if (loaded.error) {
+    return { configured: true, connected: false, email: null, fromAddresses: [], senderName, message: loaded.error };
+  }
+  if (!loaded.row) {
+    return { configured: true, connected: false, email: null, fromAddresses: [], senderName, message: null };
+  }
+  let fromAddresses = [loaded.row.email];
+  try {
+    const token = await refreshGmailAccessToken(decryptGmailRefreshToken(loaded.row.refresh_token_ciphertext));
+    if (token.ok) {
+      const aliases = await listGmailSendAs(token.accessToken);
+      if (aliases.length > 0) fromAddresses = [...new Set(aliases.map((item) => item.email))];
+    }
+  } catch {
+    fromAddresses = [loaded.row.email];
+  }
+  return { configured: true, connected: true, email: loaded.row.email, fromAddresses, senderName, message: null };
+}
+
+export async function disconnectGmail(_state: ActionState, _formData: FormData): Promise<ActionState> {
+  const { supabase, userId } = await requireWriter();
+  const deleted = await deleteGmailConnection(supabase, userId);
+  if (deleted.error) return { error: deleted.error };
+  refresh("/settings", "/opportunities", "/leads");
+  return { success: "Gmail disconnected. Emails will not send until you connect again." };
+}
+
+export async function sendProfileEmailAndRecord(formData: FormData): Promise<ActionState> {
+  const { supabase, userId } = await requireWriter();
+  if (text(formData, "gmail_confirm") !== "send") {
+    return { error: "Review the email and click Send email. Nothing is emailed automatically." };
+  }
+  const from = text(formData, "gmail_from");
+  const to = text(formData, "gmail_to") || text(formData, "client_email");
+  const cc = optionalText(formData, "gmail_cc") ?? "";
+  const subject = text(formData, "gmail_subject");
+  const body = text(formData, "gmail_body");
+  if (!from || !to || !subject || !body) {
+    return { error: "From, To, subject, and body are required before sending." };
+  }
+  const loaded = await loadGmailConnectionRow(supabase, userId);
+  if (loaded.error) return { error: loaded.error };
+  if (!loaded.row) return { error: "Connect Gmail before sending." };
+  const allowed = new Set([loaded.row.email.toLowerCase()]);
+  const token = await refreshGmailAccessToken(decryptGmailRefreshToken(loaded.row.refresh_token_ciphertext));
+  if (!token.ok) return { error: token.error };
+  for (const alias of await listGmailSendAs(token.accessToken)) allowed.add(alias.email.toLowerCase());
+  if (!allowed.has(from.toLowerCase())) {
+    return { error: "From must be your connected Gmail address or one of its send-as aliases." };
+  }
+  const sent = await sendGmailMessage(token.accessToken, { from, to, cc, subject, body });
+  if (!sent.ok) return { error: sent.error };
+  formData.set("client_email", to);
+  const existingNotes = optionalText(formData, "notes");
+  formData.set(
+    "notes",
+    [existingNotes, `Gmail sent to ${to}${cc ? ` · CC ${cc}` : ""} · ${subject}`].filter(Boolean).join("\n"),
+  );
+  const recorded = await saveProfileSendFromBoard(formData);
+  if (recorded?.error) return { error: `The email sent, but the CRM record failed: ${recorded.error}` };
+  return { success: recorded?.success ?? "Email sent from Gmail. Profile send is saved." };
 }
 
 export async function saveBookedSalesCallFromBoard(formData: FormData): Promise<ActionState> {

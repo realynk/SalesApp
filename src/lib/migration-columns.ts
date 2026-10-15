@@ -4,8 +4,12 @@ export const UX_MIGRATION_REQUIRED =
 export const AUTOMATION_MIGRATION_REQUIRED =
   "This workspace still needs the pipeline automation migration. Follow-up tasks cannot be saved yet.";
 
+export const GMAIL_MIGRATION_REQUIRED =
+  "This workspace still needs the Gmail connections migration. Connect Gmail cannot be saved yet.";
+
 const UX_COLUMNS = /next_action_manual|talent_request_draft|talent_request_sent_on/i;
 const AUTOMATION_COLUMNS = /automation_key|automation_type|urgent|pending_schedule|follow_up_id|target_start_on/i;
+const GMAIL_COLUMNS = /gmail_connections|refresh_token_ciphertext/i;
 
 export function isMissingColumnError(error: { message?: string; code?: string } | null | undefined) {
   if (!error) return false;
@@ -20,6 +24,7 @@ export function writeFailureMessage(
   const message = error.message ?? "";
   if (isMissingColumnError(error) && UX_COLUMNS.test(message)) return UX_MIGRATION_REQUIRED;
   if (isMissingColumnError(error) && AUTOMATION_COLUMNS.test(message)) return AUTOMATION_MIGRATION_REQUIRED;
+  if ((isMissingColumnError(error) || /gmail_connections/i.test(message)) && GMAIL_COLUMNS.test(message)) return GMAIL_MIGRATION_REQUIRED;
   return message.trim() || fallback;
 }
 

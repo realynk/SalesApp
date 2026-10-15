@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   AUTOMATION_MIGRATION_REQUIRED,
+  GMAIL_MIGRATION_REQUIRED,
   UX_MIGRATION_REQUIRED,
   isCountableProfileBatch,
   resolvedProfileCount,
@@ -16,6 +17,13 @@ test("failed UX column writes are not reported as success", () => {
   assert.equal(
     writeFailureMessage({ message: "column next_action_manual does not exist" }, "fallback"),
     UX_MIGRATION_REQUIRED,
+  );
+});
+
+test("failed Gmail connection writes ask for the Gmail migration", () => {
+  assert.equal(
+    writeFailureMessage({ message: "Could not find the table 'public.gmail_connections' in the schema cache" }, "fallback"),
+    GMAIL_MIGRATION_REQUIRED,
   );
 });
 
