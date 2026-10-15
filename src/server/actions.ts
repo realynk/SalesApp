@@ -54,6 +54,12 @@ import {
   planTrialPeriodTasks,
 } from "@/lib/pipeline-automation";
 import { canMarkFollowUpDone } from "@/lib/attention-queue";
+import { SALES_PROFILE_SENT_TITLE } from "@/lib/reporting-metrics";
+import {
+  MANUAL_SALES_PROFILE_SENT_CONFIRM,
+  encodeSalesProfileEmailDraft,
+  shouldPlanSalesProfileFollowUps,
+} from "@/lib/sales-profile-send";
 import { resolvedProfileCount, writeFailureMessage } from "@/lib/migration-columns";
 import { civilTimeInZoneToIso, todayInWorkflowZone } from "@/lib/workflow-dates";
 import {
@@ -647,98 +653,196 @@ export async function dropLeadOnStage(formData: FormData): Promise<ActionState> 
   return { success: `Started the client journey at ${stage}.` };
 }
 
-export async function saveProfileSendFromBoard(formData: FormData): Promise<ActionState> {
-  const { supabase, userId } = await requireWriter();
-  const leadId = text(formData, "lead_id");
-  const email = text(formData, "client_email").toLowerCase();
-  const sentOn = dateField(formData, "profile_sent_on");
-  const callOn = dateField(formData, "call_on");
-  const notes = optionalText(formData, "notes");
-  if (!isUuid(leadId) || !email || !sentOn) {
-    return { error: "Email and when the email/profiles were sent are required." };
-  }
+async function loadLeadForProfileSend(leadId: string) {
+  const { supabase } = await requireWriter();
   const { data: lead, error: leadError } = await supabase
     .from("leads")
     .select("id, contact_id, company_id, contacts(first_name, last_name, email), companies(name)")
     .eq("id", leadId)
     .maybeSingle();
-  if (leadError || !lead) return { error: "That lead could not be found." };
-  const record = lead as { id: string; contact_id: string; company_id: string };
-  const { error: emailError } = await supabase.from("contacts").update({ email }).eq("id", record.contact_id);
+  if (leadError || !lead) return { error: "That lead could not be found." as const };
+  return { supabase, lead: lead as { id: string; contact_id: string; company_id: string; companies?: { name?: string } | { name?: string }[] } };
+}
+
+async function salesProfileAlreadySent(opportunityId: string) {
+  const { supabase } = await requireWriter();
+  const activity = await supabase
+    .from("activities")
+    .select("id")
+    .eq("opportunity_id", opportunityId)
+    .eq("type", "profile_sent")
+    .eq("title", SALES_PROFILE_SENT_TITLE)
+    .limit(1)
+    .maybeSingle();
+  if (activity.data) return true;
+  const follow = await supabase
+    .from("follow_ups")
+    .select("id")
+    .eq("opportunity_id", opportunityId)
+    .eq("automation_type", "sales_profile_follow_1")
+    .limit(1)
+    .maybeSingle();
+  return Boolean(follow.data);
+}
+
+async function saveSalesProfileCallDraft(
+  opportunityId: string,
+  formData: FormData,
+  lead: { companies?: { name?: string } | { name?: string }[] },
+) {
+  const { supabase } = await requireWriter();
+  const company = Array.isArray(lead.companies) ? lead.companies[0] : lead.companies;
+  const notes = encodeSalesProfileEmailDraft({
+    from: optionalText(formData, "gmail_from") ?? "",
+    to: text(formData, "client_email"),
+    cc: optionalText(formData, "gmail_cc") ?? "",
+    subject: optionalText(formData, "gmail_subject") ?? "",
+    body: optionalText(formData, "gmail_body") ?? "",
+    notes: optionalText(formData, "notes") ?? "",
+  });
+  const callPayload = {
+    opportunity_id: opportunityId,
+    company_name: optionalText(formData, "company_name") ?? company?.name,
+    client_name: optionalText(formData, "client_name"),
+    status: "Draft",
+    notes,
+  };
+  const { data: existingCall } = await supabase.from("strategy_calls").select("id, status").eq("opportunity_id", opportunityId).maybeSingle();
+  const existingStatus = existingCall ? String((existingCall as { status?: string }).status ?? "") : "";
+  if (existingStatus === "Complete" || existingStatus === "Scheduled") {
+    const { error } = await supabase.from("strategy_calls").update({ notes }).eq("opportunity_id", opportunityId);
+    return error ? { error: actionError(error) } : { ok: true as const };
+  }
+  const { error } = existingCall
+    ? await supabase.from("strategy_calls").update(callPayload).eq("opportunity_id", opportunityId)
+    : await supabase.from("strategy_calls").insert(callPayload);
+  return error ? { error: actionError(error) } : { ok: true as const };
+}
+
+export async function saveSalesProfileEmailDraft(formData: FormData): Promise<ActionState> {
+  const { supabase, userId } = await requireWriter();
+  const leadId = text(formData, "lead_id");
+  const email = (optionalText(formData, "gmail_to") ?? text(formData, "client_email")).toLowerCase();
+  if (!isUuid(leadId) || !email) return { error: "Client email is required to save a draft." };
+  const loaded = await loadLeadForProfileSend(leadId);
+  if ("error" in loaded) return loaded;
+  const { error: emailError } = await supabase.from("contacts").update({ email }).eq("id", loaded.lead.contact_id);
+  if (emailError) return { error: actionError(emailError) };
+  let opportunityId = optionalText(formData, "opportunity_id");
+  if (opportunityId && isUuid(opportunityId)) {
+    const stored = await saveSalesProfileCallDraft(opportunityId, formData, loaded.lead);
+    if (stored.error) return stored;
+    await supabase.from("activities").insert({
+      opportunity_id: opportunityId,
+      lead_id: leadId,
+      type: "record_updated",
+      title: "Sales profile email draft saved",
+      body: "Draft saved. Email not sent.",
+      actor_id: userId,
+    });
+    const flagged = await writeAccountFlag(supabase, {
+      leadId,
+      opportunityId,
+      flag: optionalText(formData, "account_flag"),
+    });
+    if (flagged.error) return flagged;
+    refresh("/opportunities", "/leads", "/dashboard", `/leads/${leadId}`, `/opportunities/${opportunityId}`);
+    return { success: "Draft saved. Email not sent." };
+  }
+  refresh("/leads", `/leads/${leadId}`);
+  return { success: "Draft saved. Email not sent." };
+}
+
+export async function saveProfileSendFromBoard(formData: FormData): Promise<ActionState> {
+  return saveSalesProfileEmailDraft(formData);
+}
+
+export async function markSalesProfileSentFromBoard(formData: FormData): Promise<ActionState> {
+  const { supabase, userId } = await requireWriter();
+  const outcome = optionalText(formData, "send_outcome") === "gmail" ? "gmail" : "manual";
+  if (outcome === "manual" && text(formData, "manual_sent_confirm") !== MANUAL_SALES_PROFILE_SENT_CONFIRM) {
+    return { error: "Confirm that you sent this email outside SalesApp before marking it sent." };
+  }
+  const leadId = text(formData, "lead_id");
+  const email = (optionalText(formData, "gmail_to") ?? text(formData, "client_email")).toLowerCase();
+  const sentOn = outcome === "gmail" ? todayInWorkflowZone() : dateField(formData, "profile_sent_on");
+  const notes = optionalText(formData, "notes");
+  if (!isUuid(leadId) || !email || !sentOn) {
+    return { error: outcome === "gmail" ? "Client email is required." : "Enter the date the profiles were sent outside SalesApp." };
+  }
+  const loaded = await loadLeadForProfileSend(leadId);
+  if ("error" in loaded) return loaded;
+  const { error: emailError } = await supabase.from("contacts").update({ email }).eq("id", loaded.lead.contact_id);
   if (emailError) return { error: actionError(emailError) };
 
   let opportunityId = optionalText(formData, "opportunity_id");
+  const alreadySent = opportunityId && isUuid(opportunityId) ? await salesProfileAlreadySent(opportunityId) : false;
   const nextAction = "First Profile Follow-Up";
   const nextActionDate = planSalesProfileFollowUps({ opportunityId: opportunityId || leadId, leadId, sentOn })[0]?.dueOn ?? sentOn;
-  if (opportunityId && isUuid(opportunityId)) {
-    const moveData = new FormData();
-    moveData.set("opportunity_id", opportunityId);
-    moveData.set("stage", PROFILE_SEND_STAGE);
-    moveData.set("next_action", nextAction);
-    moveData.set("next_action_date", nextActionDate);
-    moveData.set("waiting_on", "client");
-    moveData.set("note", notes ?? "Profile sent to the client");
-    const moved = await moveStage({}, moveData);
-    if (moved?.error) return moved;
-  } else {
-    const createData = new FormData();
-    createData.set("stage", PROFILE_SEND_STAGE);
-    createData.set("next_action", nextAction);
-    createData.set("next_action_date", nextActionDate);
-    createData.set("waiting_on", "client");
-    const created = await createOpportunityForLead(supabase, userId, leadId, createData);
-    if (!created) return { error: "The opportunity could not be created." };
-    if ("error" in created) return created;
-    opportunityId = created.id;
+  if (!alreadySent) {
+    if (opportunityId && isUuid(opportunityId)) {
+      const moveData = new FormData();
+      moveData.set("opportunity_id", opportunityId);
+      moveData.set("stage", PROFILE_SEND_STAGE);
+      moveData.set("next_action", nextAction);
+      moveData.set("next_action_date", nextActionDate);
+      moveData.set("waiting_on", "client");
+      moveData.set("note", notes ?? SALES_PROFILE_SENT_TITLE);
+      const moved = await moveStage({}, moveData);
+      if (moved?.error) return moved;
+    } else {
+      const createData = new FormData();
+      createData.set("stage", PROFILE_SEND_STAGE);
+      createData.set("next_action", nextAction);
+      createData.set("next_action_date", nextActionDate);
+      createData.set("waiting_on", "client");
+      const created = await createOpportunityForLead(supabase, userId, leadId, createData);
+      if (!created) return { error: "The opportunity could not be created." };
+      if ("error" in created) return created;
+      opportunityId = created.id;
+    }
+  } else if (!opportunityId || !isUuid(opportunityId)) {
+    return { success: "Sales profiles were already marked sent. Follow-up dates were left unchanged." };
   }
 
-  const company = Array.isArray((lead as { companies?: { name?: string } | { name?: string }[] }).companies)
-    ? (lead as { companies: { name?: string }[] }).companies[0]
-    : (lead as { companies?: { name?: string } }).companies;
+  const company = Array.isArray(loaded.lead.companies) ? loaded.lead.companies[0] : loaded.lead.companies;
+  const sentNote = [
+    notes,
+    outcome === "gmail" ? `Gmail sent ${sentOn}` : `Marked sent outside SalesApp on ${sentOn}`,
+  ].filter(Boolean).join("\n");
   const callPayload = {
     opportunity_id: opportunityId,
-    call_on: callOn,
     company_name: optionalText(formData, "company_name") ?? company?.name,
     client_name: optionalText(formData, "client_name"),
-    status: callOn ? "Scheduled" : "Draft",
-    notes,
+    notes: sentNote,
   };
   const { data: existingCall } = await supabase.from("strategy_calls").select("id").eq("opportunity_id", opportunityId).maybeSingle();
   const { error: callError } = existingCall
     ? await supabase.from("strategy_calls").update(callPayload).eq("opportunity_id", opportunityId)
-    : await supabase.from("strategy_calls").insert(callPayload);
+    : await supabase.from("strategy_calls").insert({ ...callPayload, status: "Draft" });
   if (callError) return { error: actionError(callError) };
 
-  await supabase.from("activities").insert({
-    opportunity_id: opportunityId,
-    lead_id: leadId,
-    type: "profile_sent",
-    title: "Profile sent to the client",
-    body: notes ?? `Sent on ${sentOn}${callOn ? ` · call scheduled ${callOn}` : ""}`,
-    actor_id: userId,
-    occurred_at: new Date(`${sentOn}T12:00:00Z`).toISOString(),
-  });
-  if (callOn) {
+  if (shouldPlanSalesProfileFollowUps(outcome, alreadySent)) {
     await supabase.from("activities").insert({
       opportunity_id: opportunityId,
       lead_id: leadId,
-      type: "strategy_call_scheduled",
-      title: "Strategy call scheduled",
-      body: callOn,
+      type: "profile_sent",
+      title: SALES_PROFILE_SENT_TITLE,
+      body: sentNote || `Sent on ${sentOn}`,
       actor_id: userId,
+      occurred_at: new Date(`${sentOn}T12:00:00Z`).toISOString(),
     });
+    await cancelAutomationTypes(supabase, {
+      opportunityId,
+      leadId,
+      types: ["interested_follow_1", "interested_follow_2", "nurture_suggest"],
+    });
+    await upsertAutomationTasks(supabase, userId, planSalesProfileFollowUps({
+      opportunityId: opportunityId as string,
+      leadId,
+      sentOn,
+    }));
   }
-
-  await cancelAutomationTypes(supabase, {
-    opportunityId,
-    leadId,
-    types: ["interested_follow_1", "interested_follow_2", "nurture_suggest"],
-  });
-  await upsertAutomationTasks(supabase, userId, planSalesProfileFollowUps({
-    opportunityId: opportunityId as string,
-    leadId,
-    sentOn,
-  }));
 
   const flagged = await writeAccountFlag(supabase, {
     leadId,
@@ -748,7 +852,14 @@ export async function saveProfileSendFromBoard(formData: FormData): Promise<Acti
   if (flagged.error) return flagged;
 
   refresh("/opportunities", "/leads", "/dashboard", "/follow-ups", `/leads/${leadId}`, `/opportunities/${opportunityId}`);
-  return { success: "Profile send recorded. The check-back tasks are on reminders and the week calendar." };
+  if (alreadySent) {
+    return { success: "Sales profiles were already marked sent. Follow-up dates were left unchanged." };
+  }
+  return {
+    success: outcome === "gmail"
+      ? "Email sent from Gmail. Follow-ups use the actual send date."
+      : "Marked sent outside SalesApp. Follow-ups use the date you confirmed.",
+  };
 }
 
 export type GmailStatus = {
@@ -820,15 +931,19 @@ export async function sendProfileEmailAndRecord(formData: FormData): Promise<Act
   }
   const sent = await sendGmailMessage(token.accessToken, { from, to, cc, subject, body });
   if (!sent.ok) return { error: sent.error };
+  const sentOn = todayInWorkflowZone();
   formData.set("client_email", to);
+  formData.set("gmail_to", to);
+  formData.set("send_outcome", "gmail");
+  formData.set("profile_sent_on", sentOn);
   const existingNotes = optionalText(formData, "notes");
   formData.set(
     "notes",
-    [existingNotes, `Gmail sent to ${to}${cc ? ` · CC ${cc}` : ""} · ${subject}`].filter(Boolean).join("\n"),
+    [existingNotes, `Gmail sent to ${to}${cc ? ` · CC ${cc}` : ""} · ${subject} · ${sentOn}`].filter(Boolean).join("\n"),
   );
-  const recorded = await saveProfileSendFromBoard(formData);
+  const recorded = await markSalesProfileSentFromBoard(formData);
   if (recorded?.error) return { error: `The email sent, but the CRM record failed: ${recorded.error}` };
-  return { success: recorded?.success ?? "Email sent from Gmail. Profile send is saved." };
+  return { success: recorded?.success ?? "Email sent from Gmail. Follow-ups use the actual send date." };
 }
 
 export async function saveBookedSalesCallFromBoard(formData: FormData): Promise<ActionState> {

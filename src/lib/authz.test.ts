@@ -155,8 +155,11 @@ test("pipeline UX write actions stay behind requireWriter", () => {
   assert.match(actionsSource, /export async function completeFollowUp[\s\S]*?requireWriter/);
   assert.match(actionsSource, /export async function completeNextActionWork[\s\S]*?requireWriter/);
   assert.match(actionsSource, /export async function sendProfileEmailAndRecord[\s\S]*?requireWriter/);
+  assert.match(actionsSource, /export async function saveSalesProfileEmailDraft[\s\S]*?requireWriter/);
+  assert.match(actionsSource, /export async function markSalesProfileSentFromBoard[\s\S]*?requireWriter/);
   assert.match(actionsSource, /gmail_confirm/);
   assert.match(actionsSource, /Nothing is emailed automatically/);
+  assert.match(actionsSource, /Confirm that you sent this email outside SalesApp/);
   assert.match(actionsSource, /if \(error\) return \{ error: writeFailureMessage/);
   assert.doesNotMatch(actionsSource, /if \(error && !\/talent_request_draft/);
   assert.match(actionsSource, /already marked sent\. Follow-up dates were left unchanged/);
