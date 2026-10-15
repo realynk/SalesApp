@@ -728,7 +728,7 @@ export async function saveSalesProfileEmailDraft(formData: FormData): Promise<Ac
   if ("error" in loaded) return loaded;
   const { error: emailError } = await supabase.from("contacts").update({ email }).eq("id", loaded.lead.contact_id);
   if (emailError) return { error: actionError(emailError) };
-  let opportunityId = optionalText(formData, "opportunity_id");
+  const opportunityId = optionalText(formData, "opportunity_id");
   if (opportunityId && isUuid(opportunityId)) {
     const stored = await saveSalesProfileCallDraft(opportunityId, formData, loaded.lead);
     if (stored.error) return stored;
@@ -898,7 +898,8 @@ export async function loadGmailStatus(): Promise<GmailStatus> {
   return { configured: true, connected: true, email: loaded.row.email, fromAddresses, senderName, message: null };
 }
 
-export async function disconnectGmail(_state: ActionState, _formData: FormData): Promise<ActionState> {
+export async function disconnectGmail(_state: ActionState, formData: FormData): Promise<ActionState> {
+  void formData;
   const { supabase, userId } = await requireWriter();
   const deleted = await deleteGmailConnection(supabase, userId);
   if (deleted.error) return { error: deleted.error };

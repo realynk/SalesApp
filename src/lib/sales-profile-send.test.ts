@@ -4,7 +4,6 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  MANUAL_SALES_PROFILE_SENT_CONFIRM,
   encodeSalesProfileEmailDraft,
   isSalesProfileEmailDraft,
   parseSalesProfileEmailDraft,
