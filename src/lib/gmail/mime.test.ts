@@ -8,21 +8,32 @@ test("CC and To split on commas", () => {
   assert.equal(looksLikeEmail("not-an-email"), false);
 });
 
-test("raw Gmail payload includes edited headers and does not send without them", () => {
+test("raw Gmail payload includes edited headers and clickable HTML links", () => {
   const raw = buildGmailRawMessage({
     from: "joan@realynk.com",
     to: "wes@client.com",
     cc: "lead@client.com",
-    subject: "Realynk Assistants introduction",
-    body: "Hi William,\n\nPlease review these profiles.",
+    subject: "SDR profiles from Realynk Assistants",
+    body: "Hi Wes,\n\n1. **Thea** – [View Profile](https://jobcentra.com/thea-sungcal-portfolio)\n\nBook [our calendar](https://realynk.com/realynk-outbound).",
   });
   const decoded = Buffer.from(raw, "base64url").toString("utf8");
-  const [, encodedBody = ""] = decoded.split("\r\n\r\n");
-  const body = Buffer.from(encodedBody.trim(), "base64").toString("utf8");
   assert.match(decoded, /From: joan@realynk.com/);
   assert.match(decoded, /To: wes@client.com/);
   assert.match(decoded, /Cc: lead@client.com/);
-  assert.match(decoded, /Subject: Realynk Assistants introduction/);
-  assert.match(body, /Please review these profiles/);
+  assert.match(decoded, /Subject: SDR profiles from Realynk Assistants/);
+  assert.match(decoded, /multipart\/alternative/);
+  function decodePart(type: string) {
+    const marker = `Content-Type: ${type}; charset=UTF-8`;
+    const rest = decoded.slice(decoded.indexOf(marker));
+    const start = rest.indexOf("\r\n\r\n") + 4;
+    const end = rest.indexOf("\r\n--", start);
+    return Buffer.from(rest.slice(start, end).trim(), "base64").toString("utf8");
+  }
+  const htmlBody = decodePart("text/html");
+  const plainBody = decodePart("text/plain");
+  assert.match(htmlBody, /<a href="https:\/\/jobcentra.com\/thea-sungcal-portfolio">View Profile<\/a>/);
+  assert.match(htmlBody, /<a href="https:\/\/realynk.com\/realynk-outbound">our calendar<\/a>/);
+  assert.match(htmlBody, /<strong>Thea<\/strong>/);
+  assert.match(plainBody, /https:\/\/jobcentra.com\/thea-sungcal-portfolio/);
   assert.throws(() => buildGmailRawMessage({ from: "bad", to: "also-bad", subject: "x", body: "y" }));
 });

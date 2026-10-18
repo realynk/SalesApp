@@ -109,6 +109,7 @@ import { createClient } from "@/lib/supabase/server";
 import { dateField, optionalNumber, optionalText, settingsSchema, text, type ActionState } from "@/server/form";
 import { requireUser, requireWriter } from "@/server/session";
 import { gmailConnectReadyMessage, gmailOAuthConfigured } from "@/lib/gmail/config";
+import { originalLinkedInOutreachFirstName } from "@/lib/gmail/profile-email";
 import {
   decryptGmailRefreshToken,
   deleteGmailConnection,
@@ -870,6 +871,57 @@ export type GmailStatus = {
   senderName: string;
   message: string | null;
 };
+
+export type SalesProfileEmailContext = {
+  clientFirstName: string | null;
+  outreachFirstName: string | null;
+  toEmail: string | null;
+  error: string | null;
+};
+
+export async function loadSalesProfileEmailContext(leadId: string): Promise<SalesProfileEmailContext> {
+  const empty = { clientFirstName: null, outreachFirstName: null, toEmail: null, error: null };
+  if (!isUuid(leadId)) return { ...empty, error: "That lead could not be found." };
+  const { supabase } = await requireUser();
+  const { data: lead, error: leadError } = await supabase
+    .from("leads")
+    .select("id, contacts(first_name, last_name, email)")
+    .eq("id", leadId)
+    .maybeSingle();
+  if (leadError || !lead) return { ...empty, error: "That lead could not be found." };
+  const contact = Array.isArray((lead as { contacts?: unknown }).contacts)
+    ? (lead as { contacts: Array<{ first_name?: string | null; email?: string | null }> }).contacts[0]
+    : (lead as { contacts?: { first_name?: string | null; email?: string | null } }).contacts;
+  const clientFirstName = String(contact?.first_name ?? "").trim() || null;
+  const toEmail = String(contact?.email ?? "").trim() || null;
+
+  const identities = await supabase
+    .from("sendpilot_lead_identities")
+    .select("integration_id, first_seen_at")
+    .eq("lead_id", leadId)
+    .order("first_seen_at", { ascending: true });
+  if (identities.error) {
+    return { clientFirstName, outreachFirstName: null, toEmail, error: null };
+  }
+  const integrationIds = [
+    ...new Set((identities.data ?? []).map((row) => String((row as { integration_id?: string }).integration_id ?? "")).filter(Boolean)),
+  ];
+  if (integrationIds.length === 0) {
+    return { clientFirstName, outreachFirstName: null, toEmail, error: null };
+  }
+  const integrations = await supabase.from("sendpilot_integrations").select("id, name").in("id", integrationIds);
+  if (integrations.error) {
+    return { clientFirstName, outreachFirstName: null, toEmail, error: null };
+  }
+  const names = new Map((integrations.data ?? []).map((row) => [String((row as { id: string }).id), String((row as { name?: string }).name ?? "")]));
+  const outreachFirstName = originalLinkedInOutreachFirstName(
+    (identities.data ?? []).map((row) => ({
+      integrationName: names.get(String((row as { integration_id?: string }).integration_id ?? "")) ?? null,
+      firstSeenAt: (row as { first_seen_at?: string | null }).first_seen_at ?? null,
+    })),
+  );
+  return { clientFirstName, outreachFirstName, toEmail, error: null };
+}
 
 export async function loadGmailStatus(): Promise<GmailStatus> {
   const { supabase, userId, profile } = await requireUser();

@@ -56,4 +56,7 @@ test("save without sending does not record a send or schedule follow-ups", () =>
   assert.match(dialog, /I sent this email outside SalesApp/);
   assert.match(candidateFn, /planCandidateProfileFollowUp/);
   assert.doesNotMatch(candidateFn, /planSalesProfileFollowUps/);
+  const contextFn = actions.slice(actions.indexOf("export async function loadSalesProfileEmailContext"), actions.indexOf("export async function loadGmailStatus"));
+  assert.doesNotMatch(contextFn, /planSalesProfileFollowUps/);
+  assert.doesNotMatch(contextFn, /type: "profile_sent"/);
 });

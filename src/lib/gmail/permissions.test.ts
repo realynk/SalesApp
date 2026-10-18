@@ -32,6 +32,17 @@ test("Gmail send path does not list send-as aliases", () => {
   assert.doesNotMatch(statusFn, /decryptGmailRefreshToken/);
 });
 
+test("profile email context is a read of stored names and does not send mail", () => {
+  const actions = readFileSync(join(root, "src/server/actions.ts"), "utf8");
+  const contextFn = actions.slice(actions.indexOf("export async function loadSalesProfileEmailContext"), actions.indexOf("export async function loadGmailStatus"));
+  assert.match(contextFn, /requireUser/);
+  assert.match(contextFn, /sendpilot_lead_identities/);
+  assert.match(contextFn, /originalLinkedInOutreachFirstName/);
+  assert.doesNotMatch(contextFn, /requireWriter/);
+  assert.doesNotMatch(contextFn, /sendGmailMessage/);
+  assert.doesNotMatch(contextFn, /planSalesProfileFollowUps/);
+});
+
 test("From is locked to the connected Gmail account in the review UI", () => {
   const dialog = readFileSync(join(root, "src/components/profile-send-dialog.tsx"), "utf8");
   assert.match(dialog, /readOnly/);
