@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Loader2 } from "lucide-react";
 import { controlClass, Field, textareaClass } from "@/components/bits";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -76,7 +77,10 @@ function ProfileSendForm({
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Sent sales profiles to the client</DialogTitle>
-          <DialogDescription>Loading the email draft…</DialogDescription>
+          <DialogDescription className="flex items-center gap-2">
+            <Loader2 className="size-4 animate-spin" aria-hidden />
+            Loading the email draft…
+          </DialogDescription>
         </DialogHeader>
       </DialogContent>
     );
@@ -113,6 +117,7 @@ function ProfileSendComposer({
   const [body, setBody] = useState(facts.savedBody || template.body);
   const [manualOutside, setManualOutside] = useState(false);
   const [manualSentOn, setManualSentOn] = useState(today);
+  const inFlight = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -138,61 +143,73 @@ function ProfileSendComposer({
     formData.set("gmail_body", body);
   }
 
-  async function handleSave(formData: FormData) {
-    setPending("save");
+  async function runOnce(kind: "save" | "send" | "manual", work: () => Promise<{ error?: string } | null | undefined | void>) {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setPending(kind);
     setError(null);
-    fillIdentity(formData);
-    const result = await saveSalesProfileEmailDraft(formData);
-    setPending(null);
-    if (result?.error) {
-      setError(result.error);
-      return;
+    try {
+      const result = await work();
+      if (result?.error) {
+        setError(result.error);
+        return;
+      }
+      onSaved();
+    } finally {
+      inFlight.current = false;
+      setPending(null);
     }
-    onSaved();
+  }
+
+  async function handleSave(formData: FormData) {
+    await runOnce("save", async () => {
+      fillIdentity(formData);
+      return saveSalesProfileEmailDraft(formData);
+    });
   }
 
   async function handleSend(formData: FormData) {
-    setPending("send");
-    setError(null);
-    fillIdentity(formData);
-    formData.set("gmail_confirm", "send");
-    const result = await sendProfileEmailAndRecord(formData);
-    setPending(null);
-    if (result?.error) {
-      setError(result.error);
-      return;
-    }
-    onSaved();
+    await runOnce("send", async () => {
+      fillIdentity(formData);
+      formData.set("gmail_confirm", "send");
+      return sendProfileEmailAndRecord(formData);
+    });
   }
 
   async function handleMarkOutside(formData: FormData) {
-    setPending("manual");
-    setError(null);
-    fillIdentity(formData);
-    formData.set("send_outcome", "manual");
-    formData.set("manual_sent_confirm", MANUAL_SALES_PROFILE_SENT_CONFIRM);
-    formData.set("profile_sent_on", manualSentOn);
-    const result = await markSalesProfileSentFromBoard(formData);
-    setPending(null);
-    if (result?.error) {
-      setError(result.error);
-      return;
-    }
-    onSaved();
+    await runOnce("manual", async () => {
+      fillIdentity(formData);
+      formData.set("send_outcome", "manual");
+      formData.set("manual_sent_confirm", MANUAL_SALES_PROFILE_SENT_CONFIRM);
+      formData.set("profile_sent_on", manualSentOn);
+      return markSalesProfileSentFromBoard(formData);
+    });
   }
 
   const busy = Boolean(pending);
   const connectedFrom = gmail?.email ?? "";
+  const statusLabel = pending === "send" ? "Sending the email. Please wait…" : pending === "save" ? "Saving the draft…" : pending === "manual" ? "Saving…" : null;
 
   return (
-    <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl" showCloseButton={!busy}>
+    <DialogContent
+      className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"
+      showCloseButton={!busy}
+      onPointerDownOutside={(event) => { if (busy) event.preventDefault(); }}
+      onEscapeKeyDown={(event) => { if (busy) event.preventDefault(); }}
+    >
       <DialogHeader>
         <DialogTitle>Sent sales profiles to the client</DialogTitle>
         <DialogDescription>
           {`${draft.contactName} at ${draft.companyName}. Saving a draft does not mark the profiles as emailed. Follow-ups start only after Gmail sends or you confirm a send outside SalesApp.`}
         </DialogDescription>
       </DialogHeader>
-      <form className="grid gap-3">
+      <form className="grid gap-3" aria-busy={busy}>
+        {statusLabel ? (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status" aria-live="polite">
+            <Loader2 className="size-4 animate-spin" aria-hidden />
+            {statusLabel}
+          </p>
+        ) : null}
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
         {gmail?.message ? <p className="text-sm text-muted-foreground">{gmail.message}</p> : null}
         {gmail?.connected ? (
@@ -254,19 +271,29 @@ function ProfileSendComposer({
         <DialogFooter>
           <Button type="button" variant="outline" disabled={busy} onClick={onCancel}>Cancel</Button>
           <Button type="submit" variant="outline" disabled={busy} formAction={handleSave}>
-            {pending === "save" ? "Saving…" : "Save without sending"}
+            <PendingLabel active={pending === "save"} idle="Save without sending" busy="Saving…" />
           </Button>
           {manualOutside ? (
             <Button type="submit" disabled={busy} formAction={handleMarkOutside}>
-              {pending === "manual" ? "Saving…" : "Mark as sent outside SalesApp"}
+              <PendingLabel active={pending === "manual"} idle="Mark as sent outside SalesApp" busy="Saving…" />
             </Button>
           ) : (
-            <Button type="submit" disabled={busy || !gmail?.connected} formAction={handleSend}>
-              {pending === "send" ? "Sending…" : "Send email"}
+            <Button type="submit" disabled={busy || !gmail?.connected} formAction={handleSend} aria-busy={pending === "send"}>
+              <PendingLabel active={pending === "send"} idle="Send email" busy="Sending…" />
             </Button>
           )}
         </DialogFooter>
       </form>
     </DialogContent>
+  );
+}
+
+function PendingLabel({ active, idle, busy }: { active: boolean; idle: string; busy: string }) {
+  if (!active) return idle;
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <Loader2 className="size-4 animate-spin" aria-hidden />
+      {busy}
+    </span>
   );
 }

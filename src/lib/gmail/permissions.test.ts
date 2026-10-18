@@ -52,6 +52,10 @@ test("From is locked to the connected Gmail account in the review UI", () => {
   assert.match(dialog, /gmail\?\.email/);
   assert.doesNotMatch(dialog, /fromAddresses/);
   assert.doesNotMatch(dialog, /<select/);
+  assert.match(dialog, /Loader2/);
+  assert.match(dialog, /animate-spin/);
+  assert.match(dialog, /inFlight\.current/);
+  assert.match(dialog, /Sending the email\. Please wait/);
   assert.match(dialog, /Save without sending/);
   assert.match(dialog, /Send email/);
   assert.match(dialog, /Mark as sent outside SalesApp/);
