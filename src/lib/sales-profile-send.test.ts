@@ -59,4 +59,6 @@ test("save without sending does not record a send or schedule follow-ups", () =>
   const contextFn = actions.slice(actions.indexOf("export async function loadSalesProfileEmailContext"), actions.indexOf("export async function loadGmailStatus"));
   assert.doesNotMatch(contextFn, /planSalesProfileFollowUps/);
   assert.doesNotMatch(contextFn, /type: "profile_sent"/);
+  assert.match(dialog, /facts\.savedBody \|\| template\.body/);
+  assert.match(actions, /withProfileEmailSignature/);
 });
