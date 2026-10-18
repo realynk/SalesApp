@@ -4,9 +4,10 @@ import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { controlClass, Field, textareaClass } from "@/components/bits";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { AccountFlag } from "@/lib/domain";
-import { emptyLiveSalesCallValues } from "@/lib/live-sales-call";
+import { MomEmailPanel } from "@/components/mom-email-panel";
+import { emptyLiveSalesCallValues, liveSalesCallValuesFromFormData } from "@/lib/live-sales-call";
 import { todayInWorkflowZone } from "@/lib/workflow-dates";
 import { loadLiveSalesCall, saveSalesCallCompleteFromBoard } from "@/server/actions";
 
@@ -68,16 +69,11 @@ export function SalesCallCompleteDialog({
 
   return (
     <Dialog open={Boolean(draft)} onOpenChange={(open) => { if (!open && !busy) onCancel(); }}>
-      <DialogContent className="sm:max-w-lg" showCloseButton={!busy}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl" showCloseButton={!busy}>
         <DialogHeader>
           <DialogTitle>Sales call complete</DialogTitle>
-          <DialogDescription>
-            {draft
-              ? `After the call with ${draft.contactName} at ${draft.companyName}, notes review and the talent request are scheduled for the call date. The request is not sent until you approve it.`
-              : ""}
-          </DialogDescription>
         </DialogHeader>
-        <form action={handleSubmit} aria-busy={busy} className="grid gap-3">
+        <form id="sales-call-complete-form" action={handleSubmit} aria-busy={busy} className="grid gap-3">
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
           {loading ? (
             <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status" aria-live="polite">
@@ -118,9 +114,18 @@ export function SalesCallCompleteDialog({
               disabled={busy}
             />
           </Field>
-          <p className="text-xs text-muted-foreground">
-            Prefer capturing the full requirements on the live sales call form. Completing here marks the call done and moves the pipeline.
-          </p>
+          {draft ? (
+            <MomEmailPanel
+              contactName={draft.contactName}
+              companyName={draft.companyName}
+              values={saved}
+              getValues={() => {
+                const form = document.getElementById("sales-call-complete-form");
+                if (!(form instanceof HTMLFormElement)) return saved;
+                return liveSalesCallValuesFromFormData(new FormData(form), saved);
+              }}
+            />
+          ) : null}
           <DialogFooter>
             <Button type="button" variant="outline" disabled={busy} onClick={onCancel}>Cancel</Button>
             <Button type="submit" disabled={busy}>{pending ? "Saving…" : loading ? "Loading…" : "Save"}</Button>

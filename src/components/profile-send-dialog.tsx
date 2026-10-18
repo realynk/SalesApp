@@ -1,12 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { controlClass, Field, textareaClass } from "@/components/bits";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { AccountFlag } from "@/lib/domain";
+import { buildSalesProfileEmail } from "@/lib/gmail/profile-email";
+import { MANUAL_SALES_PROFILE_SENT_CONFIRM } from "@/lib/sales-profile-send";
 import { todayInWorkflowZone } from "@/lib/workflow-dates";
-import { saveProfileSendFromBoard } from "@/server/actions";
+import {
+  loadGmailStatus,
+  markSalesProfileSentFromBoard,
+  saveSalesProfileEmailDraft,
+  sendProfileEmailAndRecord,
+  type GmailStatus,
+} from "@/server/actions";
 
 export type ProfileSendDraft = {
   leadId: string;
@@ -26,20 +34,75 @@ export function ProfileSendDialog({
   onCancel: () => void;
   onSaved: () => void;
 }) {
-  const today = todayInWorkflowZone();
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
+  return (
+    <Dialog open={Boolean(draft)} onOpenChange={(open) => { if (!open) onCancel(); }}>
+      {draft ? (
+        <ProfileSendForm
+          key={`${draft.leadId}:${draft.opportunityId ?? ""}`}
+          draft={draft}
+          onCancel={onCancel}
+          onSaved={onSaved}
+        />
+      ) : null}
+    </Dialog>
+  );
+}
 
-  async function handleSubmit(formData: FormData) {
-    if (!draft) return;
-    setPending(true);
-    setError(null);
+function ProfileSendForm({
+  draft,
+  onCancel,
+  onSaved,
+}: {
+  draft: ProfileSendDraft;
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
+  const today = todayInWorkflowZone();
+  const template = buildSalesProfileEmail({
+    contactName: draft.contactName,
+    companyName: draft.companyName,
+    toEmail: draft.email,
+  });
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState<"save" | "send" | "manual" | null>(null);
+  const [gmail, setGmail] = useState<GmailStatus | null>(null);
+  const [to, setTo] = useState(template.to);
+  const [cc, setCc] = useState("");
+  const [subject, setSubject] = useState(template.subject);
+  const [body, setBody] = useState(template.body);
+  const [manualOutside, setManualOutside] = useState(false);
+  const [manualSentOn, setManualSentOn] = useState(today);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadGmailStatus().then((status) => {
+      if (cancelled) return;
+      setGmail(status);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function fillIdentity(formData: FormData) {
     formData.set("lead_id", draft.leadId);
     if (draft.opportunityId) formData.set("opportunity_id", draft.opportunityId);
     formData.set("company_name", draft.companyName);
     formData.set("client_name", draft.contactName);
-    const result = await saveProfileSendFromBoard(formData);
-    setPending(false);
+    formData.set("client_email", to);
+    formData.set("gmail_from", gmail?.email ?? "");
+    formData.set("gmail_to", to);
+    formData.set("gmail_cc", cc);
+    formData.set("gmail_subject", subject);
+    formData.set("gmail_body", body);
+  }
+
+  async function handleSave(formData: FormData) {
+    setPending("save");
+    setError(null);
+    fillIdentity(formData);
+    const result = await saveSalesProfileEmailDraft(formData);
+    setPending(null);
     if (result?.error) {
       setError(result.error);
       return;
@@ -47,37 +110,121 @@ export function ProfileSendDialog({
     onSaved();
   }
 
+  async function handleSend(formData: FormData) {
+    setPending("send");
+    setError(null);
+    fillIdentity(formData);
+    formData.set("gmail_confirm", "send");
+    const result = await sendProfileEmailAndRecord(formData);
+    setPending(null);
+    if (result?.error) {
+      setError(result.error);
+      return;
+    }
+    onSaved();
+  }
+
+  async function handleMarkOutside(formData: FormData) {
+    setPending("manual");
+    setError(null);
+    fillIdentity(formData);
+    formData.set("send_outcome", "manual");
+    formData.set("manual_sent_confirm", MANUAL_SALES_PROFILE_SENT_CONFIRM);
+    formData.set("profile_sent_on", manualSentOn);
+    const result = await markSalesProfileSentFromBoard(formData);
+    setPending(null);
+    if (result?.error) {
+      setError(result.error);
+      return;
+    }
+    onSaved();
+  }
+
+  const busy = Boolean(pending);
+  const connectedFrom = gmail?.email ?? "";
+
   return (
-    <Dialog open={Boolean(draft)} onOpenChange={(open) => { if (!open && !pending) onCancel(); }}>
-      <DialogContent className="sm:max-w-lg" showCloseButton={!pending}>
-        <DialogHeader>
-          <DialogTitle>Sent sales profiles to the client</DialogTitle>
-          <DialogDescription>
-            {draft
-              ? `${draft.contactName} at ${draft.companyName}. This is the first sales/VA introduction, not candidate profiles. Follow-ups are scheduled 3, 5, and 7 business days after the send date.`
-              : ""}
-          </DialogDescription>
-        </DialogHeader>
-        <form action={handleSubmit} className="grid gap-3">
-          {error ? <p className="text-sm text-destructive">{error}</p> : null}
-          <Field label="Client email">
-            <input className={controlClass} name="client_email" type="email" required defaultValue={draft?.email ?? ""} placeholder="name@client.com" />
+    <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl" showCloseButton={!busy}>
+      <DialogHeader>
+        <DialogTitle>Sent sales profiles to the client</DialogTitle>
+        <DialogDescription>
+          {`${draft.contactName} at ${draft.companyName}. Saving a draft does not mark the profiles as emailed. Follow-ups start only after Gmail sends or you confirm a send outside SalesApp.`}
+        </DialogDescription>
+      </DialogHeader>
+      <form className="grid gap-3">
+        {error ? <p className="text-sm text-destructive">{error}</p> : null}
+        {gmail?.message ? <p className="text-sm text-muted-foreground">{gmail.message}</p> : null}
+        {gmail?.connected ? (
+          <p className="text-xs text-muted-foreground">Connected as {gmail.email}. Nothing is sent until you click Send email.</p>
+        ) : (
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="outline" asChild>
+              <a href="/api/gmail/connect?next=/opportunities">Connect Gmail</a>
+            </Button>
+            <p className="text-xs text-muted-foreground">You can save a draft without emailing.</p>
+          </div>
+        )}
+        <div className="grid gap-3 rounded-lg border border-border p-3">
+          <p className="text-sm font-medium">Email to review</p>
+          <Field label="From">
+            <input
+              className={controlClass}
+              value={connectedFrom}
+              readOnly
+              aria-readonly="true"
+              placeholder="Connect Gmail to set From"
+              disabled={busy}
+            />
           </Field>
-          <Field label="When were the sales profiles sent?">
-            <input className={controlClass} name="profile_sent_on" type="date" required defaultValue={today} />
+          <Field label="To">
+            <input className={controlClass} name="client_email" type="email" required value={to} onChange={(event) => setTo(event.target.value)} placeholder="name@client.com" disabled={busy} />
           </Field>
-          <Field label="Proposal call date (optional)">
-            <input className={controlClass} name="call_on" type="date" />
+          <Field label="CC">
+            <input className={controlClass} value={cc} onChange={(event) => setCc(event.target.value)} placeholder="optional@company.com" disabled={busy} />
           </Field>
-          <Field label="Notes (optional)">
-            <textarea className={textareaClass} name="notes" placeholder="What you sent or what to confirm later" />
+          <Field label="Subject">
+            <input className={controlClass} value={subject} onChange={(event) => setSubject(event.target.value)} disabled={busy} />
           </Field>
-          <DialogFooter>
-            <Button type="button" variant="outline" disabled={pending} onClick={onCancel}>Cancel</Button>
-            <Button type="submit" disabled={pending}>{pending ? "Saving…" : "Save"}</Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+          <Field label="Body">
+            <textarea className={`${textareaClass} min-h-40`} value={body} onChange={(event) => setBody(event.target.value)} disabled={busy} />
+          </Field>
+        </div>
+        <Field label="Internal notes (optional)">
+          <textarea className={textareaClass} name="notes" placeholder="What you sent or what to confirm later" disabled={busy} />
+        </Field>
+        <div className="grid gap-2 rounded-lg border border-border p-3">
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={manualOutside}
+              disabled={busy}
+              onChange={(event) => setManualOutside(event.target.checked)}
+            />
+            <span>I sent this email outside SalesApp</span>
+          </label>
+          {manualOutside ? (
+            <Field label="Actual send date">
+              <input className={controlClass} type="date" value={manualSentOn} onChange={(event) => setManualSentOn(event.target.value)} disabled={busy} />
+            </Field>
+          ) : null}
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" disabled={busy} onClick={onCancel}>Cancel</Button>
+          <Button type="submit" variant="outline" disabled={busy} formAction={handleSave}>
+            {pending === "save" ? "Saving…" : "Save without sending"}
+          </Button>
+          {manualOutside ? (
+            <Button type="submit" disabled={busy} formAction={handleMarkOutside}>
+              {pending === "manual" ? "Saving…" : "Mark as sent outside SalesApp"}
+            </Button>
+          ) : (
+            <Button type="submit" disabled={busy || !gmail?.connected} formAction={handleSend}>
+              {pending === "send" ? "Sending…" : "Send email"}
+            </Button>
+          )}
+        </DialogFooter>
+      </form>
+    </DialogContent>
   );
 }

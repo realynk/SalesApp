@@ -153,11 +153,29 @@ test("pipeline UX write actions stay behind requireWriter", () => {
   assert.match(actionsSource, /export async function clearNextActionOverride[\s\S]*?requireWriter/);
   assert.match(actionsSource, /export async function reopenFollowUp[\s\S]*?requireWriter/);
   assert.match(actionsSource, /export async function completeFollowUp[\s\S]*?requireWriter/);
+  assert.match(actionsSource, /export async function completeNextActionWork[\s\S]*?requireWriter/);
+  assert.match(actionsSource, /export async function sendProfileEmailAndRecord[\s\S]*?requireWriter/);
+  assert.match(actionsSource, /export async function saveSalesProfileEmailDraft[\s\S]*?requireWriter/);
+  assert.match(actionsSource, /export async function markSalesProfileSentFromBoard[\s\S]*?requireWriter/);
+  assert.match(actionsSource, /gmail_confirm/);
+  assert.match(actionsSource, /Nothing is emailed automatically/);
+  assert.match(actionsSource, /Confirm that you sent this email outside SalesApp/);
   assert.match(actionsSource, /if \(error\) return \{ error: writeFailureMessage/);
   assert.doesNotMatch(actionsSource, /if \(error && !\/talent_request_draft/);
   assert.match(actionsSource, /already marked sent\. Follow-up dates were left unchanged/);
   assert.match(actionsSource, /Name the selected candidate/);
   assert.doesNotMatch(actionsSource, /profile_count: 0/);
+});
+
+test("Gmail connections migration is additive and owner-scoped", () => {
+  const sql = readFileSync(join(root, "supabase/migrations/20261015120000_gmail_connections.sql"), "utf8");
+  const selectPolicy = sql.slice(sql.indexOf("gmail_connections_select_own"), sql.indexOf("gmail_connections_insert_own"));
+  assert.match(sql, /create table if not exists public.gmail_connections/);
+  assert.match(sql, /enable row level security/);
+  assert.match(sql, /user_id = \(select auth.uid\(\)\)/);
+  assert.match(sql, /private.can_write\(\)/);
+  assert.match(selectPolicy, /user_id = \(select auth.uid\(\)\) and \(select private.can_write\(\)\)/);
+  assert.equal(/disable row level security/i.test(sql), false);
 });
 
 test("pipeline UX migration adds columns without dropping RLS", () => {

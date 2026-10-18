@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { completeFollowUp, reopenFollowUp } from "@/server/actions";
+import { completeFollowUp, completeNextActionWork, reopenFollowUp } from "@/server/actions";
 import { SubmitButton } from "@/components/forms";
 import { formatDate } from "@/lib/format";
 import type { AttentionQueueItem, AttentionView } from "@/lib/attention-queue";
@@ -83,6 +83,14 @@ export function AttentionQueueList({
                 <input type="hidden" name="follow_up_id" value={item.followUpId} />
                 {item.opportunityId ? <input type="hidden" name="opportunity_id" value={item.opportunityId} /> : null}
                 {item.leadId ? <input type="hidden" name="lead_id" value={item.leadId} /> : null}
+                <SubmitButton variant="outline">Mark Done</SubmitButton>
+              </form>
+            ) : null}
+            {canWrite && item.action === "complete" && !item.followUpId && item.opportunityId ? (
+              <form action={completeNextActionWork}>
+                <input type="hidden" name="opportunity_id" value={item.opportunityId} />
+                {item.leadId ? <input type="hidden" name="lead_id" value={item.leadId} /> : null}
+                <input type="hidden" name="title" value={item.title} />
                 <SubmitButton variant="outline">Mark Done</SubmitButton>
               </form>
             ) : null}

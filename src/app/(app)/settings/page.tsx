@@ -2,11 +2,11 @@ import Link from "next/link";
 import { controlClass, Field, PageHeader, SectionCard } from "@/components/bits";
 import { ActionForm, SubmitButton } from "@/components/forms";
 import { getSettings } from "@/lib/data";
-import { saveSettings, updateProfile } from "@/server/actions";
+import { disconnectGmail, loadGmailStatus, saveSettings, updateProfile } from "@/server/actions";
 import { profileCanWrite, requireUser } from "@/server/session";
 
 export default async function SettingsPage() {
-  const [settings, session] = await Promise.all([getSettings(), requireUser()]);
+  const [settings, session, gmail] = await Promise.all([getSettings(), requireUser(), loadGmailStatus()]);
   const canWrite = profileCanWrite(session.profile);
   return (
     <div className="space-y-6">
@@ -47,6 +47,30 @@ export default async function SettingsPage() {
             Open SendPilot
           </Link>
         </p>
+      </section>
+      <section className="max-w-xl rounded-xl border border-border bg-card p-4">
+        <h2 className="text-sm font-semibold">Gmail</h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Connect your Gmail to send the sales-profile introduction from Sent sales profiles. You always review From, CC, subject, and body first. Nothing is sent automatically.
+        </p>
+        {gmail.message ? <p className="mt-2 text-sm text-muted-foreground">{gmail.message}</p> : null}
+        {gmail.connected ? (
+          <p className="mt-2 text-sm">Connected as {gmail.email}.</p>
+        ) : (
+          <p className="mt-2 text-sm text-muted-foreground">Not connected.</p>
+        )}
+        {canWrite ? (
+          <div className="mt-3 flex flex-wrap gap-2">
+            <a className="inline-flex h-8 items-center rounded-md border border-border px-2.5 text-xs font-medium hover:bg-accent" href="/api/gmail/connect?next=/settings">
+              {gmail.connected ? "Reconnect Gmail" : "Connect Gmail"}
+            </a>
+            {gmail.connected ? (
+              <ActionForm action={disconnectGmail}>
+                <SubmitButton variant="outline">Disconnect</SubmitButton>
+              </ActionForm>
+            ) : null}
+          </div>
+        ) : null}
       </section>
       <ActionForm action={updateProfile} className="grid max-w-xl gap-3 rounded-xl border border-border bg-card p-4">
         <h2 className="text-sm font-semibold">Your profile</h2>

@@ -255,7 +255,7 @@ export function AccountProfile({
                     <span className="font-medium">{item.title}</span>
                     <p className="text-xs text-muted-foreground">{item.notes === "Pending schedule" ? "Pending schedule" : `Due ${formatDate(item.dueOn)}`}</p>
                   </span>
-                  {canWrite && canMarkFollowUpDone(item.automationType) ? (
+                  {canWrite && canMarkFollowUpDone(item.automationType, { dueOn: item.dueOn, today }) ? (
                     <form action={completeFollowUp}>
                       <input type="hidden" name="follow_up_id" value={item.id} />
                       {opportunityId ? <input type="hidden" name="opportunity_id" value={opportunityId} /> : null}
@@ -322,7 +322,12 @@ export function AccountProfile({
           ) : null}
           {stage === "Strategy Call Scheduled" || stage === "Strategy Call Complete" || stage === "Requirements Captured" || stage === "Recruitment" ? (
             <SectionCard title="Meeting notes">
-              <MeetingNotesPanel clientName={contactName} companyName={companyName} />
+              <MeetingNotesPanel
+                clientName={contactName}
+                companyName={companyName}
+                industry={companyIndustry}
+                values={liveSalesCall ?? emptyLiveSalesCallValues()}
+              />
             </SectionCard>
           ) : null}
           {stage === "Client Started" || stage === "Onboarding" || stage === "Won" ? (
