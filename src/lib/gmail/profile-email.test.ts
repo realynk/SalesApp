@@ -2,13 +2,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   CLIENT_FIRST_NAME_PLACEHOLDER,
+  JOAN_PROFILE_EMAIL_SIGNATURE,
   OUTREACH_FIRST_NAME_PLACEHOLDER,
   PROFILE_EMAIL_CALENDAR_URL,
   PROFILE_EMAIL_CANDIDATES,
+  PROFILE_EMAIL_WEBSITE_URL,
   buildSalesProfileEmail,
   clientFirstNameForProfileEmail,
   linkedInOutreachFirstName,
   originalLinkedInOutreachFirstName,
+  withProfileEmailSignature,
 } from "./profile-email.ts";
 
 test("sales profile email uses the approved SDR template", () => {
@@ -32,8 +35,22 @@ test("sales profile email uses the approved SDR template", () => {
   }
   assert.match(email.body, new RegExp(`\\[our calendar\\]\\(${PROFILE_EMAIL_CALENDAR_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\)`));
   assert.match(email.body, /hold shortlisted candidates for up to 7 days/);
-  assert.match(email.body, /Joan\nRealynk Assistants/);
+  assert.match(email.body, /Thank you!/);
+  assert.match(email.body, /\n---\n\nBest regards,/);
+  assert.match(email.body, /\*\*Joan Baclayon \| Client Success Lead\*\*/);
+  assert.match(email.body, new RegExp(`\\[www\\.realynk\\.com\\]\\(${PROFILE_EMAIL_WEBSITE_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\)`));
+  assert.match(email.body, /500 4th Street, Albuquerque, NM, 87102/);
+  assert.match(email.body, /\*IMPORTANT: The contents of this email and any attachments are confidential/);
+  assert.equal((email.body.match(/Joan Baclayon \| Client Success Lead/g) ?? []).length, 1);
   assert.doesNotMatch(email.body, /automatically sent/i);
+});
+
+test("signature is appended once even if a draft already includes it", () => {
+  const once = withProfileEmailSignature("Thank you!");
+  const twice = withProfileEmailSignature(once);
+  assert.equal(twice, once);
+  assert.equal((twice.match(/Joan Baclayon \| Client Success Lead/g) ?? []).length, 1);
+  assert.equal(once.includes(JOAN_PROFILE_EMAIL_SIGNATURE), true);
 });
 
 test("missing names stay as editable placeholders and are not invented", () => {

@@ -10,6 +10,30 @@ export const PROFILE_EMAIL_CANDIDATES = [
   { name: "Gladys", url: "https://jobcentra.com/gladys-bariquit-portfolio" },
 ] as const;
 
+export const PROFILE_EMAIL_WEBSITE_URL = "https://www.realynk.com/";
+export const PROFILE_EMAIL_SIGNATURE_DIVIDER = "---";
+export const JOAN_PROFILE_EMAIL_SIGNATURE = [
+  "Best regards,",
+  "**Joan Baclayon | Client Success Lead**",
+  `Realynk | [www.realynk.com](${PROFILE_EMAIL_WEBSITE_URL})`,
+  "",
+  "500 4th Street, Albuquerque, NM, 87102",
+  "",
+  "*IMPORTANT: The contents of this email and any attachments are confidential. They are intended for the named recipient(s) only. If you have received this email by mistake, please notify the sender immediately and do not disclose the contents to anyone or make copies thereof.*",
+].join("\n");
+
+const SIGNATURE_BLOCK = `${PROFILE_EMAIL_SIGNATURE_DIVIDER}\n\n${JOAN_PROFILE_EMAIL_SIGNATURE}`;
+const SIGNATURE_TAIL =
+  /\n*(?:---\n+)?Best regards,\s*\n\*\*Joan Baclayon \| Client Success Lead\*\*[\s\S]*confidential[\s\S]*$/i;
+
+export function stripProfileEmailSignature(body: string) {
+  return String(body ?? "").replace(SIGNATURE_TAIL, "").replace(/\s+$/g, "");
+}
+
+export function withProfileEmailSignature(body: string) {
+  return `${stripProfileEmailSignature(body)}\n\n${SIGNATURE_BLOCK}`;
+}
+
 export type ProfileEmailDraft = {
   from: string;
   to: string;
@@ -79,32 +103,30 @@ export function buildSalesProfileEmail(input: {
   const candidates = PROFILE_EMAIL_CANDIDATES.map(
     (candidate, index) => `${index + 1}. **${candidate.name}** – [View Profile](${candidate.url})`,
   );
+  const body = [
+    `Hi ${clientFirstName},`,
+    "",
+    `This is Joan from Realynk Assistants. ${outreachFirstName} recently connected with you on LinkedIn.`,
+    "",
+    "I'm sharing a list of pre-vetted SDRs available to work exclusively with your business:",
+    "",
+    ...candidates,
+    "",
+    "We can also custom-match a VA based on your specific requirements.",
+    "",
+    "Would you be open to a quick 20-minute call next week?",
+    "",
+    `If another time works better, feel free to book a slot directly through [our calendar](${PROFILE_EMAIL_CALENDAR_URL}).`,
+    "",
+    "With the current demand for SDRs, we can hold shortlisted candidates for up to 7 days before making them available to other clients.",
+    "",
+    "Thank you!",
+  ].join("\n");
   return {
     from: (input.fromEmail ?? "").trim(),
     to: (input.toEmail ?? "").trim(),
     cc: (input.cc ?? "").trim(),
     subject: company ? `SDR profiles from Realynk Assistants — ${company}` : "SDR profiles from Realynk Assistants",
-    body: [
-      `Hi ${clientFirstName},`,
-      "",
-      `This is Joan from Realynk Assistants. ${outreachFirstName} recently connected with you on LinkedIn.`,
-      "",
-      "I'm sharing a list of pre-vetted SDRs available to work exclusively with your business:",
-      "",
-      ...candidates,
-      "",
-      "We can also custom-match a VA based on your specific requirements.",
-      "",
-      "Would you be open to a quick 20-minute call next week?",
-      "",
-      `If another time works better, feel free to book a slot directly through [our calendar](${PROFILE_EMAIL_CALENDAR_URL}).`,
-      "",
-      "With the current demand for SDRs, we can hold shortlisted candidates for up to 7 days before making them available to other clients.",
-      "",
-      "Thank you!",
-      "",
-      "Joan",
-      "Realynk Assistants",
-    ].join("\n"),
+    body: withProfileEmailSignature(body),
   };
 }

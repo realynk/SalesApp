@@ -22,18 +22,34 @@ function escapeHtml(value: string) {
     .replace(/"/g, "&quot;");
 }
 
+function formatProfileEmailLine(line: string, mode: "plain" | "html") {
+  if (/^---+$/.test(line.trim())) return mode === "html" ? "<hr>" : "----------";
+  if (mode === "plain") {
+    return line
+      .replace(/\*\*(.+?)\*\*/g, "$1")
+      .replace(/\*(.+?)\*/g, "$1")
+      .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, "$1 ($2)");
+  }
+  return escapeHtml(line)
+    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2">$1</a>')
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(.+?)\*/g, "<em>$1</em>");
+}
+
 export function profileEmailPlainBody(body: string) {
   return body
-    .replace(/\*\*(.+?)\*\*/g, "$1")
-    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, "$1 ($2)");
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => formatProfileEmailLine(line, "plain"))
+    .join("\n");
 }
 
 export function profileEmailHtmlBody(body: string) {
-  const escaped = escapeHtml(body);
-  const withMarkup = escaped
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2">$1</a>')
-    .replace(/\r\n|\n/g, "<br>\r\n");
+  const withMarkup = body
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => formatProfileEmailLine(line, "html"))
+    .join("<br>\r\n");
   return `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.5;color:#111">${withMarkup}</div>`;
 }
 

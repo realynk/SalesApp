@@ -38,6 +38,8 @@ test("profile email context is a read of stored names and does not send mail", (
   assert.match(contextFn, /requireUser/);
   assert.match(contextFn, /sendpilot_lead_identities/);
   assert.match(contextFn, /originalLinkedInOutreachFirstName/);
+  assert.match(actions, /withProfileEmailSignature\(parsed\.body\)/);
+  assert.match(actions, /parseSalesProfileEmailDraft/);
   assert.doesNotMatch(contextFn, /requireWriter/);
   assert.doesNotMatch(contextFn, /sendGmailMessage/);
   assert.doesNotMatch(contextFn, /planSalesProfileFollowUps/);

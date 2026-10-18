@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildGmailRawMessage, looksLikeEmail, parseAddressList } from "./mime.ts";
+import { buildSalesProfileEmail } from "./profile-email.ts";
+import { buildGmailRawMessage, looksLikeEmail, parseAddressList, profileEmailHtmlBody } from "./mime.ts";
 
 test("CC and To split on commas", () => {
   assert.deepEqual(parseAddressList("a@x.com, b@y.com"), ["a@x.com", "b@y.com"]);
@@ -36,4 +37,17 @@ test("raw Gmail payload includes edited headers and clickable HTML links", () =>
   assert.match(htmlBody, /<strong>Thea<\/strong>/);
   assert.match(plainBody, /https:\/\/jobcentra.com\/thea-sungcal-portfolio/);
   assert.throws(() => buildGmailRawMessage({ from: "bad", to: "also-bad", subject: "x", body: "y" }));
+});
+
+test("HTML conversion keeps one signature with bold, italic, divider, and website link", () => {
+  const email = buildSalesProfileEmail({ clientFirstName: "Wes", outreachFirstName: "Trey" });
+  const html = profileEmailHtmlBody(email.body);
+  const again = profileEmailHtmlBody(email.body);
+  assert.equal(again, html);
+  assert.equal((html.match(/Joan Baclayon \| Client Success Lead/g) ?? []).length, 1);
+  assert.match(html, /<hr>/);
+  assert.match(html, /<strong>Joan Baclayon \| Client Success Lead<\/strong>/);
+  assert.match(html, /<a href="https:\/\/www\.realynk\.com\/">www\.realynk\.com<\/a>/);
+  assert.match(html, /<em>IMPORTANT:/);
+  assert.doesNotMatch(html, /<hr>\s*<hr>/);
 });

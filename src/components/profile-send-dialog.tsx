@@ -63,13 +63,13 @@ function ProfileSendForm({
 
   useEffect(() => {
     let cancelled = false;
-    void loadSalesProfileEmailContext(draft.leadId).then((result) => {
+    void loadSalesProfileEmailContext(draft.leadId, draft.opportunityId).then((result) => {
       if (!cancelled) setFacts(result);
     });
     return () => {
       cancelled = true;
     };
-  }, [draft.leadId]);
+  }, [draft.leadId, draft.opportunityId]);
 
   if (!facts) {
     return (
@@ -107,10 +107,10 @@ function ProfileSendComposer({
   const [error, setError] = useState<string | null>(facts.error);
   const [pending, setPending] = useState<"save" | "send" | "manual" | null>(null);
   const [gmail, setGmail] = useState<GmailStatus | null>(null);
-  const [to, setTo] = useState(template.to);
-  const [cc, setCc] = useState("");
-  const [subject, setSubject] = useState(template.subject);
-  const [body, setBody] = useState(template.body);
+  const [to, setTo] = useState(facts.savedTo || template.to);
+  const [cc, setCc] = useState(facts.savedCc || "");
+  const [subject, setSubject] = useState(facts.savedSubject || template.subject);
+  const [body, setBody] = useState(facts.savedBody || template.body);
   const [manualOutside, setManualOutside] = useState(false);
   const [manualSentOn, setManualSentOn] = useState(today);
 
