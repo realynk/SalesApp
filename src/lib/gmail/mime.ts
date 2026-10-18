@@ -14,6 +14,38 @@ export function looksLikeEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+export function profileEmailPlainBody(body: string) {
+  return body
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, "$1 ($2)");
+}
+
+export function profileEmailHtmlBody(body: string) {
+  const escaped = escapeHtml(body);
+  const withMarkup = escaped
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2">$1</a>')
+    .replace(/\r\n|\n/g, "<br>\r\n");
+  return `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.5;color:#111">${withMarkup}</div>`;
+}
+
+function encodePart(contentType: string, body: string) {
+  return [
+    `Content-Type: ${contentType}; charset=UTF-8`,
+    "Content-Transfer-Encoding: base64",
+    "",
+    Buffer.from(body.replace(/\r\n/g, "\n").replace(/\n/g, "\r\n"), "utf8").toString("base64"),
+  ].join("\r\n");
+}
+
 export function buildGmailRawMessage(input: {
   from: string;
   to: string;
@@ -29,15 +61,24 @@ export function buildGmailRawMessage(input: {
   if (cc.some((address) => !looksLikeEmail(address))) {
     throw new Error("CC needs valid email addresses.");
   }
+  const boundary = "realynk_profile_email";
   const headers = [
     `From: ${input.from.trim()}`,
     `To: ${to.join(", ")}`,
     cc.length ? `Cc: ${cc.join(", ")}` : null,
     `Subject: ${encodeSubject(input.subject.trim() || "(no subject)")}`,
     "MIME-Version: 1.0",
-    "Content-Type: text/plain; charset=UTF-8",
-    "Content-Transfer-Encoding: base64",
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
   ].filter(Boolean);
-  const payload = `${headers.join("\r\n")}\r\n\r\n${Buffer.from(input.body.replace(/\n/g, "\r\n"), "utf8").toString("base64")}`;
+  const payload = [
+    headers.join("\r\n"),
+    "",
+    `--${boundary}`,
+    encodePart("text/plain", profileEmailPlainBody(input.body)),
+    `--${boundary}`,
+    encodePart("text/html", profileEmailHtmlBody(input.body)),
+    `--${boundary}--`,
+    "",
+  ].join("\r\n");
   return Buffer.from(payload).toString("base64url");
 }

@@ -10,10 +10,12 @@ import { MANUAL_SALES_PROFILE_SENT_CONFIRM } from "@/lib/sales-profile-send";
 import { todayInWorkflowZone } from "@/lib/workflow-dates";
 import {
   loadGmailStatus,
+  loadSalesProfileEmailContext,
   markSalesProfileSentFromBoard,
   saveSalesProfileEmailDraft,
   sendProfileEmailAndRecord,
   type GmailStatus,
+  type SalesProfileEmailContext,
 } from "@/server/actions";
 
 export type ProfileSendDraft = {
@@ -57,13 +59,52 @@ function ProfileSendForm({
   onCancel: () => void;
   onSaved: () => void;
 }) {
+  const [facts, setFacts] = useState<SalesProfileEmailContext | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadSalesProfileEmailContext(draft.leadId).then((result) => {
+      if (!cancelled) setFacts(result);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [draft.leadId]);
+
+  if (!facts) {
+    return (
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Sent sales profiles to the client</DialogTitle>
+          <DialogDescription>Loading the email draft…</DialogDescription>
+        </DialogHeader>
+      </DialogContent>
+    );
+  }
+
+  return <ProfileSendComposer draft={draft} facts={facts} onCancel={onCancel} onSaved={onSaved} />;
+}
+
+function ProfileSendComposer({
+  draft,
+  facts,
+  onCancel,
+  onSaved,
+}: {
+  draft: ProfileSendDraft;
+  facts: SalesProfileEmailContext;
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
   const today = todayInWorkflowZone();
   const template = buildSalesProfileEmail({
     contactName: draft.contactName,
+    clientFirstName: facts.clientFirstName,
+    outreachFirstName: facts.outreachFirstName,
     companyName: draft.companyName,
-    toEmail: draft.email,
+    toEmail: facts.toEmail || draft.email,
   });
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(facts.error);
   const [pending, setPending] = useState<"save" | "send" | "manual" | null>(null);
   const [gmail, setGmail] = useState<GmailStatus | null>(null);
   const [to, setTo] = useState(template.to);
@@ -186,7 +227,8 @@ function ProfileSendForm({
             <input className={controlClass} value={subject} onChange={(event) => setSubject(event.target.value)} disabled={busy} />
           </Field>
           <Field label="Body">
-            <textarea className={`${textareaClass} min-h-40`} value={body} onChange={(event) => setBody(event.target.value)} disabled={busy} />
+            <textarea className={`${textareaClass} min-h-56`} value={body} onChange={(event) => setBody(event.target.value)} disabled={busy} />
+            <p className="text-xs text-muted-foreground">Profile and calendar links stay clickable when Gmail sends. You can edit every field before sending.</p>
           </Field>
         </div>
         <Field label="Internal notes (optional)">
