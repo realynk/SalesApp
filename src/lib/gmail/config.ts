@@ -5,7 +5,6 @@ export const GMAIL_SCOPES = [
   "openid",
   "email",
   "https://www.googleapis.com/auth/gmail.send",
-  "https://www.googleapis.com/auth/gmail.settings.basic",
 ].join(" ");
 
 export const GMAIL_OAUTH_STATE_COOKIE = "gmail_oauth_state";

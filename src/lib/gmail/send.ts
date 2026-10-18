@@ -34,20 +34,6 @@ export async function refreshGmailAccessToken(refreshToken: string) {
   return { ok: true as const, accessToken: token };
 }
 
-export async function listGmailSendAs(accessToken: string) {
-  const result = await googleJson("https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs", {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!result.ok || !Array.isArray(result.payload?.sendAs)) return [];
-  return (result.payload.sendAs as Array<{ sendAsEmail?: string; displayName?: string; isDefault?: boolean }>)
-    .map((row) => ({
-      email: String(row.sendAsEmail ?? "").trim(),
-      name: String(row.displayName ?? "").trim(),
-      isDefault: Boolean(row.isDefault),
-    }))
-    .filter((row) => row.email);
-}
-
 export async function sendGmailMessage(accessToken: string, input: GmailSendInput) {
   const raw = buildGmailRawMessage(input);
   const result = await googleJson("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {

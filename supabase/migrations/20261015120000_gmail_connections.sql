@@ -18,7 +18,7 @@ create policy gmail_connections_select_own
   on public.gmail_connections
   for select
   to authenticated
-  using (user_id = (select auth.uid()));
+  using (user_id = (select auth.uid()) and (select private.can_write()));
 
 drop policy if exists gmail_connections_insert_own on public.gmail_connections;
 create policy gmail_connections_insert_own

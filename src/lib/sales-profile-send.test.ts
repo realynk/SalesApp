@@ -51,6 +51,7 @@ test("save without sending does not record a send or schedule follow-ups", () =>
   assert.match(markFn, /manual_sent_confirm/);
   assert.match(markFn, /outside/);
   assert.match(dialog, /Save without sending/);
+  assert.match(dialog, /Send email/);
   assert.match(dialog, /Mark as sent outside SalesApp/);
   assert.match(dialog, /I sent this email outside SalesApp/);
   assert.match(candidateFn, /planCandidateProfileFollowUp/);

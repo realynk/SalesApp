@@ -66,7 +66,6 @@ function ProfileSendForm({
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<"save" | "send" | "manual" | null>(null);
   const [gmail, setGmail] = useState<GmailStatus | null>(null);
-  const [from, setFrom] = useState("");
   const [to, setTo] = useState(template.to);
   const [cc, setCc] = useState("");
   const [subject, setSubject] = useState(template.subject);
@@ -79,8 +78,6 @@ function ProfileSendForm({
     void loadGmailStatus().then((status) => {
       if (cancelled) return;
       setGmail(status);
-      const nextFrom = status.fromAddresses[0] || status.email || "";
-      if (nextFrom) setFrom((current) => current || nextFrom);
     });
     return () => {
       cancelled = true;
@@ -93,7 +90,7 @@ function ProfileSendForm({
     formData.set("company_name", draft.companyName);
     formData.set("client_name", draft.contactName);
     formData.set("client_email", to);
-    formData.set("gmail_from", from);
+    formData.set("gmail_from", gmail?.email ?? "");
     formData.set("gmail_to", to);
     formData.set("gmail_cc", cc);
     formData.set("gmail_subject", subject);
@@ -144,7 +141,7 @@ function ProfileSendForm({
   }
 
   const busy = Boolean(pending);
-  const fromOptions = gmail?.fromAddresses?.length ? gmail.fromAddresses : from ? [from] : [];
+  const connectedFrom = gmail?.email ?? "";
 
   return (
     <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl" showCloseButton={!busy}>
@@ -170,15 +167,14 @@ function ProfileSendForm({
         <div className="grid gap-3 rounded-lg border border-border p-3">
           <p className="text-sm font-medium">Email to review</p>
           <Field label="From">
-            {fromOptions.length > 1 ? (
-              <select className={controlClass} value={from} onChange={(event) => setFrom(event.target.value)} disabled={busy}>
-                {fromOptions.map((address) => (
-                  <option key={address} value={address}>{address}</option>
-                ))}
-              </select>
-            ) : (
-              <input className={controlClass} value={from} onChange={(event) => setFrom(event.target.value)} placeholder="you@realynk.com" disabled={busy} />
-            )}
+            <input
+              className={controlClass}
+              value={connectedFrom}
+              readOnly
+              aria-readonly="true"
+              placeholder="Connect Gmail to set From"
+              disabled={busy}
+            />
           </Field>
           <Field label="To">
             <input className={controlClass} name="client_email" type="email" required value={to} onChange={(event) => setTo(event.target.value)} placeholder="name@client.com" disabled={busy} />

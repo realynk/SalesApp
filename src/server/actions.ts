@@ -114,7 +114,7 @@ import {
   deleteGmailConnection,
   loadGmailConnectionRow,
 } from "@/lib/gmail/connection";
-import { listGmailSendAs, refreshGmailAccessToken, sendGmailMessage } from "@/lib/gmail/send";
+import { refreshGmailAccessToken, sendGmailMessage } from "@/lib/gmail/send";
 
 function refresh(...paths: string[]) {
   for (const path of paths) revalidatePath(path);
@@ -885,17 +885,14 @@ export async function loadGmailStatus(): Promise<GmailStatus> {
   if (!loaded.row) {
     return { configured: true, connected: false, email: null, fromAddresses: [], senderName, message: null };
   }
-  let fromAddresses = [loaded.row.email];
-  try {
-    const token = await refreshGmailAccessToken(decryptGmailRefreshToken(loaded.row.refresh_token_ciphertext));
-    if (token.ok) {
-      const aliases = await listGmailSendAs(token.accessToken);
-      if (aliases.length > 0) fromAddresses = [...new Set(aliases.map((item) => item.email))];
-    }
-  } catch {
-    fromAddresses = [loaded.row.email];
-  }
-  return { configured: true, connected: true, email: loaded.row.email, fromAddresses, senderName, message: null };
+  return {
+    configured: true,
+    connected: true,
+    email: loaded.row.email,
+    fromAddresses: [loaded.row.email],
+    senderName,
+    message: null,
+  };
 }
 
 export async function disconnectGmail(_state: ActionState, formData: FormData): Promise<ActionState> {
@@ -923,14 +920,12 @@ export async function sendProfileEmailAndRecord(formData: FormData): Promise<Act
   const loaded = await loadGmailConnectionRow(supabase, userId);
   if (loaded.error) return { error: loaded.error };
   if (!loaded.row) return { error: "Connect Gmail before sending." };
-  const allowed = new Set([loaded.row.email.toLowerCase()]);
+  if (from.toLowerCase() !== loaded.row.email.toLowerCase()) {
+    return { error: "From must be the connected Gmail account." };
+  }
   const token = await refreshGmailAccessToken(decryptGmailRefreshToken(loaded.row.refresh_token_ciphertext));
   if (!token.ok) return { error: token.error };
-  for (const alias of await listGmailSendAs(token.accessToken)) allowed.add(alias.email.toLowerCase());
-  if (!allowed.has(from.toLowerCase())) {
-    return { error: "From must be your connected Gmail address or one of its send-as aliases." };
-  }
-  const sent = await sendGmailMessage(token.accessToken, { from, to, cc, subject, body });
+  const sent = await sendGmailMessage(token.accessToken, { from: loaded.row.email, to, cc, subject, body });
   if (!sent.ok) return { error: sent.error };
   const sentOn = todayInWorkflowZone();
   formData.set("client_email", to);
