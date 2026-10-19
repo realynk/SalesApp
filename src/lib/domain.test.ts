@@ -25,6 +25,10 @@ import {
   potentialArr,
   potentialMrr,
   timeMetrics,
+  latestStageEnteredAt,
+  daysInCurrentStage,
+  daysInStageBadgeLabel,
+  daysInStageBadgeTitle,
 } from "./domain.ts";
 
 test("sales board counts match Client journey columns without listing cards", () => {
@@ -687,4 +691,24 @@ test("View LinkedIn uses only the stored LinkedIn URL and does not invent one", 
   assert.equal(storedLinkedInHref(""), null);
   assert.equal(storedLinkedInHref("Marcus Dardin"), null);
   assert.equal(storedLinkedInHref("https://example.com/marcus"), null);
+});
+
+test("days on the current journey stage use the latest matching history, then created_at", () => {
+  const events = [
+    { stage: "Interested", at: "2026-10-01T12:00:00.000Z" },
+    { stage: "Email / Profile Preparation", at: "2026-10-10T15:00:00.000Z" },
+    { stage: "Email / Profile Preparation", at: "2026-10-16T09:00:00.000Z" },
+  ];
+  assert.equal(
+    latestStageEnteredAt("Email / Profile Preparation", events, "2026-09-01T00:00:00.000Z"),
+    "2026-10-16T09:00:00.000Z",
+  );
+  assert.equal(latestStageEnteredAt("Recruitment", events, "2026-09-01T00:00:00.000Z"), "2026-09-01T00:00:00.000Z");
+  assert.equal(daysInCurrentStage("2026-10-16T09:00:00.000Z", "2026-10-19"), 3);
+  assert.equal(daysInCurrentStage("2026-10-19T18:00:00.000Z", "2026-10-19"), 0);
+  assert.equal(daysInCurrentStage(null, "2026-10-19"), null);
+  assert.equal(daysInStageBadgeLabel(3), "3d");
+  assert.equal(daysInStageBadgeTitle(0), "On this stage since today");
+  assert.equal(daysInStageBadgeTitle(1), "1 day on this stage");
+  assert.equal(daysInStageBadgeTitle(3), "3 days on this stage");
 });

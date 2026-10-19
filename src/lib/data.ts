@@ -105,6 +105,7 @@ export type OpportunitySummary = {
   accountFlag: AccountFlag | null;
   nextActionManual: boolean;
   talentRequestSentOn: string | null;
+  createdAt: string | null;
 };
 
 const DEFAULT_SETTINGS: Settings = {
@@ -155,6 +156,7 @@ function mapOpportunity(value: Row): OpportunitySummary {
     accountFlag: accountFlag(str(value.account_flag)),
     nextActionManual: bool(value.next_action_manual),
     talentRequestSentOn: str(value.talent_request_sent_on),
+    createdAt: str(value.created_at),
   };
 }
 
@@ -766,6 +768,30 @@ export async function listSendPilotSourcesByLeadIds(leadIds: string[]): Promise<
     identities: identityRows,
     integrations: rows(integrations),
   });
+}
+
+export async function listStageHistoryByOpportunityIds(opportunityIds: string[]) {
+  const ids = [...new Set(opportunityIds.filter((id) => isUuid(id)))];
+  const events = new Map<string, { stage: string; at: string }[]>();
+  if (ids.length === 0) return events;
+  const { supabase } = await requireUser();
+  for (let index = 0; index < ids.length; index += 100) {
+    const batch = ids.slice(index, index + 100);
+    const { data, error } = await supabase
+      .from("pipeline_stage_history")
+      .select("opportunity_id, new_stage, changed_at")
+      .in("opportunity_id", batch)
+      .order("changed_at", { ascending: false })
+      .limit(8000);
+    raiseIf(error);
+    for (const item of rows(data)) {
+      const id = String(item.opportunity_id);
+      const list = events.get(id) ?? [];
+      list.push({ stage: String(item.new_stage), at: String(item.changed_at) });
+      events.set(id, list);
+    }
+  }
+  return events;
 }
 
 export async function countLeads(filters: { archived?: boolean; status?: string; createdOnOrAfter?: string | null } = {}) {

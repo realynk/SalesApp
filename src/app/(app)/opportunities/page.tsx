@@ -3,25 +3,41 @@ import { controlClass, Notice, PageHeader, StageBadge } from "@/components/bits"
 import { NotInterestedBoard } from "@/components/not-interested-board";
 import { PipelineBoard } from "@/components/pipeline-board";
 import { Button } from "@/components/ui/button";
-import { BOARD_STAGES } from "@/lib/domain";
-import { listLeads, listOpportunities, listSendPilotSourcesByLeadIds } from "@/lib/data";
+import { BOARD_STAGES, daysInCurrentStage, latestStageEnteredAt } from "@/lib/domain";
+import { listLeads, listOpportunities, listSendPilotSourcesByLeadIds, listStageHistoryByOpportunityIds } from "@/lib/data";
 import { firstParam, formatDate } from "@/lib/format";
 import { sourcesForLead } from "@/lib/sendpilot/lead-sources";
+import { todayInWorkflowZone } from "@/lib/workflow-dates";
 
 export default async function OpportunitiesPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const query = await searchParams;
   const view = firstParam(query.view) === "list" ? "list" : "board";
   const interest = firstParam(query.interest) === "not-interested" ? "not-interested" : "interested";
   const q = firstParam(query.q);
+  const today = todayInWorkflowZone();
   const [opportunities, interestedLeads, notInterestedLeads] = await Promise.all([
     interest === "interested" ? listOpportunities({ q }) : Promise.resolve([]),
     interest === "interested" ? listLeads({ q, status: "Interested" }) : Promise.resolve([]),
     listLeads({ q, status: "Not Interested" }),
   ]);
-  const sendpilotSources = await listSendPilotSourcesByLeadIds([
-    ...interestedLeads.map((lead) => lead.id),
-    ...opportunities.map((opportunity) => opportunity.leadId),
+  const [sendpilotSources, stageHistory] = await Promise.all([
+    listSendPilotSourcesByLeadIds([
+      ...interestedLeads.map((lead) => lead.id),
+      ...opportunities.map((opportunity) => opportunity.leadId),
+    ]),
+    interest === "interested"
+      ? listStageHistoryByOpportunityIds(opportunities.map((opportunity) => opportunity.id))
+      : Promise.resolve(new Map<string, { stage: string; at: string }[]>()),
   ]);
+  const daysByOpportunityId = new Map(
+    opportunities.map((opportunity) => [
+      opportunity.id,
+      daysInCurrentStage(
+        latestStageEnteredAt(opportunity.stage, stageHistory.get(opportunity.id) ?? [], opportunity.createdAt),
+        today,
+      ),
+    ]),
+  );
 
   const href = (next: { view?: "board" | "list"; interest?: "interested" | "not-interested" }) => {
     const params = new URLSearchParams();
@@ -96,10 +112,12 @@ export default async function OpportunitiesPage({ searchParams }: { searchParams
           opportunities={opportunities.map((opportunity) => ({
             ...opportunity,
             sendpilotSources: sourcesForLead(sendpilotSources, opportunity.leadId),
+            daysInStage: daysByOpportunityId.get(opportunity.id) ?? null,
           }))}
           interestedLeads={interestedLeads.map((lead) => ({
             ...lead,
             sendpilotSources: sourcesForLead(sendpilotSources, lead.id),
+            daysInStage: (lead.opportunityId ? daysByOpportunityId.get(lead.opportunityId) : null) ?? daysInCurrentStage(lead.createdAt, today),
           }))}
         />
       ) : (
