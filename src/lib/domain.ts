@@ -471,6 +471,41 @@ export function daysBetween(from: string, to: string) {
   return Math.round((end - start) / 86_400_000);
 }
 
+export type StageStayEvent = { stage: string; at: string };
+
+export function latestStageEnteredAt(
+  currentStage: string,
+  events: StageStayEvent[],
+  fallbackAt: string | null | undefined,
+) {
+  let latest: string | null = null;
+  for (const event of events) {
+    if (event.stage !== currentStage || !event.at) continue;
+    if (!latest || event.at > latest) latest = event.at;
+  }
+  return latest ?? fallbackAt ?? null;
+}
+
+export function daysInCurrentStage(
+  enteredAt: string | null | undefined,
+  today: string,
+  timeZone = "America/New_York",
+) {
+  const from = dateInTimeZone(enteredAt ?? null, timeZone);
+  if (!from) return null;
+  return Math.max(0, daysBetween(from, today));
+}
+
+export function daysInStageBadgeLabel(days: number) {
+  return `${days}d`;
+}
+
+export function daysInStageBadgeTitle(days: number) {
+  if (days === 0) return "On this stage since today";
+  if (days === 1) return "1 day on this stage";
+  return `${days} days on this stage`;
+}
+
 export function dateInTimeZone(value: string | null, timeZone: string) {
   if (!value) return null;
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;

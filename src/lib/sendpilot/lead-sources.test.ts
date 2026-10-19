@@ -46,6 +46,9 @@ test("SendPilot-associated lead gets an SP indicator with the dynamic integratio
   assert.match(dataSource, /select\("id, name"\)/);
   assert.match(opportunitiesPage, /listSendPilotSourcesByLeadIds/);
   assert.match(boardSource, /SendPilotSourceBadge/);
+  assert.match(boardSource, /DaysInStageBadge/);
+  assert.match(dataSource, /from\("pipeline_stage_history"\)/);
+  assert.match(opportunitiesPage, /listStageHistoryByOpportunityIds/);
 });
 
 test("no SendPilot association shows no SP indicator", () => {

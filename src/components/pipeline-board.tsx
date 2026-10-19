@@ -19,7 +19,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { Flag, GripVertical } from "lucide-react";
-import { RISK_LEVELS, STAGE_PLAYBOOK, PROFILE_SEND_STAGE, BOOKED_CALL_STAGE, SALES_CALL_COMPLETE_STAGE, INTERVIEW_COMPLETE_STAGE, SOW_PREP_STAGE, WAITING_ON, accountFlagIconClass, accountFlagLabel, boardStage, isHiddenBoardStage, stageLabel, statusDetailLabel, type AccountFlag, type OpportunityStage } from "@/lib/domain";
+import { RISK_LEVELS, STAGE_PLAYBOOK, PROFILE_SEND_STAGE, BOOKED_CALL_STAGE, SALES_CALL_COMPLETE_STAGE, INTERVIEW_COMPLETE_STAGE, SOW_PREP_STAGE, WAITING_ON, accountFlagIconClass, accountFlagLabel, boardStage, daysInStageBadgeLabel, daysInStageBadgeTitle, isHiddenBoardStage, stageLabel, statusDetailLabel, type AccountFlag, type OpportunityStage } from "@/lib/domain";
 import { formatDate } from "@/lib/format";
 import { todayInWorkflowZone } from "@/lib/workflow-dates";
 import { dropLeadOnStage, dropOpportunityOnStage, setAccountFlagFromBoard } from "@/server/actions";
@@ -64,6 +64,7 @@ export type BoardOpportunity = {
   email: string | null;
   accountFlag: AccountFlag | null;
   sendpilotSources?: SendPilotLeadSource[];
+  daysInStage?: number | null;
 };
 
 export type BoardLead = {
@@ -74,6 +75,7 @@ export type BoardLead = {
   nextFollowUp: { title: string; dueOn: string } | null;
   accountFlag: AccountFlag | null;
   sendpilotSources?: SendPilotLeadSource[];
+  daysInStage?: number | null;
 };
 
 type BoardItem = {
@@ -93,6 +95,7 @@ type BoardItem = {
   email: string | null;
   accountFlag: AccountFlag | null;
   sendpilotSources: SendPilotLeadSource[];
+  daysInStage: number | null;
   href: string;
 };
 
@@ -119,6 +122,7 @@ function fromOpportunity(opportunity: BoardOpportunity): BoardItem {
     email: opportunity.email,
     accountFlag: opportunity.accountFlag,
     sendpilotSources: opportunity.sendpilotSources ?? [],
+    daysInStage: opportunity.daysInStage ?? null,
     href: `/opportunities/${opportunity.id}`,
   };
 }
@@ -142,6 +146,7 @@ function fromLead(lead: BoardLead, opportunity?: BoardOpportunity): BoardItem {
     email: lead.email,
     accountFlag: lead.accountFlag,
     sendpilotSources: lead.sendpilotSources ?? [],
+    daysInStage: lead.daysInStage ?? null,
     href: `/leads/${lead.id}`,
   };
 }
@@ -266,7 +271,7 @@ export function PipelineBoard({
     if (!item || !stage || item.stage === stage) return;
     if (isHiddenBoardStage(stage)) return;
     const previous = items;
-    setItems(previous.map((entry) => (entry.id === item.id ? { ...entry, stage } : entry)));
+    setItems(previous.map((entry) => (entry.id === item.id ? { ...entry, stage, daysInStage: 0 } : entry)));
     const prompts: Record<string, PromptKind> = {
       [PROFILE_SEND_STAGE]: "profile-send",
       [BOOKED_CALL_STAGE]: "booked-call",
@@ -527,6 +532,7 @@ function ItemCard({
               </Link>
             )}
             <div className="flex shrink-0 items-center gap-0.5">
+              <DaysInStageBadge days={item.daysInStage} />
               <SendPilotSourceBadge sources={item.sendpilotSources} />
               {overlay || !onFlagChange ? (
                 <span className="inline-flex size-6 items-center justify-center" title={accountFlagLabel(item.accountFlag)}>
@@ -567,6 +573,20 @@ function CardMeta({ item }: { item: BoardItem }) {
       <CardField label={item.kind === "lead" ? "Follow-up" : "Next action"} value={item.nextAction ?? "Set the next action"} />
       {item.nextActionDate ? <CardField label="Due" value={formatDate(item.nextActionDate)} /> : null}
     </dl>
+  );
+}
+
+function DaysInStageBadge({ days }: { days: number | null }) {
+  if (days == null) return null;
+  const title = daysInStageBadgeTitle(days);
+  return (
+    <span
+      title={title}
+      aria-label={title}
+      className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded border border-border px-0.5 text-[9px] font-medium leading-none tabular-nums text-muted-foreground"
+    >
+      {daysInStageBadgeLabel(days)}
+    </span>
   );
 }
 
