@@ -29,6 +29,7 @@ import {
   daysInCurrentStage,
   daysInStageBadgeLabel,
   daysInStageBadgeTitle,
+  arrangeBoardItems,
 } from "./domain.ts";
 
 test("sales board counts match Client journey columns without listing cards", () => {
@@ -711,4 +712,18 @@ test("days on the current journey stage use the latest matching history, then cr
   assert.equal(daysInStageBadgeTitle(0), "On this stage since today");
   assert.equal(daysInStageBadgeTitle(1), "1 day on this stage");
   assert.equal(daysInStageBadgeTitle(3), "3 days on this stage");
+});
+
+test("arranges journey cards by name or by days on the stage", () => {
+  const cards = [
+    { id: "c", contactName: "Cara", companyName: "Cara Co", daysInStage: 2 },
+    { id: "a", contactName: "Ada", companyName: "Ada Co", daysInStage: 8 },
+    { id: "b", contactName: "Ben", companyName: "Ben Co", daysInStage: 0 },
+    { id: "unknown", contactName: "Zed", companyName: "Zed Co", daysInStage: null },
+  ];
+  assert.deepEqual(arrangeBoardItems(cards, null).map((item) => item.id), ["c", "a", "b", "unknown"]);
+  assert.deepEqual(arrangeBoardItems(cards, "az").map((item) => item.id), ["a", "b", "c", "unknown"]);
+  assert.deepEqual(arrangeBoardItems(cards, "za").map((item) => item.id), ["unknown", "c", "b", "a"]);
+  assert.deepEqual(arrangeBoardItems(cards, "recent").map((item) => item.id), ["b", "c", "a", "unknown"]);
+  assert.deepEqual(arrangeBoardItems(cards, "older").map((item) => item.id), ["a", "c", "b", "unknown"]);
 });

@@ -18,8 +18,15 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { Flag, GripVertical } from "lucide-react";
-import { RISK_LEVELS, STAGE_PLAYBOOK, PROFILE_SEND_STAGE, BOOKED_CALL_STAGE, SALES_CALL_COMPLETE_STAGE, INTERVIEW_COMPLETE_STAGE, SOW_PREP_STAGE, WAITING_ON, accountFlagIconClass, accountFlagLabel, boardStage, daysInStageBadgeLabel, daysInStageBadgeTitle, isHiddenBoardStage, stageLabel, statusDetailLabel, type AccountFlag, type OpportunityStage } from "@/lib/domain";
+import { ArrowUpDown, Flag, GripVertical } from "lucide-react";
+import { RISK_LEVELS, STAGE_PLAYBOOK, PROFILE_SEND_STAGE, BOOKED_CALL_STAGE, SALES_CALL_COMPLETE_STAGE, INTERVIEW_COMPLETE_STAGE, SOW_PREP_STAGE, WAITING_ON, accountFlagIconClass, accountFlagLabel, arrangeBoardItems, BOARD_ARRANGE_OPTIONS, boardStage, daysInStageBadgeLabel, daysInStageBadgeTitle, isHiddenBoardStage, stageLabel, statusDetailLabel, type AccountFlag, type BoardArrange, type OpportunityStage } from "@/lib/domain";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { formatDate } from "@/lib/format";
 import { todayInWorkflowZone } from "@/lib/workflow-dates";
 import { dropLeadOnStage, dropOpportunityOnStage, setAccountFlagFromBoard } from "@/server/actions";
@@ -190,6 +197,7 @@ export function PipelineBoard({
     | "nurture"
     | "client-start";
   const [prompt, setPrompt] = useState<{ kind: PromptKind; item: BoardItem; previous: BoardItem[] } | null>(null);
+  const [arrangeByStage, setArrangeByStage] = useState<Partial<Record<OpportunityStage, BoardArrange>>>({});
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -202,12 +210,15 @@ export function PipelineBoard({
         .map((stage, index) => ({
           stage,
           tone: COLUMN_TONE[index % COLUMN_TONE.length],
-          items: items.filter((item) => item.stage === stage),
+          items: arrangeBoardItems(
+            items.filter((item) => item.stage === stage),
+            arrangeByStage[stage] ?? null,
+          ),
           acceptsDrop: canWrite && !BLOCKED_DROPS.has(stage),
         }))
         .filter((column) => !isHiddenBoardStage(column.stage))
         .filter((column) => column.items.length > 0 || column.acceptsDrop),
-    [items, stages, canWrite],
+    [arrangeByStage, canWrite, items, stages],
   );
 
   const activeItem = items.find((item) => item.id === activeId) ?? initialItems.find((item) => item.id === activeId);
@@ -319,6 +330,8 @@ export function PipelineBoard({
               acceptsDrop={column.acceptsDrop}
               disabledId={pendingId}
               canDrag={canWrite}
+              arrange={arrangeByStage[column.stage] ?? null}
+              onArrangeChange={(arrange) => setArrangeByStage((current) => ({ ...current, [column.stage]: arrange }))}
               onFlagChange={canWrite ? persistFlag : undefined}
             />
           ))}
@@ -433,6 +446,8 @@ function BoardColumn({
   acceptsDrop,
   disabledId,
   canDrag,
+  arrange,
+  onArrangeChange,
   onFlagChange,
 }: {
   stage: OpportunityStage;
@@ -441,6 +456,8 @@ function BoardColumn({
   acceptsDrop: boolean;
   disabledId: string | null;
   canDrag: boolean;
+  arrange: BoardArrange | null;
+  onArrangeChange: (arrange: BoardArrange) => void;
   onFlagChange?: (item: BoardItem, flag: AccountFlag | null) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({
@@ -457,13 +474,16 @@ function BoardColumn({
         isOver ? "border-primary bg-accent/80" : "border-border"
       }`}
     >
-      <header className={`sticky top-0 z-10 shrink-0 px-3 py-3 ${isOver ? "bg-accent/80" : "bg-muted/40"}`}>
-        <h2 className="text-sm font-bold leading-5">{stageLabel(stage)}</h2>
-        <p className="mt-1 text-xs text-muted-foreground">
-          {sendpilotIntake ? "From SendPilot" : null}
-          {sendpilotIntake ? " · " : null}
-          {items.length} {sendpilotIntake ? (items.length === 1 ? "lead" : "leads") : items.length === 1 ? "opportunity" : "opportunities"}
-        </p>
+      <header className={`sticky top-0 z-10 flex shrink-0 items-start justify-between gap-1 px-3 py-3 ${isOver ? "bg-accent/80" : "bg-muted/40"}`}>
+        <div className="min-w-0">
+          <h2 className="text-sm font-bold leading-5">{stageLabel(stage)}</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {sendpilotIntake ? "From SendPilot" : null}
+            {sendpilotIntake ? " · " : null}
+            {items.length} {sendpilotIntake ? (items.length === 1 ? "lead" : "leads") : items.length === 1 ? "opportunity" : "opportunities"}
+          </p>
+        </div>
+        <BoardArrangeButton value={arrange} onChange={onArrangeChange} />
       </header>
       <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-3">
         {items.map((item) => (
@@ -573,6 +593,33 @@ function CardMeta({ item }: { item: BoardItem }) {
       <CardField label={item.kind === "lead" ? "Follow-up" : "Next action"} value={item.nextAction ?? "Set the next action"} />
       {item.nextActionDate ? <CardField label="Due" value={formatDate(item.nextActionDate)} /> : null}
     </dl>
+  );
+}
+
+function BoardArrangeButton({ value, onChange }: { value: BoardArrange | null; onChange: (arrange: BoardArrange) => void }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          title="Arrange"
+          aria-label="Arrange cards"
+          className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <ArrowUpDown className="size-3.5" aria-hidden />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-40">
+        <DropdownMenuRadioGroup value={value ?? ""} onValueChange={(next) => onChange(next as BoardArrange)}>
+          {BOARD_ARRANGE_OPTIONS.map((option) => (
+            <DropdownMenuRadioItem key={option.id} value={option.id}>
+              {option.label}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
