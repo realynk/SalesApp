@@ -47,6 +47,8 @@ test("SendPilot-associated lead gets an SP indicator with the dynamic integratio
   assert.match(opportunitiesPage, /listSendPilotSourcesByLeadIds/);
   assert.match(boardSource, /SendPilotSourceBadge/);
   assert.match(boardSource, /DaysInStageBadge/);
+  assert.match(boardSource, /BoardArrangeButton/);
+  assert.match(boardSource, /BOARD_ARRANGE_OPTIONS/);
   assert.match(dataSource, /from\("pipeline_stage_history"\)/);
   assert.match(opportunitiesPage, /listStageHistoryByOpportunityIds/);
 });

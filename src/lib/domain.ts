@@ -506,6 +506,46 @@ export function daysInStageBadgeTitle(days: number) {
   return `${days} days on this stage`;
 }
 
+export const BOARD_ARRANGE_OPTIONS = [
+  { id: "az", label: "A-Z" },
+  { id: "za", label: "Z-A" },
+  { id: "recent", label: "Recent to older" },
+  { id: "older", label: "Older to recent" },
+] as const;
+
+export type BoardArrange = (typeof BOARD_ARRANGE_OPTIONS)[number]["id"];
+
+export type ArrangeableBoardItem = {
+  id: string;
+  contactName: string;
+  companyName: string;
+  daysInStage: number | null;
+};
+
+function arrangeName(item: ArrangeableBoardItem) {
+  return (item.contactName.trim() || item.companyName.trim()).toLocaleLowerCase();
+}
+
+export function arrangeBoardItems<T extends ArrangeableBoardItem>(items: T[], arrange: BoardArrange | null) {
+  if (!arrange) return items;
+  const ranked = items.map((item, index) => ({ item, index }));
+  ranked.sort((a, b) => {
+    if (arrange === "az" || arrange === "za") {
+      const byName = arrangeName(a.item).localeCompare(arrangeName(b.item));
+      const ordered = arrange === "az" ? byName : -byName;
+      return ordered || a.index - b.index;
+    }
+    const aDays = a.item.daysInStage;
+    const bDays = b.item.daysInStage;
+    if (aDays == null && bDays == null) return a.index - b.index;
+    if (aDays == null) return 1;
+    if (bDays == null) return -1;
+    const byDays = arrange === "recent" ? aDays - bDays : bDays - aDays;
+    return byDays || a.index - b.index;
+  });
+  return ranked.map((entry) => entry.item);
+}
+
 export function dateInTimeZone(value: string | null, timeZone: string) {
   if (!value) return null;
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
