@@ -30,6 +30,8 @@ import {
   daysInStageBadgeLabel,
   daysInStageBadgeTitle,
   arrangeBoardItems,
+  flagsForBoardStage,
+  PROFILE_SEND_ACCOUNT_FLAGS,
 } from "./domain.ts";
 
 test("sales board counts match Client journey columns without listing cards", () => {
@@ -128,7 +130,15 @@ test("accepts only known account flags", () => {
   assert.equal(accountFlag("Waiting on client"), "Waiting on client");
   assert.equal(accountFlag("Waiting on recruitment"), "Waiting on recruitment");
   assert.equal(accountFlag("At risk"), "At risk");
+  assert.equal(accountFlag("LinkedIn-First Follow up"), "LinkedIn-First Follow up");
+  assert.equal(accountFlag("LinkedIn-Second Follow Up"), "LinkedIn-Second Follow Up");
+  assert.equal(accountFlag("Email- First Follow up"), "Email- First Follow up");
+  assert.equal(accountFlag("Email- Second Follow up"), "Email- Second Follow up");
   assert.equal(accountFlag("hot"), null);
+  assert.deepEqual([...flagsForBoardStage("Email / Profile Preparation")], [...PROFILE_SEND_ACCOUNT_FLAGS]);
+  assert.equal(flagsForBoardStage("Email / Profile Preparation").includes("Follow up"), false);
+  assert.equal(flagsForBoardStage("Interested").includes("Urgent"), true);
+  assert.equal(flagsForBoardStage("Interested").includes("LinkedIn-First Follow up"), false);
 });
 
 test("keeps unsorted Not Interested leads in the SendPilot intake column", () => {

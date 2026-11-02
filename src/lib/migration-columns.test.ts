@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  ACCOUNT_FLAG_FOLLOWUP_MIGRATION_REQUIRED,
   AUTOMATION_MIGRATION_REQUIRED,
   GMAIL_MIGRATION_REQUIRED,
   UX_MIGRATION_REQUIRED,
@@ -32,6 +33,10 @@ test("failed automation column writes ask for the automation migration", () => {
     writeFailureMessage({ message: "Could not find the 'automation_key' column of 'follow_ups'" }, "fallback"),
     AUTOMATION_MIGRATION_REQUIRED,
   );
+});
+
+test("Sent Profiles flag constraint failures point at the follow-up flag migration", () => {
+  assert.match(ACCOUNT_FLAG_FOLLOWUP_MIGRATION_REQUIRED, /20261102182627_account_flag_profile_followups/);
 });
 
 test("other write failures keep the database message", () => {
