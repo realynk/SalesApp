@@ -5,7 +5,7 @@ import { ActionForm, SubmitButton } from "@/components/forms";
 import { MeetingNotesPanel } from "@/components/meeting-notes-panel";
 import { Button } from "@/components/ui/button";
 import { SendPilotStatusControl } from "@/components/sendpilot-status-field";
-import { SALES_BOARD_COUNT_STAGES, OPPORTUNITY_STAGES, STAGE_PLAYBOOK, boardStage, stageLabel, statusDetailLabel } from "@/lib/domain";
+import { SALES_BOARD_COUNT_STAGES, OPPORTUNITY_STAGES, STAGE_PLAYBOOK, boardStage, flagsForBoardStage, stageLabel, statusDetailLabel } from "@/lib/domain";
 import { canMarkFollowUpDone } from "@/lib/attention-queue";
 import { resolveNextAction } from "@/lib/next-action";
 import { formatDate, formatDateTime } from "@/lib/format";
@@ -405,7 +405,7 @@ export function AccountProfile({
               <div><dt className="text-xs text-muted-foreground uppercase">LinkedIn</dt><dd>{linkedInHref ? <a className="text-primary underline" href={linkedInHref}>Profile</a> : "—"}</dd></div>
               <div><dt className="text-xs text-muted-foreground uppercase">Industry</dt><dd>{companyIndustry ?? "—"}</dd></div>
               <div><dt className="text-xs text-muted-foreground uppercase">Website</dt><dd>{companyWebsite ?? "—"}</dd></div>
-              <div><dt className="text-xs text-muted-foreground uppercase">Flag</dt><dd>{canWrite ? <AccountFlagControl leadId={leadId} opportunityId={opportunityId ?? undefined} value={accountFlag as never} /> : accountFlag ?? "None"}</dd></div>
+              <div><dt className="text-xs text-muted-foreground uppercase">Flag</dt><dd>{canWrite ? <AccountFlagControl leadId={leadId} opportunityId={opportunityId ?? undefined} value={accountFlag as never} flags={flagsForBoardStage(stage)} /> : accountFlag ?? "None"}</dd></div>
               {lostReason ? <div><dt className="text-xs text-muted-foreground uppercase">Lost reason</dt><dd>{lostReason}</dd></div> : null}
               {recruitmentStatus ? <div><dt className="text-xs text-muted-foreground uppercase">Recruitment</dt><dd>{recruitmentStatus}{talentRequestSentOn ? ` · sent ${formatDate(talentRequestSentOn)}` : " · draft or not sent"}</dd></div> : null}
               {contractStatus ? <div><dt className="text-xs text-muted-foreground uppercase">SOW</dt><dd>{contractStatus}{targetStartOn ? ` · start ${formatDate(targetStartOn)}` : ""}</dd></div> : null}

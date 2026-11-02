@@ -19,7 +19,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { ArrowUpDown, Flag, GripVertical } from "lucide-react";
-import { RISK_LEVELS, STAGE_PLAYBOOK, PROFILE_SEND_STAGE, BOOKED_CALL_STAGE, SALES_CALL_COMPLETE_STAGE, INTERVIEW_COMPLETE_STAGE, SOW_PREP_STAGE, WAITING_ON, accountFlagIconClass, accountFlagLabel, arrangeBoardItems, BOARD_ARRANGE_OPTIONS, boardStage, daysInStageBadgeLabel, daysInStageBadgeTitle, isHiddenBoardStage, stageLabel, statusDetailLabel, type AccountFlag, type BoardArrange, type OpportunityStage } from "@/lib/domain";
+import { RISK_LEVELS, STAGE_PLAYBOOK, PROFILE_SEND_STAGE, BOOKED_CALL_STAGE, SALES_CALL_COMPLETE_STAGE, INTERVIEW_COMPLETE_STAGE, SOW_PREP_STAGE, WAITING_ON, accountFlagIconClass, accountFlagLabel, arrangeBoardItems, BOARD_ARRANGE_OPTIONS, boardStage, daysInStageBadgeLabel, daysInStageBadgeTitle, flagsForBoardStage, isHiddenBoardStage, stageLabel, statusDetailLabel, type AccountFlag, type BoardArrange, type OpportunityStage } from "@/lib/domain";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -559,7 +559,11 @@ function ItemCard({
                   <Flag className={`size-3.5 ${accountFlagIconClass(item.accountFlag)}`} aria-hidden />
                 </span>
               ) : (
-                <AccountFlagButton value={item.accountFlag} onChange={(flag) => onFlagChange(item, flag)} />
+                <AccountFlagButton
+                  value={item.accountFlag}
+                  flags={flagsForBoardStage(item.stage)}
+                  onChange={(flag) => onFlagChange(item, flag)}
+                />
               )}
             </div>
           </div>

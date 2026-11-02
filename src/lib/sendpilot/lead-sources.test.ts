@@ -79,6 +79,13 @@ test("existing flag values render the matching visual state and label", () => {
     "Waiting on client",
     "Waiting on recruitment",
     "At risk",
+    "First follow up",
+    "Second Follow up",
+    "No Email",
+    "LinkedIn-First Follow up",
+    "LinkedIn-Second Follow Up",
+    "Email- First Follow up",
+    "Email- Second Follow up",
   ]);
   assert.equal(accountFlag("High"), null);
   assert.equal(accountFlag("Urgent"), "Urgent");
@@ -100,7 +107,9 @@ test("clicking the flag uses the existing account flag save path", () => {
   assert.match(actionsSource, /export async function setAccountFlagFromBoard/);
   assert.match(actionsSource, /writeAccountFlag/);
   assert.match(actionsSource, /from\("leads"\)\.update\(\{ account_flag: flag \}\)/);
-  assert.match(flagField, /ACCOUNT_FLAGS\.map/);
+  assert.match(flagField, /flagMenuOptions/);
+  assert.match(flagField, /No Flag/);
+  assert.match(boardSource, /flagsForBoardStage/);
 });
 
 test("Owner is not rendered on the Journey card, but owner data remains", () => {

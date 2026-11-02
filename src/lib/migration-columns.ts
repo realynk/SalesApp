@@ -7,6 +7,9 @@ export const AUTOMATION_MIGRATION_REQUIRED =
 export const GMAIL_MIGRATION_REQUIRED =
   "This workspace still needs the Gmail connections migration. Connect Gmail cannot be saved yet.";
 
+export const ACCOUNT_FLAG_FOLLOWUP_MIGRATION_REQUIRED =
+  "Apply supabase/migrations/20261102182627_account_flag_profile_followups.sql in the Supabase SQL editor so Sent Profiles flags can be saved.";
+
 const UX_COLUMNS = /next_action_manual|talent_request_draft|talent_request_sent_on/i;
 const AUTOMATION_COLUMNS = /automation_key|automation_type|urgent|pending_schedule|follow_up_id|target_start_on/i;
 const GMAIL_COLUMNS = /gmail_connections|refresh_token_ciphertext/i;

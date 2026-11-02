@@ -61,7 +61,7 @@ import {
   parseSalesProfileEmailDraft,
   shouldPlanSalesProfileFollowUps,
 } from "@/lib/sales-profile-send";
-import { resolvedProfileCount, writeFailureMessage } from "@/lib/migration-columns";
+import { ACCOUNT_FLAG_FOLLOWUP_MIGRATION_REQUIRED, resolvedProfileCount, writeFailureMessage } from "@/lib/migration-columns";
 import { civilTimeInZoneToIso, todayInWorkflowZone } from "@/lib/workflow-dates";
 import {
   afterFollowUpCompleted,
@@ -457,8 +457,11 @@ function outcomeColumnError(error: { message: string; code?: string }) {
 }
 
 function flagColumnError(error: { message: string; code?: string }) {
-  if (error.code === "PGRST204" || /account_flag/i.test(error.message)) {
+  if (error.code === "PGRST204" || /schema cache|could not find.*account_flag/i.test(error.message)) {
     return "Apply supabase/migrations/20260924183000_account_flags.sql in the Supabase SQL editor so account flags can be saved.";
+  }
+  if (error.code === "23514" || /account_flag_check|account_flag/i.test(error.message)) {
+    return ACCOUNT_FLAG_FOLLOWUP_MIGRATION_REQUIRED;
   }
   return actionError(error);
 }

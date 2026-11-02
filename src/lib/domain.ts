@@ -125,13 +125,49 @@ export const ACCOUNT_FLAGS = [
   "Waiting on client",
   "Waiting on recruitment",
   "At risk",
+  "First follow up",
+  "Second Follow up",
+  "No Email",
+  "LinkedIn-First Follow up",
+  "LinkedIn-Second Follow Up",
+  "Email- First Follow up",
+  "Email- Second Follow up",
 ] as const;
 
 export type AccountFlag = (typeof ACCOUNT_FLAGS)[number];
 
+export const DEFAULT_BOARD_ACCOUNT_FLAGS = [
+  "Urgent",
+  "Follow up",
+  "Waiting on client",
+  "Waiting on recruitment",
+  "At risk",
+] as const satisfies readonly AccountFlag[];
+
+export const INTERESTED_ACCOUNT_FLAGS = [
+  "Urgent",
+  "First follow up",
+  "Second Follow up",
+  "No Email",
+] as const satisfies readonly AccountFlag[];
+
+export const PROFILE_SEND_ACCOUNT_FLAGS = [
+  "Urgent",
+  "LinkedIn-First Follow up",
+  "LinkedIn-Second Follow Up",
+  "Email- First Follow up",
+  "Email- Second Follow up",
+] as const satisfies readonly AccountFlag[];
+
 export function accountFlag(value?: string | null): AccountFlag | null {
   if (value && (ACCOUNT_FLAGS as readonly string[]).includes(value)) return value as AccountFlag;
   return null;
+}
+
+export function flagsForBoardStage(stage?: string | null): readonly AccountFlag[] {
+  if (stage === "Interested") return INTERESTED_ACCOUNT_FLAGS;
+  if (stage === "Email / Profile Preparation") return PROFILE_SEND_ACCOUNT_FLAGS;
+  return DEFAULT_BOARD_ACCOUNT_FLAGS;
 }
 
 export const ACCOUNT_FLAG_TONE: Record<AccountFlag, string> = {
@@ -140,6 +176,13 @@ export const ACCOUNT_FLAG_TONE: Record<AccountFlag, string> = {
   "Waiting on client": "border-[#f7b27a] bg-[#fef6ee] text-[#b54708]",
   "Waiting on recruitment": "border-[#bdb4fe] bg-[#f4f3ff] text-[#5925dc]",
   "At risk": "border-[#f97066] bg-[#fef3f2] text-[#912018]",
+  "LinkedIn-First Follow up": "border-[#84caff] bg-[#eff8ff] text-[#175cd3]",
+  "LinkedIn-Second Follow Up": "border-[#bdb4fe] bg-[#f4f3ff] text-[#5925dc]",
+  "First follow up": "border-[#84caff] bg-[#eff8ff] text-[#175cd3]",
+  "Second Follow up": "border-[#bdb4fe] bg-[#f4f3ff] text-[#5925dc]",
+  "No Email": "border-[#d0d5dd] bg-[#f9fafb] text-[#344054]",
+  "Email- First Follow up": "border-[#f7b27a] bg-[#fef6ee] text-[#b54708]",
+  "Email- Second Follow up": "border-[#5fe9d0] bg-[#f0fdf9] text-[#0e9384]",
 };
 
 export const ACCOUNT_FLAG_ICON_CLASS: Record<AccountFlag, string> = {
@@ -148,6 +191,13 @@ export const ACCOUNT_FLAG_ICON_CLASS: Record<AccountFlag, string> = {
   "Waiting on client": "text-[#b54708] fill-[#b54708]",
   "Waiting on recruitment": "text-[#5925dc] fill-[#5925dc]",
   "At risk": "text-[#912018] fill-[#912018]",
+  "LinkedIn-First Follow up": "text-[#175cd3] fill-[#175cd3]",
+  "LinkedIn-Second Follow Up": "text-[#5925dc] fill-[#5925dc]",
+  "First follow up": "text-[#175cd3] fill-[#175cd3]",
+  "Second Follow up": "text-[#5925dc] fill-[#5925dc]",
+  "No Email": "text-[#344054] fill-[#344054]",
+  "Email- First Follow up": "text-[#b54708] fill-[#b54708]",
+  "Email- Second Follow up": "text-[#0e9384] fill-[#0e9384]",
 };
 
 export function accountFlagLabel(flag: AccountFlag | null) {

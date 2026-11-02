@@ -12,6 +12,8 @@ import {
 import {
   ACCOUNT_FLAGS,
   ACCOUNT_FLAG_TONE,
+  DEFAULT_BOARD_ACCOUNT_FLAGS,
+  accountFlag,
   accountFlagIconClass,
   accountFlagLabel,
   type AccountFlag,
@@ -31,11 +33,14 @@ export function FlagBadge({ flag }: { flag: AccountFlag | null }) {
 export function AccountFlagButton({
   value,
   onChange,
+  flags = DEFAULT_BOARD_ACCOUNT_FLAGS,
 }: {
   value: AccountFlag | null;
   onChange: (flag: AccountFlag | null) => void;
+  flags?: readonly AccountFlag[];
 }) {
   const label = accountFlagLabel(value);
+  const options = flagMenuOptions(flags, value);
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -56,8 +61,8 @@ export function AccountFlagButton({
         onPointerDown={(event) => event.stopPropagation()}
         onClick={(event) => event.stopPropagation()}
       >
-        <DropdownMenuItem onSelect={() => onChange(null)}>No flag</DropdownMenuItem>
-        {ACCOUNT_FLAGS.map((flag) => (
+        <DropdownMenuItem onSelect={() => onChange(null)}>No Flag</DropdownMenuItem>
+        {options.map((flag) => (
           <DropdownMenuItem key={flag} onSelect={() => onChange(flag)}>
             {flag}
           </DropdownMenuItem>
@@ -67,20 +72,29 @@ export function AccountFlagButton({
   );
 }
 
+function flagMenuOptions(flags: readonly AccountFlag[], current?: AccountFlag | null) {
+  if (current && !flags.includes(current)) return [current, ...flags];
+  return [...flags];
+}
+
 export function AccountFlagSelect({
   name = "account_flag",
   value,
   defaultValue,
   onChange,
   compact = false,
+  flags = ACCOUNT_FLAGS,
 }: {
   name?: string;
   value?: AccountFlag | null;
   defaultValue?: AccountFlag | null;
   onChange?: (flag: AccountFlag | null) => void;
   compact?: boolean;
+  flags?: readonly AccountFlag[];
 }) {
   const current = value === undefined ? undefined : value ?? "";
+  const selected = value === undefined ? accountFlag(defaultValue ?? null) : value;
+  const options = flagMenuOptions(flags, selected);
   return (
     <select
       className={compact ? `${controlClass} h-8 text-xs` : controlClass}
@@ -92,11 +106,11 @@ export function AccountFlagSelect({
       onClick={(event) => event.stopPropagation()}
       onChange={(event) => {
         const next = event.target.value;
-        onChange?.(ACCOUNT_FLAGS.includes(next as AccountFlag) ? next as AccountFlag : null);
+        onChange?.(accountFlag(next));
       }}
     >
-      <option value="">No flag</option>
-      {ACCOUNT_FLAGS.map((flag) => (
+      <option value="">No Flag</option>
+      {options.map((flag) => (
         <option key={flag} value={flag}>{flag}</option>
       ))}
     </select>
@@ -108,11 +122,13 @@ export function AccountFlagControl({
   opportunityId,
   value,
   compact = false,
+  flags,
 }: {
   leadId: string;
   opportunityId?: string | null;
   value: AccountFlag | null;
   compact?: boolean;
+  flags?: readonly AccountFlag[];
 }) {
   const [flag, setFlag] = useState<AccountFlag | null>(value);
   const [error, setError] = useState<string | null>(null);
@@ -140,7 +156,7 @@ export function AccountFlagControl({
 
   return (
     <div>
-      <AccountFlagSelect compact={compact} value={flag} onChange={persist} />
+      <AccountFlagSelect compact={compact} value={flag} flags={flags} onChange={persist} />
       {error ? <p className="mt-1 text-xs text-destructive">{error}</p> : null}
     </div>
   );
