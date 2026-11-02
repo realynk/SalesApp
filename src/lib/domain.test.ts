@@ -31,6 +31,7 @@ import {
   daysInStageBadgeTitle,
   arrangeBoardItems,
   flagsForBoardStage,
+  INTERESTED_ACCOUNT_FLAGS,
   PROFILE_SEND_ACCOUNT_FLAGS,
 } from "./domain.ts";
 
@@ -130,6 +131,9 @@ test("accepts only known account flags", () => {
   assert.equal(accountFlag("Waiting on client"), "Waiting on client");
   assert.equal(accountFlag("Waiting on recruitment"), "Waiting on recruitment");
   assert.equal(accountFlag("At risk"), "At risk");
+  assert.equal(accountFlag("First follow up"), "First follow up");
+  assert.equal(accountFlag("Second Follow up"), "Second Follow up");
+  assert.equal(accountFlag("No Email"), "No Email");
   assert.equal(accountFlag("LinkedIn-First Follow up"), "LinkedIn-First Follow up");
   assert.equal(accountFlag("LinkedIn-Second Follow Up"), "LinkedIn-Second Follow Up");
   assert.equal(accountFlag("Email- First Follow up"), "Email- First Follow up");
@@ -137,8 +141,9 @@ test("accepts only known account flags", () => {
   assert.equal(accountFlag("hot"), null);
   assert.deepEqual([...flagsForBoardStage("Email / Profile Preparation")], [...PROFILE_SEND_ACCOUNT_FLAGS]);
   assert.equal(flagsForBoardStage("Email / Profile Preparation").includes("Follow up"), false);
-  assert.equal(flagsForBoardStage("Interested").includes("Urgent"), true);
+  assert.deepEqual([...flagsForBoardStage("Interested")], [...INTERESTED_ACCOUNT_FLAGS]);
   assert.equal(flagsForBoardStage("Interested").includes("LinkedIn-First Follow up"), false);
+  assert.equal(flagsForBoardStage("Interested").includes("Follow up"), false);
 });
 
 test("keeps unsorted Not Interested leads in the SendPilot intake column", () => {
