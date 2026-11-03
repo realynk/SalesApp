@@ -577,6 +577,7 @@ export async function moveStage(_state: ActionState, formData: FormData): Promis
       leadId: isUuid(leadId) ? leadId : id,
       opportunityId: id,
       movedOn: todayInWorkflowZone(),
+      checkBackOn: dateField(formData, "check_back_on"),
     }));
   }
   if (stage === "SOW Preparation" || stage === "SOW Sent") {
@@ -643,6 +644,8 @@ export async function dropLeadOnStage(formData: FormData): Promise<ActionState> 
     moveData.set("waiting_on", String((existing as { waiting_on?: string }).waiting_on ?? playbook.waitingOn));
     moveData.set("risk_level", String((existing as { risk_level?: string }).risk_level ?? "low"));
     moveData.set("note", `Moved from SendPilot Interested to ${stage}`);
+    const checkBackOn = dateField(formData, "check_back_on");
+    if (checkBackOn) moveData.set("check_back_on", checkBackOn);
     return moveStage({}, moveData);
   }
 
@@ -651,6 +654,8 @@ export async function dropLeadOnStage(formData: FormData): Promise<ActionState> 
   createData.set("next_action", nextAction);
   createData.set("next_action_date", nextActionDate);
   createData.set("waiting_on", playbook.waitingOn);
+  const checkBackOn = dateField(formData, "check_back_on");
+  if (checkBackOn) createData.set("check_back_on", checkBackOn);
   const created = await createOpportunityForLead(supabase, userId, leadId, createData);
   if (!created) return { error: "The opportunity could not be created." };
   if ("error" in created) return created;
@@ -2231,15 +2236,22 @@ export async function saveSowFromBoard(formData: FormData): Promise<ActionState>
 
 export async function saveNurtureFromBoard(formData: FormData): Promise<ActionState> {
   const note = optionalText(formData, "note");
+  const checkBackOn = dateField(formData, "check_back_on");
+  if (checkBackOn && checkBackOn < todayInWorkflowZone()) {
+    return { error: "Choose a check-back date that is today or later." };
+  }
+  const extra: Record<string, string> = {};
+  if (note) extra.nurture_notes = note;
+  if (checkBackOn) extra.check_back_on = checkBackOn;
   return ensureOpportunityForBoard(
     text(formData, "lead_id"),
     optionalText(formData, "opportunity_id"),
     "On Hold / Nurture",
-    "Set the date to revisit this client",
-    todayInWorkflowZone(),
-    note ?? "Moved to nurture",
-    note ? { nurture_notes: note } : undefined,
-  ).then((result) => ("error" in result ? result : { success: "Moved to nurture." }));
+    checkBackOn ? "Nurture check-in" : "Set the date to revisit this client",
+    checkBackOn ?? todayInWorkflowZone(),
+    note ?? (checkBackOn ? `Check back on ${checkBackOn}` : "Moved to nurture"),
+    Object.keys(extra).length ? extra : undefined,
+  ).then((result) => ("error" in result ? result : { success: checkBackOn ? "Moved to nurture. A check-back reminder is scheduled." : "Moved to nurture." }));
 }
 
 export async function saveClientStartFromBoard(formData: FormData): Promise<ActionState> {

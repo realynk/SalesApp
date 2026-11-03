@@ -44,6 +44,19 @@ test("nurture check-ins are 30, 60, and 90 calendar days and then stop", () => {
   assert.equal(rows.length, 3);
 });
 
+test("a chosen nurture check-back date schedules one reminder instead of 30/60/90", () => {
+  const rows = planNurtureCheckIns({
+    leadId: "lead-1",
+    opportunityId: "opp-1",
+    movedOn: "2026-10-16",
+    checkBackOn: "2026-11-01",
+  });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]?.type, "nurture_check_custom");
+  assert.equal(rows[0]?.dueOn, "2026-11-01");
+  assert.equal(rows[0]?.title, "Nurture check-in");
+});
+
 test("sales profile follow-ups are 3, 5, and 7 business days from the send date", () => {
   const rows = planSalesProfileFollowUps({ opportunityId: "opp-1", leadId: "lead-1", sentOn: "2026-10-16" });
   assert.deepEqual(rows.map((row) => row.dueOn), ["2026-10-21", "2026-10-23", "2026-10-27"]);
@@ -156,6 +169,7 @@ test("saving a recruitment draft does not cancel the send-talent-request reminde
   const types = typesToCancelOnStage("Recruitment");
   assert.equal(types.includes("call_talent_request"), false);
   assert.ok(types.includes("call_notes"));
+  assert.ok(types.includes("nurture_check_custom"));
 });
 
 test("candidate selection cancels remaining interview follow-ups", () => {
