@@ -93,7 +93,12 @@ export async function createOpportunityForLead(
     await upsertAutomationTasks(
       supabase,
       userId,
-      planNurtureCheckIns({ leadId, opportunityId, movedOn: todayInWorkflowZone() }),
+      planNurtureCheckIns({
+        leadId,
+        opportunityId,
+        movedOn: todayInWorkflowZone(),
+        checkBackOn: dateField(formData, "check_back_on"),
+      }),
     );
     await supabase.from("activities").insert({
       opportunity_id: opportunityId,

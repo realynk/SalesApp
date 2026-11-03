@@ -7,6 +7,7 @@ export const AUTOMATION_TYPES = [
   "nurture_check_30",
   "nurture_check_60",
   "nurture_check_90",
+  "nurture_check_custom",
   "sales_profile_follow_1",
   "sales_profile_follow_2",
   "sales_profile_follow_3",
@@ -97,7 +98,17 @@ export function shouldSuggestNurture(input: { secondCompletedOn: string; today: 
   return input.today >= nurtureSuggestionDue(input.secondCompletedOn);
 }
 
-export function planNurtureCheckIns(input: { leadId: string; opportunityId: string | null; movedOn: string }) {
+export function planNurtureCheckIns(input: {
+  leadId: string;
+  opportunityId: string | null;
+  movedOn: string;
+  checkBackOn?: string | null;
+}) {
+  if (input.checkBackOn) {
+    return [
+      task("nurture_check_custom", input.leadId, "Nurture check-in", input.checkBackOn, input),
+    ];
+  }
   return [
     task("nurture_check_30", input.leadId, "Nurture check-in (30 days)", addCalendarDays(input.movedOn, 30), input),
     task("nurture_check_60", input.leadId, "Nurture check-in (60 days)", addCalendarDays(input.movedOn, 60), input),
@@ -315,6 +326,15 @@ export const CANCEL_ON_ADVANCE: Partial<Record<string, AutomationType[]>> = {
   Lost: AUTOMATION_TYPES.slice(),
 };
 
+const NURTURE_CHECK_TYPES: AutomationType[] = [
+  "nurture_check_30",
+  "nurture_check_60",
+  "nurture_check_90",
+  "nurture_check_custom",
+];
+
 export function typesToCancelOnStage(stage: string) {
-  return CANCEL_ON_ADVANCE[stage] ?? [];
+  const listed = CANCEL_ON_ADVANCE[stage] ?? [];
+  if (stage === "On Hold / Nurture") return listed;
+  return [...new Set([...listed, ...NURTURE_CHECK_TYPES])];
 }
